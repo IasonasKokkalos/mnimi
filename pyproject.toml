@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentmem"
+version = "0.0.0"
+description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "agentmem authors" }]
+keywords = ["agent", "memory", "llm", "sqlite", "sqlite-vec", "vector-search", "rag"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
+
+# Core dependencies are deliberately minimal. Every entry here is a liability;
+# the library must import and run with ONLY these two. See docs/DECISIONS.md.
+dependencies = [
+    "sqlite-vec>=0.1.6",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# The eval harness (python -m evals) is NOT part of the library. These deps are
+# only needed to run benchmarks, never to use agentmem.
+eval = [
+    "anthropic>=0.40",
+    "huggingface-hub>=0.25",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/agentmem/agentmem"
+Changelog = "https://github.com/agentmem/agentmem/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentmem"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# evals/ is a separate harness; lint it too but keep src as the source of truth.
+src = ["src", "evals", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the repo root on sys.path so tests can import the top-level `evals` package
+# (the library lives under src/ and is installed editable; evals is run in place).
+pythonpath = ["."]

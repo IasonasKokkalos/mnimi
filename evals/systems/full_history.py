@@ -1,0 +1,30 @@
+"""Ceiling baseline: stuff the entire history into context."""
+
+from __future__ import annotations
+
+from ..base import MemorySystem
+
+
+class FullHistorySystem(MemorySystem):
+    """Concatenates every turn of every session into the context string.
+
+    The accuracy ceiling — the reader sees everything — at the token cost a real
+    memory system has to beat. agentmem's whole bet is approaching this number
+    on a fraction of the tokens.
+    """
+
+    name = "full_history"
+
+    def __init__(self) -> None:
+        self._turns: list[dict] = []
+
+    def reset(self) -> None:
+        self._turns = []
+
+    def add(self, messages: list[dict]) -> None:
+        self._turns.extend(messages)
+
+    def get_context(self, query: str) -> str:
+        return "\n".join(
+            f"{turn.get('role', '')}: {turn.get('content', '')}" for turn in self._turns
+        )
