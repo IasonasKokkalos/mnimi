@@ -21,6 +21,27 @@ class Memory:
 - `consolidate` — merge duplicates, resolve conflicts, decay stale memories. Stub today.
 - `export` — human-readable text/markdown dump of the store. No UI.
 
+## `MemoryConfig`
+
+Tunable parameters, passed at construction (`Memory(db_path, embedder, config=MemoryConfig())`).
+Never hardcoded in write-path logic — every threshold below must read from here.
+
+`dedup_cosine_threshold` (float), `dedup_entropy_gate` (float),
+`decay_half_life_days` (float), `salience_weights` (dict) — exact fields finalized in W2/W4 as merge/decay land.
+
+{ dedup_cosine_threshold: float in [0,1] — min cosine similarity for two records
+ to be treated as merge candidates during dedup (stage 2, after exact-normalize).
+
+ dedup_entropy_gate: float — min Shannon-entropy score a record's content must
+ have before the cosine threshold is trusted; below this, skip auto-merge
+ (content too short/low-information for a reliable similarity call).
+
+ decay_half_life_days: float — for standing facts (valid_time = None), number
+ of days since last_accessed after which salience halves; drives recency decay.
+
+ salience_weights: dict — relative weighting of signal components (e.g. semantic
+ similarity, recency, access frequency) combined into a record's retrieval rank. }
+
 ## `MemoryRecord` (storage shape — canonical)
 
 Single source of truth for the record schema. Constrains the whole write path.
@@ -67,7 +88,7 @@ The threshold being deterministic + tunable + inspectable *is* the differentiato
 ## Read path (`recall` → `get_context`)
 
 - Ranking signal = semantic similarity + recency + salience (not cosine alone).
-- `recall` returns each hit with its component scores attached — retrieval relevance is inspectable as data, not a black box.
+- `recall` returns each hit with its component scores attached — retrieval relevance is inspectable as data, not a black box.(this should have a threshold < salience check so noin relevant info doesnt get extracted)
 - `get_context` assembles the top-ranked records into a tight context string within a token budget. Inactive (salience 0) records excluded.
 
 ## `Embedder` protocol
