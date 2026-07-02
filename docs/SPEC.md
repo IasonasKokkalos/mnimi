@@ -51,7 +51,7 @@ Single source of truth for the record schema. Constrains the whole write path.
 | `id` | str | primary key |
 | `user_id` | str | owner |
 | `content` | str | human-readable fact text — never embedding-only |
-| `embedding` | list[float] | vector for retrieval |
+| `embedding` | vec0 virtual table | vector for retrieval |
 | `system_time` | datetime | when extracted/written (was `created_at`) |
 | `valid_time` | datetime \| None | when the fact is true in the real world; null = standing fact |
 | `last_accessed` | datetime | drives recency decay for standing facts |
