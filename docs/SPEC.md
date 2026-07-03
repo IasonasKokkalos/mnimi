@@ -85,17 +85,106 @@ Recommended stack, cheap and deterministic, no MinHash/LSH at this scale:
 
 The threshold being deterministic + tunable + inspectable *is* the differentiator vs competitors' LLM-prompt merges — keep it that way.
 
+## Dedup: negation screen (locked)
+
+**Problem:** cosine measures topical/contextual similarity, not truth value.
+Contradictory facts about the same entity ("likes pizza" / "dislikes pizza")
+routinely score high cosine — same topic, same entities, opposite polarity.
+Undetected, this merges facts that should conflict-resolve instead, and
+destroys the superseded fact before W4 conflict logic ever runs.
+
+**Pipeline (updated):**
+exact-normalize → cosine gate → negation screen → entropy gate → merge
+│
+└─ negation mismatch → route to
+conflict resolution (W4), not merge
+
+**Negation screen:** deterministic, no LLM in the bookkeeping loop (per
+existing constraint).
+- Fixed lexicon of polarity/negation markers: `not`, `no longer`, `stopped`,
+  `doesn't`, `never`, `dislikes` vs `likes`, etc. — extend as false
+  negatives surface, don't over-engineer up front.
+- Applied only to cosine-gate-pass pairs (candidates), not the full corpus —
+  cheap, O(candidates) not O(N).
+- Mismatch on one side only (one record has a negation cue, the other
+  doesn't, same entity/topic) → flag, route to conflict path.
+- No cue on either side → proceed to entropy gate as before.
+
+**Scope boundary:** this is a screen, not a classifier. It doesn't need to
+catch every negation — it needs to stop the *obvious* cases from silently
+destroying data via merge. False negatives here are a W4 conflict-resolution
+problem (facts that should've been flagged but weren't will still surface
+as unresolved contradictions eventually). False positives just mean
+occasional unnecessary conflict-path routing — cheap, not correctness-risking.
+
+**Explicitly not doing:** semantic/entailment-based contradiction detection,
+LLM-judged polarity, NLI models. Lexicon-based screen only, until the
+LongMemEval number shows this is the bottleneck.
+
 ## Read path (`recall` → `get_context`)
 
 - Ranking signal = semantic similarity + recency + salience (not cosine alone).
 - `recall` returns each hit with its component scores attached — retrieval relevance is inspectable as data, not a black box.(this should have a threshold < salience check so noin relevant info doesnt get extracted)
 - `get_context` assembles the top-ranked records into a tight context string within a token budget. Inactive (salience 0) records excluded.
 
-## `Embedder` protocol
+## Embedding normalization (locked)
 
-`embed(texts: list[str]) -> list[list[float]]` and a `dim` property.
+**Decision:** normalize embeddings to unit length at write time, before insert.
+Store the normalized vector, not the raw model output.
 
-> ⚠ FLAG: "default impl, no dependency beyond numpy" — a numpy-only embedder can't produce semantic embeddings (no model). Either ship a small model (adds a dep) or make the default an explicit test-only baseline (hash/bag-of-words) and require users to pass a real embedder for actual use. Decide before W1 storage work.
+**Distance metric:** vec0 table uses `distance_metric=L2`, not `cosine`.
+For unit vectors, L2² = 2 − 2·cos_sim → identical ranking to cosine, cheaper op
+(no norm/sqrt/division at query time, matters under brute-force scan × N candidates).
+
+**Where it lives:**
+- `embeddings.py` — normalize immediately after the embed() call, before returning
+- `store.py` — vec0 schema: `embedding float[D] distance_metric=L2`
+- `recall()` — no change; ranking is equivalent, just cheaper
+
+**Constraint this creates:** any code path that inserts a vector without going
+through `embeddings.py`'s normalize step silently breaks ranking correctness.
+Normalize once at the boundary, never assume callers did it.
+
+## Embedding config (locked for LongMemEval baseline)
+
+**Embedder:** single hardcoded local model for the eval run. No user-facing
+config field. Pluggable choice deferred to FUTURE.md.
+
+- Model: `<fill in>`
+- Dim: `<fill in>`
+- Normalization: `embed()` returns unit-normalized vectors. Normalization
+  happens once, inside `embeddings.py`. No call site outside it may skip this.
+
+**vec0 schema:**
+```sql
+CREATE VIRTUAL TABLE memories USING vec0(
+  embedding float[D] distance_metric=L2
+);
+```
+L2 on unit vectors ranks identically to cosine (`L2² = 2 − 2·cos_sim`) —
+cheaper per-comparison, matters under brute-force scan × N candidates.
+
+**Embedder metadata guard:**
+```sql
+CREATE TABLE memory_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- rows: ('embedder_name', '<model>'), ('embedder_dim', '<D>')
+```
+- Written once, at DB creation.
+- Checked on every load: configured embedder vs. stored metadata.
+- Mismatch → raise, do not proceed.
+
+**Rationale:** reproducibility requires the embedder to be fixed for the life
+of a benchmark run. Without this check, a config change or a forgotten model
+choice silently invalidates the LongMemEval number — retrieval still runs,
+scores still come out, comparing incompatible vector spaces. This check is
+the only thing between "the number is real" and "the number is quietly wrong."
+
+**Out of scope → FUTURE.md:** `Embedder` protocol / pluggable embedder
+choice, API-backed embedders, Matryoshka dim truncation, hot-swap /
+re-embed workflow.
 
 ## Concurrency
 
