@@ -3,7 +3,7 @@
 The contract. Signatures here are locked; changing them is a breaking change.
 Storage backend: SQLite + sqlite-vec for v1.
 
-## Public API — `agentmem.Memory`
+## Public API — `mnimi.Memory`
 
 ```python
 class Memory:
@@ -12,7 +12,7 @@ class Memory:
     def recall(self, query: str, user_id: str) -> list      # raw retrieval -> list[ScoredRecord]
     def get_context(self, query: str, user_id: str) -> str  # assembled context
     def consolidate(self, user_id: str) -> None             # merge / conflict / decay
-    def export(self, user_id: str) -> str                   # human-readable dump
+    def export(self, user_id: str)  -> str                   # human-readable dump
 ```
 
 - `add` — ingest messages for a user. Today: naive store of message text. Later: extraction, valid_time resolution, salience, dedup.
@@ -61,6 +61,99 @@ Single source of truth for the record schema. Constrains the whole write path.
 | `pinned` | bool | decay-exempt + conflict-winning (see below) |
 
 Superseded records are marked inactive (salience floored), not deleted — history is kept and stays exportable.
+
+## Extraction (locked)
+
+Write-path step 1. Turns a raw message stream into fact candidates that enter
+the deterministic pipeline. This is the only place an LLM is permitted in mnimi.
+
+**Two stages: deterministic pre-filter → LLM extraction on survivors.**
+
+messages
+│
+├─ stage 1: speech-act pre-filter (deterministic, no LLM)
+│     drop → logged, never reaches the model
+│
+└─ stage 2: LLM extraction (schema-constrained, pinned, temp 0)
+returns [] → nothing stored
+returns facts → each becomes a MemoryRecord candidate → dedup
+
+### Stage 1 — speech-act pre-filter (deterministic)
+
+Rejects turns that cannot contain a stored fact, before any LLM call. Cheap,
+logged, inspectable — and cuts LLM cost/latency on turns that would return `[]`
+anyway.
+
+Drop rules (a turn is dropped if it matches, no fact-shaped content survives):
+- imperative directed at the assistant ("save that", "remember this", "do X")
+- self-referential to the memory system ("that statement you made", "your last answer")
+- question (trailing `?`, wh-word lead, aux-inversion)
+- no candidate slot at all (no entity, no preference/event/relation cue)
+
+- Deterministic lexicon + shallow pattern rules. No LLM. Extend as false
+  drops surface; don't over-engineer up front.
+- Every drop logged with the rule that fired: `"filtered: {rule}"`.
+- Scope: a screen, not a classifier. False negatives (junk that slips through)
+  are caught by stage 2 returning `[]`. False positives (a real fact dropped)
+  are the only correctness risk — keep rules conservative.
+
+### Stage 2 — LLM extraction (schema-constrained)
+
+Only turns surviving stage 1 reach the model. The model returns atomic facts or
+an empty list; it never decides merge/conflict/decay — those stay deterministic.
+
+**Output contract** — each extracted fact maps to write-path step 1 fields:
+```json
+[
+  { "content": "<human-readable fact text>",
+    "salience": <float>,
+    "valid_time": "<ISO datetime | null>" }
+]
+```
+Empty list (`[]`) when the turn carries no fact. Meta-instructions, small talk,
+and anything that slipped stage 1 resolve here to `[]` and store nothing.
+
+**Model:** single hardcoded **local** model, temperature 0, pinned version.
+No API-backed extractor for the benchmark — an API model can change under the
+run and silently invalidate the number.
+
+- Extractor model: `<fill in>`
+- Prompt: pinned, versioned by hash (see guard below)
+
+**The "no LLM in the bookkeeping loop" constraint is unchanged.** It scopes
+merge / conflict / decay (dedup pipeline, negation screen, decay). Extraction is
+a separate, upstream loop. An LLM here does not touch the deterministic
+bookkeeping that is mnimi's differentiator — the record it emits is what enters
+that pipeline, and everything downstream stays exactly as spec'd.
+
+### Reproducibility guard (extends embedder guard)
+
+Same pattern as `embedder_name` / `embedder_dim`: a pinned artifact whose
+identity is persisted and validated, so a silent change fails loudly instead of
+quietly invalidating a benchmark run.
+
+```sql
+-- memory_meta rows, written once at DB creation:
+--   ('extractor_model',       '<model>')
+--   ('extractor_prompt_hash', '<sha256 of the pinned prompt>')
+```
+- Written once, at DB creation.
+- Checked on every load: configured extractor + prompt hash vs. stored metadata.
+- Mismatch → raise, do not proceed.
+
+**Rationale:** reproducibility requires the extractor to be fixed for the life
+of a benchmark run, exactly as the embedder must be. A prompt edit or model swap
+mid-run produces a number that is quietly not comparable to the last one. This
+guard is the only thing between "the number is real" and "the number is quietly
+wrong" on the extraction axis.
+
+### Out of scope → FUTURE.md
+
+Pluggable / API-backed extractors, per-record-type extraction schemas,
+multi-turn coreference windows beyond the single conversation, deterministic
+(spaCy/rule) extraction fallback. Locked choice for v1: deterministic pre-filter
++ pinned local LLM. Re-litigate only if the LongMemEval number shows extraction
+is the bottleneck.
 
 ## Write path (`add` → `consolidate`)
 
@@ -209,5 +302,5 @@ Separate from `Memory`. Any system under test implements `reset()`, `add(message
 
 ## Open questions (undecided — leaning noted)
 
-- **Tiered model (core/recall/archival, Letta-style)?** — Lean *no* for v1. Your differentiator is the write-path policy, not tier structure; tiering adds surface area without moving the benchmark number. Reconsider only if context-assembly proves it needs it.
-- **Self-editing memory (agent edits its own store via tools, Letta-style)?** — Lean *no*. Your library manages memory *for* the agent (Mem0-style). Self-editing is a different paradigm/product. Out of scope unless a real reason surfaces.
+- **Tiered model (core/recall/archival, Letta-style)?** — Lean *no* for v1. Differentiator is the write-path policy, not tier structure; tiering adds surface area without moving the benchmark number. Reconsider only if context-assembly proves it needs it.
+- **Self-editing memory (agent edits its own store via tools, Letta-style)?** — Lean *no*. Library manages memory *for* the agent (Mem0-style). Self-editing is a different paradigm/product. Out of scope unless a real reason surfaces.

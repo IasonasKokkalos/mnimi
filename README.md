@@ -1,4 +1,4 @@
-# agentmem
+# MNIMI
 
 Embeddable, local-first agent memory. One SQLite file, zero infra.
 

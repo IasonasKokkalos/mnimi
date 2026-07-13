@@ -37,6 +37,8 @@ class HashingEmbedder:
     Tokens are hashed (BLAKE2b, not Python's salted ``hash``) into buckets with a
     sign, summed, and L2-normalized. Lexically similar texts land near each other
     under cosine/L2 distance. No training, no deps, fully reproducible.
+
+    THIS NEED TO CHANGE.
     """
 
     def __init__(self, dim: int = 256) -> None:
