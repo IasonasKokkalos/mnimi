@@ -117,7 +117,7 @@ and anything that slipped stage 1 resolve here to `[]` and store nothing.
 No API-backed extractor for the benchmark — an API model can change under the
 run and silently invalidate the number.
 
-- Extractor model: `<fill in>`
+- Extractor model: Qwen3 1.7B-Instruct GGUF via llama-cpp-python for extraction
 - Prompt: pinned, versioned by hash (see guard below)
 
 **The "no LLM in the bookkeeping loop" constraint is unchanged.** It scopes
@@ -243,8 +243,8 @@ Normalize once at the boundary, never assume callers did it.
 **Embedder:** single hardcoded local model for the eval run. No user-facing
 config field. Pluggable choice deferred to FUTURE.md.
 
-- Model: `<fill in>`
-- Dim: `<fill in>`
+- Model: `BAAI/bge-small-en-v1.5`
+- Dim: `384`
 - Normalization: `embed()` returns unit-normalized vectors. Normalization
   happens once, inside `embeddings.py`. No call site outside it may skip this.
 
