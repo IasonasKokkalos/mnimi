@@ -1,4 +1,4 @@
-# CLAUDE.md — agentmem
+# CLAUDE.md — mnimi
 
 Project-level instructions for working in this repo. Read before changing code.
 
@@ -10,7 +10,7 @@ services. The library must import and run with only its two core deps.
 
 ## Stack
 
-- **Language:** Python (>=3.10), src-layout (`src/agentmem/`).
+- **Language:** Python (>=3.10), src-layout (`src/mnimi/`).
 - **Storage:** SQLite + `sqlite-vec` for vector search. One file on disk.
 - **Core deps:** `sqlite-vec`, `numpy`. Nothing else. Adding a third is a
   decision, not a convenience — justify it in `docs/DECISIONS.md`.
@@ -38,7 +38,7 @@ Four methods. Do not widen the surface. Depth goes behind `add` and
 - **Storage = sqlite-vec** (local-first, zero-infra). Not a hosted vector DB.
 - **Benchmark = LongMemEval** (`longmemeval_s`, ~500 questions). The harness in
   `evals/` is the source of truth.
-- **Baselines = no-memory (floor), full-history (ceiling), naive-RAG.** agentmem
+- **Baselines = no-memory (floor), full-history (ceiling), naive-RAG.** mnimi
   must beat naive-RAG and approach full-history at a fraction of the tokens.
 
 ## Kill gates
@@ -67,7 +67,7 @@ python -m evals --system <name> --limit 10
 
 ## Layout
 
-- `src/agentmem/` — the library. `models.py` (MemoryRecord), `store.py` (the
+- `src/mnimi/` — the library. `models.py` (MemoryRecord), `store.py` (the
   sqlite-vec store), `embeddings.py` (Embedder protocol + default), `memory.py`
   (the Memory facade).
 - `evals/` — the benchmark harness. Separate from the library. `base.py` defines
@@ -76,6 +76,6 @@ python -m evals --system <name> --limit 10
 
 ## Do not
 
-- Do not import eval deps from `src/agentmem/`.
+- Do not import eval deps from `src/mnimi/`.
 - Do not add public methods to `Memory`.
 - Do not commit downloaded eval data or `*.db` files (see `.gitignore`).

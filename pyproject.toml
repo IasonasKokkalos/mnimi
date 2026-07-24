@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentmem"
+name = "mnimi"
 version = "0.0.0"
 description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "agentmem authors" }]
+authors = [{ name = "mnimi authors" }]
 keywords = ["agent", "memory", "llm", "sqlite", "sqlite-vec", "vector-search", "rag"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -30,10 +30,12 @@ dependencies = [
 
 [project.optional-dependencies]
 # The eval harness (python -m evals) is NOT part of the library. These deps are
-# only needed to run benchmarks, never to use agentmem.
+# only needed to run benchmarks, never to use mnimi.
 eval = [
     "anthropic>=0.40",
     "huggingface-hub>=0.25",
+    "ollama>=0.4",
+    "openai>=1.50",
 ]
 dev = [
     "pytest>=8",
@@ -41,11 +43,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/agentmem/agentmem"
-Changelog = "https://github.com/agentmem/agentmem/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/mnimi/mnimi"
+Changelog = "https://github.com/mnimi/mnimi/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentmem"]
+packages = ["src/mnimi"]
 
 [tool.ruff]
 line-length = 100

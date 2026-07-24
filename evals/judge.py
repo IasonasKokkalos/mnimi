@@ -6,7 +6,10 @@ temporal-reasoning forgives off-by-one day counts; knowledge-update accepts the
 updated answer even if prior info is included; preference grades against a rubric;
 abstention checks the model correctly refused to answer.
 
-Runs on the Anthropic API (key from ``ANTHROPIC_API_KEY``).
+Transport runs on the OpenAI API (``gpt-4o-2024-08-06``, key from
+``OPENAI_API_KEY``): the paper's 97% human agreement is validated for that
+snapshot with these exact prompts. The five per-type templates and the
+``build_judge_prompt`` dispatch are transport-independent and unchanged.
 """
 
 from __future__ import annotations
@@ -84,33 +87,50 @@ def build_judge_prompt(
     return template.format(question=question, answer=answer, response=response)
 
 
-class Judge:
-    """Anthropic-backed yes/no grader."""
+_JUDGE_SYSTEM = "You are a strict grader. Answer with only 'yes' or 'no'."
 
-    def __init__(self, model: str, client=None) -> None:
+
+class Judge:
+    """OpenAI-backed yes/no grader with an optional call-avoidance cache."""
+
+    def __init__(self, model: str, client=None, cache=None) -> None:
         self.model = model
         if client is None:
-            import anthropic
+            import openai
 
-            client = anthropic.Anthropic(max_retries=4)
+            client = openai.OpenAI(max_retries=4)
         self.client = client
+        # Optional JudgeCache; when present, identical (question_id, predicted)
+        # pairs skip the API call. See evals/judge_cache.py.
+        self.cache = cache
 
     def is_correct(
         self,
         *,
+        question_id: str,
         question: str,
         answer: str,
         response: str,
         question_type: str,
         abstention: bool,
     ) -> bool:
+        if self.cache is not None:
+            cached = self.cache.get(question_id, response)
+            if cached is not None:
+                return cached
         prompt = build_judge_prompt(question_type, question, answer, response, abstention)
-        # max_tokens=10 matches the paper. No temperature: Opus 4.8 rejects it.
-        message = self.client.messages.create(
+        # max_tokens=10 matches the paper; temperature=0 per the locked judge config.
+        completion = self.client.chat.completions.create(
             model=self.model,
             max_tokens=10,
-            system="You are a strict grader. Answer with only 'yes' or 'no'.",
-            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            messages=[
+                {"role": "system", "content": _JUDGE_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
         )
-        text = "".join(b.text for b in message.content if b.type == "text").strip().lower()
-        return "yes" in text
+        text = (completion.choices[0].message.content or "").strip().lower()
+        verdict = "yes" in text
+        if self.cache is not None:
+            self.cache.set(question_id, response, verdict)
+        return verdict

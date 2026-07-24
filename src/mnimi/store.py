@@ -17,7 +17,7 @@ from .models import MemoryRecord
 
 
 class Store:
-    """Owns the SQLite connection and the agentmem schema."""
+    """Owns the SQLite connection and the mnimi schema."""
 
     def __init__(self, db_path: str, dim: int) -> None:
         self.dim = dim

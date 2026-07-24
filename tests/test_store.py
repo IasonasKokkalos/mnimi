@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentmem.embeddings import HashingEmbedder
-from agentmem.models import MemoryRecord
-from agentmem.store import Store
+from mnimi.embeddings import HashingEmbedder
+from mnimi.models import MemoryRecord
+from mnimi.store import Store
 
 
 def test_insert_and_nearest_neighbor_is_sane(tmp_path):

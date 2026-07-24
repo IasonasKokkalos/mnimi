@@ -9,7 +9,7 @@ judged by whether it moves the table below.
 
 Reader model held fixed across rows. `no_memory` is the floor (answer with no
 history); `full_history` is the ceiling (stuff the entire conversation history
-into context). agentmem has to beat the naive baselines while using a fraction
+into context). mnimi has to beat the naive baselines while using a fraction
 of the tokens — that is the entire bet.
 
 | System         | Overall | single-session-user | single-session-assistant | single-session-preference | temporal-reasoning | knowledge-update | multi-session |
@@ -17,7 +17,7 @@ of the tokens — that is the entire bet.
 | no_memory      |     TBD |                 TBD |                      TBD |                       TBD |                TBD |              TBD |           TBD |
 | full_history   |     TBD |                 TBD |                      TBD |                       TBD |                TBD |              TBD |           TBD |
 | naive_rag      |       — |                   — |                        — |                         — |                  — |                — |             — |
-| **agentmem**   |       — |                   — |                        — |                         — |                  — |                — |             — |
+| **mnimi**      |       — |                   — |                        — |                         — |                  — |                — |             — |
 
 Numbers are produced by the eval harness, which is the source of truth:
 
@@ -31,7 +31,7 @@ python -m evals --system no_memory                 # full ~500-question run
 ## API
 
 ```python
-from agentmem import Memory
+from mnimi import Memory
 
 mem = Memory(db_path="agent.db", embedder=embedder)
 mem.add(messages, user_id="u1")              # write path

@@ -12,7 +12,7 @@ Locked choices and why. Append-only; supersede, don't delete.
 - **Benchmark = LongMemEval (`longmemeval_s`, ~500 questions).** The harness is
   the source of truth for every claim.
 - **Baselines = no-memory, full-history, naive-RAG.** Floor, ceiling, and the bar
-  agentmem must clear.
+  mnimi must clear.
 - **Eval loader uses `huggingface-hub`, not `datasets`.** The dataset's nested
   `haystack_sessions` breaks the HF Arrow viewer; we download the raw
   `longmemeval_s_cleaned.json` via `hf_hub_download` and parse with stdlib `json`.

@@ -19,8 +19,9 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+.cache/
 
-# SQLite databases (agentmem stores live here)
+# SQLite databases (mnimi stores live here)
 *.db
 *.db-shm
 *.db-wal

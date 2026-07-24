@@ -1,4 +1,4 @@
-"""Storage shapes for agentmem.
+"""Storage shapes for mnimi.
 
 `MemoryRecord` is the schema of record. Its fields constrain the entire write
 path (extraction, salience, conflict resolution, decay), so the shape matters

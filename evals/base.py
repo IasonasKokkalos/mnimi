@@ -8,8 +8,8 @@ from abc import ABC, abstractmethod
 class MemorySystem(ABC):
     """Adapter interface for the eval harness.
 
-    Deliberately separate from ``agentmem.Memory``: this is the rig's plug, so
-    every system — no-memory floor, full-history ceiling, naive-RAG, agentmem —
+    Deliberately separate from ``mnimi.Memory``: this is the rig's plug, so
+    every system — no-memory floor, full-history ceiling, naive-RAG, mnimi —
     is driven identically and the numbers are comparable. Per question the runner
     calls :meth:`reset` once, feeds each session via :meth:`add`, then asks for
     the assembled context with :meth:`get_context`.

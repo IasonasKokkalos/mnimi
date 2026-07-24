@@ -9,7 +9,7 @@ class FullHistorySystem(MemorySystem):
     """Concatenates every turn of every session into the context string.
 
     The accuracy ceiling — the reader sees everything — at the token cost a real
-    memory system has to beat. agentmem's whole bet is approaching this number
+    memory system has to beat. mnimi's whole bet is approaching this number
     on a fraction of the tokens.
     """
 
