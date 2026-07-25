@@ -32,10 +32,10 @@ dependencies = [
 # The eval harness (python -m evals) is NOT part of the library. These deps are
 # only needed to run benchmarks, never to use mnimi.
 eval = [
-    "anthropic>=0.40",
     "huggingface-hub>=0.25",
     "ollama>=0.4",
     "openai>=1.50",
+    "python-dotenv>=1.0",
 ]
 dev = [
     "pytest>=8",

@@ -118,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Load .env (repo root) before any environ.get() below reads a key from it.
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
     # Judge transport: OpenAI. No Anthropic key is used on this path.
     if not os.environ.get("OPENAI_API_KEY"):
         print(
