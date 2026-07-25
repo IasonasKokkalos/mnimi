@@ -51,7 +51,7 @@ READER_NUM_GPU = 0
 # from whatever the machine looks like then, and the number of threads changes
 # the order floating-point reductions happen in — so two loads of the same model
 # can produce different logits. Fixing both removes the last load-time variable.
-READER_NUM_THREAD = 4
+READER_NUM_THREAD = 8
 READER_NUM_BATCH = 512
 
 

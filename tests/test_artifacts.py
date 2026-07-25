@@ -27,7 +27,7 @@ def _pins(**overrides) -> dict:
         reader_seed=0,
         reader_top_k=1,
         reader_num_gpu=0,
-        reader_num_thread=4,
+        reader_num_thread=8,
         reader_num_batch=512,
         reader_prompt_version="plain-prose-v1",
         reader_prompt_hash="rp",
@@ -77,7 +77,7 @@ def test_reader_sends_pinned_decode_options():
     # Load-time settings pinned too: GPU offload and an unpinned thread count
     # were each measured to make identical inputs produce different answers.
     assert opts["num_gpu"] == 0
-    assert opts["num_thread"] == 4
+    assert opts["num_thread"] == 8
     assert opts["num_batch"] == 512
 
 

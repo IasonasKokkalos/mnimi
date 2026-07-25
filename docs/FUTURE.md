@@ -196,3 +196,33 @@ These were listed as future work in prior notes but are resolved or superseded:
   flexibility** above.
 * *"cross-encoder reranker"* — SPEC previously double-listed it; consolidated
   under **Retrieval quality → In-process cross-encoder reranker** above.
+
+## Reproducibility Tiers
+  
+### Tier 3 — Reference environment (deferred)
+
+**Goal:** close the cross-hardware gap in Tier 2 by pinning the SIMD dispatch
+path, so regeneration is bit-identical regardless of the host CPU's instruction
+set.
+
+**Sketch:** a Dockerfile pinning the llama.cpp / Ollama build to a fixed
+baseline SIMD target (AVX2 dispatch only, AVX-512 disabled), fixed thread count,
+CPU-only, pinned base image digest. Publish the image digest in the pins header
+so a Tier-3 run is identifiable as such.
+
+**Why deferred:** Tier 1 already provides hardware-independent verification of
+the number, which is the claim that matters for credibility. Tier 3 only
+improves Tier 2, which is the weaker claim and the one with an honestly stated
+tolerance. Build cost is real (image maintenance, a second CI path, slower runs
+from the baseline SIMD target) and the payoff is bounded.
+
+**Trigger conditions — build this if any occur:**
+- A measured cross-hardware divergence turns out to be large enough to change a
+  published conclusion, not just a decimal.
+- A third party attempts regeneration, diverges, and cannot diagnose why from
+  the `run` block.
+- A competitor comparison hinges on a delta small enough that cross-hardware
+  noise is the same order of magnitude as the effect.
+
+Until one of those fires, the honest tolerance statement in Tier 2 is the
+correct position.
