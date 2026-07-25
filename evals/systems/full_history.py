@@ -25,6 +25,16 @@ class FullHistorySystem(MemorySystem):
         self._turns.extend(messages)
 
     def get_context(self, query: str) -> str:
-        return "\n".join(
-            f"{turn.get('role', '')}: {turn.get('content', '')}" for turn in self._turns
-        )
+        # A dated header is emitted whenever ``ts`` changes, so the session
+        # boundary and its date stay reader-visible (temporal questions are
+        # unanswerable without them) at one line per session rather than one
+        # timestamp per turn.
+        lines: list[str] = []
+        current_ts = None
+        for turn in self._turns:
+            ts = turn.get("ts")
+            if ts and ts != current_ts:
+                lines.append(f"[Session date: {ts}]")
+                current_ts = ts
+            lines.append(f"{turn.get('role', '')}: {turn.get('content', '')}")
+        return "\n".join(lines)

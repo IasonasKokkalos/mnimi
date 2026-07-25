@@ -9,6 +9,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+# Stdlib-only, so importing it here keeps `python -m evals --help` from pulling
+# in ollama/openai/huggingface_hub (those stay lazy inside main()).
+from . import artifacts
 
 # Phase A pins. Reader is a local Ollama model; judge is the paper's validated
 # OpenAI snapshot. Split from the old single DEFAULT_MODEL so the two swap
@@ -116,6 +121,28 @@ def main(argv: list[str] | None = None) -> int:
         help="override the LongMemEval file (HF name or local path); "
         "e.g. longmemeval_oracle.json for a smaller download",
     )
+    parser.add_argument(
+        "--num-gpu",
+        type=int,
+        default=None,
+        help="GPU layers for the reader. Default 0 (CPU-only): GPU inference is "
+        "not reproducible even at temperature=0. Pass e.g. 99 for a faster, "
+        "non-reproducible exploratory run.",
+    )
+    parser.add_argument(
+        "--stage",
+        default="all",
+        choices=["all", "predict", "judge"],
+        help="'predict' ingests + reads and writes predictions.jsonl (needs Ollama, "
+        "no OpenAI key); 'judge' grades an existing predictions.jsonl (needs an "
+        "OpenAI key, no Ollama); 'all' does both (default)",
+    )
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="where staged artifacts live (default runs/<system>__<limit>q). "
+        "Pass the same value to --stage judge that --stage predict used.",
+    )
     args = parser.parse_args(argv)
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
@@ -123,63 +150,134 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()
 
-    # Judge transport: OpenAI. No Anthropic key is used on this path.
-    if not os.environ.get("OPENAI_API_KEY"):
-        print(
-            "ERROR: OPENAI_API_KEY is not set. The judge "
-            f"({args.judge_model}) runs on the OpenAI API; export your key and re-run.",
-            file=sys.stderr,
-        )
-        return 2
-
-    # Reader transport: local Ollama. Fail fast if the daemon or model is missing.
-    err, digest = ollama_preflight(args.model)
-    if err:
-        print(f"ERROR: {err}", file=sys.stderr)
-        return 2
-
-    declared_ctx = ollama_context_length(args.model)
-
-    # Capture both pins for visibility (full reproducibility header is Phase B).
-    print("--- pins ---", file=sys.stderr)
-    print(f"reader (Ollama):  {args.model}  digest={digest}", file=sys.stderr)
-    print(
-        f"reader num_ctx:   {args.num_ctx}"
-        + (f"  (model declares {declared_ctx})" if declared_ctx else ""),
-        file=sys.stderr,
-    )
-    print(f"judge (literal sent): {args.judge_model}", file=sys.stderr)
-    if args.judge_model in {"gpt-4o", "gpt-4o-mini"}:
-        print(
-            "WARNING: judge model looks like a rolling alias, not a pinned snapshot.",
-            file=sys.stderr,
-        )
-    print("------------", file=sys.stderr)
-
+    from .dataset import file_sha256, resolve_path
+    from .judge import JUDGE_PROMPT_VERSION, judge_prompt_hash
     from .judge_cache import JudgeCache
     from .report import print_report
-    from .runner import run
+    from .runner import (
+        READER_NUM_BATCH,
+        READER_NUM_GPU,
+        READER_NUM_THREAD,
+        READER_PROMPT_VERSION,
+        READER_SEED,
+        READER_TOP_K,
+        Prediction,
+        judge_predictions,
+        predict,
+        reader_prompt_hash,
+    )
 
-    system = build_system(args.system)
-    cache = JudgeCache()
+    num_gpu = READER_NUM_GPU if args.num_gpu is None else args.num_gpu
 
-    def progress(done: int, total: int, q, correct: bool) -> None:
-        mark = "PASS" if correct else "FAIL"
+    do_predict = args.stage in {"all", "predict"}
+    do_judge = args.stage in {"all", "judge"}
+    directory = Path(args.run_dir) if args.run_dir else artifacts.run_dir(
+        args.system, args.limit
+    )
+
+    # Guards are stage-scoped: the predict stage never touches OpenAI, and the
+    # judge stage never touches Ollama. Demanding both for either would make
+    # re-judging on a machine without a reader impossible for no reason.
+    if do_judge and not os.environ.get("OPENAI_API_KEY"):
         print(
-            f"[{done}/{total}] {mark}  {q.question_id} ({q.question_type})",
+            "ERROR: OPENAI_API_KEY is not set. The judge "
+            f"({args.judge_model}) runs on the OpenAI API; set it in .env and re-run.",
             file=sys.stderr,
         )
+        return 2
+
+    digest = None
+    declared_ctx = None
+    if do_predict:
+        # Reader transport: local Ollama. Fail fast if daemon or model is missing.
+        err, digest = ollama_preflight(args.model)
+        if err:
+            print(f"ERROR: {err}", file=sys.stderr)
+            return 2
+        declared_ctx = ollama_context_length(args.model)
 
     started = time.perf_counter()
-    results = run(
-        system,
-        reader_model=args.model,
+
+    if do_predict:
+        dataset_path = resolve_path(args.dataset_file)
+        pins = artifacts.build_pins(
+            dataset_file=str(dataset_path),
+            dataset_sha256=file_sha256(dataset_path),
+            system=args.system,
+            limit=args.limit,
+            reader_model=args.model,
+            reader_digest=digest,
+            reader_num_ctx=args.num_ctx,
+            reader_seed=READER_SEED,
+            reader_top_k=READER_TOP_K,
+            reader_num_gpu=num_gpu,
+            reader_num_thread=READER_NUM_THREAD,
+            reader_num_batch=READER_NUM_BATCH,
+            reader_prompt_version=READER_PROMPT_VERSION,
+            reader_prompt_hash=reader_prompt_hash(),
+            judge_model=args.judge_model,
+            judge_prompt_version=JUDGE_PROMPT_VERSION,
+            judge_prompt_hash=judge_prompt_hash(),
+        )
+        _print_pins(pins, declared_ctx)
+
+        def predict_progress(done: int, total: int, q, truncated: bool) -> None:
+            mark = "TRUNC" if truncated else "  ok "
+            print(
+                f"[{done}/{total}] read {mark}  {q.question_id} ({q.question_type})",
+                file=sys.stderr,
+            )
+
+        predictions = predict(
+            build_system(args.system),
+            reader_model=args.model,
+            limit=args.limit,
+            num_ctx=args.num_ctx,
+            num_gpu=num_gpu,
+            dataset_file=args.dataset_file,
+            progress=predict_progress,
+        )
+        artifacts.write_pins(directory, pins)
+        artifacts.write_predictions(directory, predictions)
+        print(f"wrote {directory / 'predictions.jsonl'}", file=sys.stderr)
+    else:
+        # Judge-only replay: the header and the rows both come off disk.
+        try:
+            pins = artifacts.read_pins(directory)
+            predictions = artifacts.read_predictions(directory, Prediction)
+        except FileNotFoundError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        _print_pins(pins, None)
+        if pins.get("judge_model") != args.judge_model:
+            print(
+                f"WARNING: judging with {args.judge_model} but predictions were "
+                f"pinned to {pins.get('judge_model')}; recording the judge actually used.",
+                file=sys.stderr,
+            )
+            pins = {**pins, "judge_model": args.judge_model}
+
+    if not do_judge:
+        elapsed = time.perf_counter() - started
+        print(
+            f"\npredict stage only: {len(predictions)} predictions in {elapsed:,.1f}s. "
+            f"Grade them with:  python -m evals --system {args.system} "
+            f"--limit {args.limit} --stage judge",
+            file=sys.stderr,
+        )
+        return 0
+
+    cache = JudgeCache()
+
+    def judge_progress(done: int, total: int, p, correct: bool) -> None:
+        mark = "PASS" if correct else "FAIL"
+        print(f"[{done}/{total}] {mark}  {p.question_id} ({p.category})", file=sys.stderr)
+
+    results = judge_predictions(
+        predictions,
         judge_model=args.judge_model,
-        limit=args.limit,
-        num_ctx=args.num_ctx,
-        dataset_file=args.dataset_file,
         judge_cache=cache,
-        progress=progress,
+        progress=judge_progress,
     )
     elapsed = time.perf_counter() - started
 
@@ -187,9 +285,22 @@ def main(argv: list[str] | None = None) -> int:
 
     # Run-level stats (kept out of report.py, which is category-table only).
     fed = [r.reader_prompt_tokens for r in results if r.reader_prompt_tokens is not None]
-    mean_fed = f"{sum(fed) / len(fed):,.0f}" if fed else "n/a"
     truncated_n = sum(1 for r in results if r.truncated)
     dropped_total = sum(r.tokens_dropped for r in results)
+    run_meta = {
+        "stage": args.stage,
+        "elapsed_s": round(elapsed, 1),
+        "n": len(results),
+        "reader_mean_prompt_tokens": round(sum(fed) / len(fed)) if fed else None,
+        "truncated": truncated_n,
+        "tokens_dropped_estimated": dropped_total,
+        "judge_cache_hits": cache.hits,
+        "judge_cache_misses": cache.misses,
+    }
+    provisional = _provisional_reasons(pins)
+    results_path = artifacts.write_results(directory, pins, results, run_meta, provisional)
+
+    mean_fed = f"{run_meta['reader_mean_prompt_tokens']:,}" if fed else "n/a"
     print(
         f"\nwall-clock: {elapsed:,.1f}s over {len(results)} q"
         f"  |  mean reader prompt tokens: {mean_fed}"
@@ -197,7 +308,60 @@ def main(argv: list[str] | None = None) -> int:
         f"  |  judge cache: {cache.hits} hit / {cache.misses} miss",
         file=sys.stderr,
     )
+    print(f"wrote {results_path}", file=sys.stderr)
+    if provisional:
+        print(
+            "PROVISIONAL - not publishable: " + "; ".join(provisional),
+            file=sys.stderr,
+        )
     return 0
+
+
+def _print_pins(pins: dict, declared_ctx: int | None) -> None:
+    """Echo the header to stderr so a run is self-describing in the terminal."""
+    print("--- pins ---", file=sys.stderr)
+    print(f"harness git:      {pins.get('harness_git_sha')}", file=sys.stderr)
+    print(f"dataset:          {pins.get('dataset_file')}", file=sys.stderr)
+    print(f"dataset sha256:   {pins.get('dataset_sha256')}", file=sys.stderr)
+    print(
+        f"reader (Ollama):  {pins.get('reader_model')}  digest={pins.get('reader_digest')}",
+        file=sys.stderr,
+    )
+    print(
+        f"reader num_ctx:   {pins.get('reader_num_ctx')}"
+        + (f"  (model declares {declared_ctx})" if declared_ctx else ""),
+        file=sys.stderr,
+    )
+    print(
+        f"reader prompt:    {pins.get('reader_prompt_version')} "
+        f"({str(pins.get('reader_prompt_hash'))[:12]}...)",
+        file=sys.stderr,
+    )
+    print(
+        f"judge (literal):  {pins.get('judge_model')}  prompts="
+        f"{pins.get('judge_prompt_version')} ({str(pins.get('judge_prompt_hash'))[:12]}...)",
+        file=sys.stderr,
+    )
+    if pins.get("judge_model") in {"gpt-4o", "gpt-4o-mini"}:
+        print(
+            "WARNING: judge model looks like a rolling alias, not a pinned snapshot.",
+            file=sys.stderr,
+        )
+    print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
+    print("------------", file=sys.stderr)
+
+
+def _provisional_reasons(pins: dict) -> list[str]:
+    """Why this artifact is not yet a publishable number. Empty list = it is."""
+    reasons = []
+    if pins.get("reader_prompt_version") != "json-con-v1":
+        reasons.append(
+            f"reader prompt is {pins.get('reader_prompt_version')} "
+            "(JSON + Chain-of-Note pending Phase D)"
+        )
+    if str(pins.get("harness_git_sha", "")).endswith("-dirty"):
+        reasons.append("harness tree was dirty at run time")
+    return reasons
 
 
 if __name__ == "__main__":

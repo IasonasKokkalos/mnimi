@@ -15,6 +15,7 @@ Abstention questions have a ``question_id`` ending in ``_abs``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -97,11 +98,36 @@ def download(filename: str | None = None) -> Path:
     return Path(fetched)
 
 
-def load(limit: int | None = None, filename: str | None = None) -> list[Question]:
-    """Load questions. ``filename`` may be a HF filename or a local path."""
+def resolve_path(filename: str | None = None) -> Path:
+    """Local path for the dataset, downloading it if it is not already cached.
+
+    Split out of :func:`load` so the fingerprint and the parse are taken from
+    the same resolved file — hashing one path while loading another would make
+    the guard worse than useless.
+    """
     name = filename or os.environ.get(FILE_ENV, DEFAULT_FILE)
     candidate = Path(name)
-    path = candidate if candidate.exists() else download(name)
+    return candidate if candidate.exists() else download(name)
+
+
+def file_sha256(path: str | Path) -> str:
+    """Digest of the dataset file itself.
+
+    The benchmark file is fetched from a mutable remote into a gitignored cache,
+    so "same dataset" cannot be assumed across machines or months — two runs
+    whose digests differ are not comparable, whatever the scores say. Streamed
+    in chunks; the file is large.
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load(limit: int | None = None, filename: str | None = None) -> list[Question]:
+    """Load questions. ``filename`` may be a HF filename or a local path."""
+    path = resolve_path(filename)
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     questions = [_parse(item) for item in raw]

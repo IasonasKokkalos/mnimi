@@ -30,6 +30,41 @@ def test_no_memory_returns_empty_context():
     assert system.get_context("where do I live?") == ""
 
 
+def test_sessions_carry_structured_ts_not_a_pseudo_turn():
+    """Phase B contract: the timestamp is a field, not an injected system turn."""
+    from evals.dataset import Session
+    from evals.runner import _session_to_messages
+
+    session = Session(
+        session_id="s1",
+        date="2023-05-20",
+        turns=[
+            {"role": "user", "content": "I live in Athens"},
+            {"role": "assistant", "content": "Noted"},
+        ],
+    )
+    messages = _session_to_messages(session)
+
+    assert len(messages) == 2, "no extra harness-invented turn"
+    assert {m["role"] for m in messages} == {"user", "assistant"}
+    assert all(m["ts"] == "2023-05-20" for m in messages)
+
+
+def test_full_history_keeps_session_dates_reader_visible():
+    """Temporal questions are unanswerable if the dates never reach the reader."""
+    system = FullHistorySystem()
+    system.reset()
+    system.add([{"role": "user", "content": "I moved", "ts": "2023-05-20"}])
+    system.add([{"role": "user", "content": "I moved again", "ts": "2023-07-01"}])
+
+    context = system.get_context("when did I move?")
+
+    assert "2023-05-20" in context
+    assert "2023-07-01" in context
+    # One dated header per session, not one per turn.
+    assert context.count("[Session date:") == 2
+
+
 def test_full_history_concatenates_then_resets():
     system = FullHistorySystem()
     system.reset()

@@ -70,6 +70,20 @@ _ABSTENTION = (
 )
 
 
+# The five templates above are the paper's, verbatim, and are LOCKED. The hash
+# below is what makes an accidental edit to them impossible to ship silently.
+JUDGE_PROMPT_VERSION = "longmemeval-paper-v1"
+
+
+def judge_prompt_hash() -> str:
+    """Digest over all five per-type templates, order-independent."""
+    from .artifacts import fingerprint
+
+    return fingerprint(
+        "\n".join(sorted([_STANDARD, _TEMPORAL, _KNOWLEDGE_UPDATE, _PREFERENCE, _ABSTENTION]))
+    )
+
+
 def build_judge_prompt(
     question_type: str, question: str, answer: str, response: str, abstention: bool
 ) -> str:

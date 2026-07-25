@@ -23,7 +23,19 @@ class MemorySystem(ABC):
 
     @abstractmethod
     def add(self, messages: list[dict]) -> None:
-        """Ingest one session's worth of turns (each ``{"role", "content"}``)."""
+        """Ingest one session's worth of turns.
+
+        Each message is ``{"role", "content", "ts"}``. ``ts`` is the session
+        timestamp supplied by the dataset (ISO date string) and carried as
+        structured data on every turn — not as an injected pseudo-turn — so a
+        third-party adapter never has to know to strip a harness invention.
+
+        **``ts`` is the only clock.** A system that needs "now" for recency,
+        decay, or ordering derives it from the ``ts`` values it has been fed
+        and never reads wall-clock: wall-clock makes the same inputs score
+        differently on different days, which is a silent reproducibility
+        failure no guard can catch.
+        """
 
     @abstractmethod
     def get_context(self, query: str) -> str:

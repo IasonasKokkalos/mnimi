@@ -28,6 +28,9 @@ htmlcov/
 *.sqlite
 *.sqlite3
 
+# Staged eval run artifacts (predictions/results are regenerated, not source)
+runs/
+
 # Downloaded eval data (LongMemEval is large; never commit it)
 .data/
 data/
