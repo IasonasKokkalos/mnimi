@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,12 +126,76 @@ def file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def load(limit: int | None = None, filename: str | None = None) -> list[Question]:
-    """Load questions. ``filename`` may be a HF filename or a local path."""
+DEFAULT_SAMPLE_SEED = 0
+SAMPLE_STRATIFIED = "stratified-round-robin"
+SAMPLE_FILE_ORDER = "file-order"
+
+
+def sample_stratified(
+    questions: list[Question], limit: int, seed: int = DEFAULT_SAMPLE_SEED
+) -> list[Question]:
+    """Pick ``limit`` questions spread evenly across categories.
+
+    The dataset is clustered by category, so taking the first N in file order
+    yields a single-category slice: a 5-question slice came back 100%
+    single-session-user, which makes any cross-system comparison meaningless
+    because whole categories (temporal-reasoning, knowledge-update,
+    multi-session) are simply absent.
+
+    Each category is shuffled with a seeded RNG, then questions are taken
+    round-robin across categories in a fixed order until ``limit`` is reached.
+    That gives an exact slice size with the most even category split the size
+    allows, and the same slice every time for a given (seed, limit, dataset).
+    """
+    buckets: dict[str, list[Question]] = {}
+    for q in questions:
+        buckets.setdefault(q.category, []).append(q)
+
+    # Fixed category order (unknown categories last, sorted) so the round-robin
+    # is not at the mercy of dict insertion order.
+    order = [c for c in CATEGORIES if c in buckets]
+    order += sorted(c for c in buckets if c not in CATEGORIES)
+
+    rng = random.Random(seed)
+    for cat in order:
+        rng.shuffle(buckets[cat])
+
+    picked: list[Question] = []
+    round_index = 0
+    while len(picked) < limit:
+        progressed = False
+        for cat in order:
+            if len(picked) >= limit:
+                break
+            bucket = buckets[cat]
+            if round_index < len(bucket):
+                picked.append(bucket[round_index])
+                progressed = True
+        if not progressed:  # every bucket exhausted
+            break
+        round_index += 1
+    return picked
+
+
+def load(
+    limit: int | None = None,
+    filename: str | None = None,
+    *,
+    strategy: str = SAMPLE_FILE_ORDER,
+    seed: int = DEFAULT_SAMPLE_SEED,
+) -> list[Question]:
+    """Load questions. ``filename`` may be a HF filename or a local path.
+
+    ``strategy`` selects how ``limit`` is applied: ``file-order`` takes the
+    first N (fast, but category-skewed), ``stratified-round-robin`` spreads the
+    slice across categories (see :func:`sample_stratified`).
+    """
     path = resolve_path(filename)
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     questions = [_parse(item) for item in raw]
+    if limit is not None and strategy == SAMPLE_STRATIFIED:
+        return sample_stratified(questions, limit, seed)
     if limit is not None:
         questions = questions[:limit]
     return questions

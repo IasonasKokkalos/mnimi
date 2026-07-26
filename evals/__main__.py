@@ -11,9 +11,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-# Stdlib-only, so importing it here keeps `python -m evals --help` from pulling
-# in ollama/openai/huggingface_hub (those stay lazy inside main()).
+# Stdlib-only, so importing these here keeps `python -m evals --help` from
+# pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
+# dataset's own heavy dep (huggingface_hub) is lazy inside download().
 from . import artifacts
+from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
 
 # Phase A pins. Reader is a local Ollama model; judge is the paper's validated
 # OpenAI snapshot. Split from the old single DEFAULT_MODEL so the two swap
@@ -125,9 +127,23 @@ def main(argv: list[str] | None = None) -> int:
         "--num-gpu",
         type=int,
         default=None,
-        help="GPU layers for the reader. Default 0 (CPU-only): GPU inference is "
-        "not reproducible even at temperature=0. Pass e.g. 99 for a faster, "
-        "non-reproducible exploratory run.",
+        help="GPU layers for the reader. Default 99 (full offload), measured "
+        "reproducible with num_batch pinned and ~23x faster than CPU. Pass 0 "
+        "for CPU-only; any value other than the pin marks the run provisional.",
+    )
+    parser.add_argument(
+        "--sample",
+        default=SAMPLE_STRATIFIED,
+        choices=[SAMPLE_STRATIFIED, SAMPLE_FILE_ORDER],
+        help="how --limit selects questions. Default stratified: the dataset is "
+        "clustered by category, so file-order slices are single-category and "
+        "not comparable across systems.",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=DEFAULT_SAMPLE_SEED,
+        help="seed for stratified sampling (recorded in pins)",
     )
     parser.add_argument(
         "--stage",
@@ -205,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
             dataset_sha256=file_sha256(dataset_path),
             system=args.system,
             limit=args.limit,
+            sample_strategy=args.sample,
+            sample_seed=args.sample_seed,
             reader_model=args.model,
             reader_digest=digest,
             reader_num_ctx=args.num_ctx,
@@ -235,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
             num_ctx=args.num_ctx,
             num_gpu=num_gpu,
             dataset_file=args.dataset_file,
+            strategy=args.sample,
+            sample_seed=args.sample_seed,
             progress=predict_progress,
         )
         artifacts.write_pins(directory, pins)
@@ -296,6 +316,11 @@ def main(argv: list[str] | None = None) -> int:
         "tokens_dropped_estimated": dropped_total,
         "judge_cache_hits": cache.hits,
         "judge_cache_misses": cache.misses,
+        "abstention_questions": sum(1 for r in results if r.is_abstention),
+        # Diagnostic only — never folded into pins_hash (see capture_environment).
+        "environment": artifacts.capture_environment(
+            ollama_host=OLLAMA_HOST, serve_log=os.environ.get("OLLAMA_SERVE_LOG")
+        ),
     }
     provisional = _provisional_reasons(pins)
     results_path = artifacts.write_results(directory, pins, results, run_meta, provisional)
@@ -353,6 +378,8 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
 
 def _provisional_reasons(pins: dict) -> list[str]:
     """Why this artifact is not yet a publishable number. Empty list = it is."""
+    from .runner import READER_NUM_BATCH, READER_NUM_GPU
+
     reasons = []
     if pins.get("reader_prompt_version") != "json-con-v1":
         reasons.append(
@@ -361,6 +388,23 @@ def _provisional_reasons(pins: dict) -> list[str]:
         )
     if str(pins.get("harness_git_sha", "")).endswith("-dirty"):
         reasons.append("harness tree was dirty at run time")
+    # A deviated decode pin means this run is not the configuration the
+    # determinism evidence was gathered under.
+    if pins.get("reader_num_gpu") != READER_NUM_GPU:
+        reasons.append(
+            f"reader_num_gpu={pins.get('reader_num_gpu')} overrides the pin "
+            f"({READER_NUM_GPU}) — not the measured-reproducible configuration"
+        )
+    if pins.get("reader_num_batch") != READER_NUM_BATCH:
+        reasons.append(
+            f"reader_num_batch={pins.get('reader_num_batch')} overrides the pin "
+            f"({READER_NUM_BATCH}) — unpinned batch size caused observed drift"
+        )
+    if pins.get("sample_strategy") != "stratified-round-robin":
+        reasons.append(
+            f"sample_strategy={pins.get('sample_strategy')} — a file-order slice "
+            "is category-clustered and not comparable across systems"
+        )
     return reasons
 
 

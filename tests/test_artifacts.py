@@ -26,7 +26,9 @@ def _pins(**overrides) -> dict:
         reader_num_ctx=32768,
         reader_seed=0,
         reader_top_k=1,
-        reader_num_gpu=0,
+        sample_strategy="stratified-round-robin",
+        sample_seed=0,
+        reader_num_gpu=99,
         reader_num_thread=8,
         reader_num_batch=512,
         reader_prompt_version="plain-prose-v1",
@@ -74,11 +76,11 @@ def test_reader_sends_pinned_decode_options():
     assert opts["top_k"] == 1
     assert opts["seed"] == 0
     assert opts["num_ctx"] == 32768
-    # Load-time settings pinned too: GPU offload and an unpinned thread count
-    # were each measured to make identical inputs produce different answers.
-    assert opts["num_gpu"] == 0
-    assert opts["num_thread"] == 8
+    # num_batch is the load-bearing pin: leaving it to Ollama produced the drift
+    # once misattributed to CUDA atomics. It must be sent on every call.
     assert opts["num_batch"] == 512
+    assert opts["num_gpu"] == 99
+    assert opts["num_thread"] == 8
 
 
 def test_prompt_hashes_track_the_real_prompt_text():
@@ -86,6 +88,73 @@ def test_prompt_hashes_track_the_real_prompt_text():
     assert len(judge_prompt_hash()) == 64
     assert len(reader_prompt_hash()) == 64
     assert judge_prompt_hash() != reader_prompt_hash()
+
+
+def test_environment_capture_never_enters_pins_hash():
+    """CHANGE 4: env fields are diagnostic. If they hashed, every machine would
+    look like a different configuration and no two runs could be compared."""
+    env = artifacts.capture_environment(ollama_host="http://127.0.0.1:1")  # unreachable
+    # Shape is stable even with nothing reachable — absence is recorded, not faked.
+    for key in ("gpu_model", "driver_version", "cuda_version",
+                "ollama_version", "offloaded_layers", "offloaded_layers_source"):
+        assert key in env
+
+    pins = _pins()
+    baseline = artifacts.pins_hash(pins)
+    # Env keys must not be pin keys, and injecting them must not change the hash.
+    assert not (set(env) & set(pins)), "environment leaked into pins"
+    assert artifacts.pins_hash(_pins()) == baseline
+
+
+def test_sampling_pins_are_part_of_the_hash():
+    """A file-order slice and a stratified slice are different benchmarks."""
+    baseline = artifacts.pins_hash(_pins())
+    assert artifacts.pins_hash(_pins(sample_strategy="file-order")) != baseline
+    assert artifacts.pins_hash(_pins(sample_seed=7)) != baseline
+
+
+def test_stratified_sampling_spreads_across_categories():
+    """CHANGE 5: file order is category-clustered; a naive slice is one category."""
+    from evals.dataset import Question, sample_stratified
+
+    def q(i, cat):
+        return Question(question_id=f"q{i}", question_type=cat, question="?",
+                        answer="a", question_date="", sessions=[], answer_session_ids=[])
+
+    # Clustered exactly like the real file: all of one category, then the next.
+    questions = ([q(i, "single-session-user") for i in range(50)]
+                 + [q(i + 50, "temporal-reasoning") for i in range(50)]
+                 + [q(i + 100, "knowledge-update") for i in range(50)]
+                 + [q(i + 150, "multi-session") for i in range(50)])
+
+    picked = sample_stratified(questions, limit=20, seed=0)
+    assert len(picked) == 20
+    cats = {p.category for p in picked}
+    assert len(cats) == 4, f"expected all 4 categories, got {cats}"
+    # Same seed -> same slice; different seed -> different slice.
+    assert [p.question_id for p in sample_stratified(questions, 20, 0)] == \
+           [p.question_id for p in picked]
+    assert [p.question_id for p in sample_stratified(questions, 20, 1)] != \
+           [p.question_id for p in picked]
+
+
+def test_truncation_caveat_labels_a_truncated_row():
+    """CHANGE 6: a truncated full_history row is not a ceiling."""
+    from evals.report import format_table, truncation_caveat
+    from evals.runner import Result
+
+    def r(truncated, dropped, fed):
+        return Result(question_id="q", category="multi-session", is_abstention=False,
+                      correct=True, answer="a", predicted="p",
+                      reader_prompt_tokens=fed, truncated=truncated,
+                      tokens_dropped=dropped)
+
+    assert truncation_caveat([r(False, 0, 100)]) is None
+    caveat = truncation_caveat([r(True, 90000, 27000)])
+    assert "NOT full history" in caveat
+    table = format_table("full_history", [r(True, 90000, 27000)])
+    assert "*" in table and "NOT full history" in table
+    assert "abstention questions in slice:" in table
 
 
 def test_dataset_sha256_detects_a_changed_file(tmp_path):

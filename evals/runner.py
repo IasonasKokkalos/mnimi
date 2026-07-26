@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from .artifacts import fingerprint
 from .base import MemorySystem
-from .dataset import Question, Session, load
+from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_STRATIFIED, Question, Session, load
 from .judge import Judge
 
 # The reader is intentionally plain — no extended thinking — so the variable
@@ -39,20 +39,38 @@ READER_PROMPT_VERSION = "plain-prose-v1"
 # determine the number.
 READER_SEED = 0
 READER_TOP_K = 1
-# CPU-only. Measured on this machine: with the model offloaded to GPU, three
-# identical calls returned two distinct answers even at temperature=0/top_k=1 —
-# GPU kernels reorder floating-point reductions, the logits shift, and greedy
-# decoding flips at a near-tie and diverges mid-sentence. The same test on CPU
-# returned one distinct answer. Reproducibility is the whole point of the
-# header, so the default trades speed for a number that replays; --num-gpu
-# overrides it for exploratory runs.
-READER_NUM_GPU = 0
-# Pinned for the same reason. Ollama chooses thread count at model-load time
-# from whatever the machine looks like then, and the number of threads changes
-# the order floating-point reductions happen in — so two loads of the same model
-# can produce different logits. Fixing both removes the last load-time variable.
-READER_NUM_THREAD = 8
+
+# Full GPU offload. The history here is load-bearing, so both the wrong finding
+# and its correction are recorded rather than the correction alone — see
+# docs/DECISIONS.md for the full bisection.
+#
+#   First conclusion (WRONG): "GPU is non-deterministic; CPU-only is required."
+#   Three identical GPU calls returned two distinct answers at temperature=0,
+#   which was attributed to CUDA atomics reordering float reductions.
+#
+#   Why it was wrong: that test never pinned num_batch. Ollama was free to pick
+#   a batch size per load, and llama.cpp logits are not bit-identical across
+#   batch sizes — so the run-to-run drift came from an unpinned harness setting,
+#   not from the GPU. An unpinned batch size mimics the signature of CUDA
+#   atomics exactly, which is what made the misattribution easy.
+#
+#   Re-tested with num_batch pinned: byte-identical output across (1) repeat
+#   calls, (2) a cold model reload, (3) a full machine reboot, and (4) 91% GPU
+#   utilisation under contention. GPU is reproducible AND ~23x faster on a 32k
+#   prefill (10.4s vs 237.2s), so it is the pinned default.
+READER_NUM_GPU = 99
+
+# LOAD-BEARING. This is the pin whose absence produced the wrong conclusion
+# above; it must be sent explicitly on every call and never left to Ollama.
 READER_NUM_BATCH = 512
+
+# Measured to have NO effect on output at full offload: num_thread 4, 8 and 16
+# produce byte-identical text when num_gpu=99, because the compute that decides
+# the logits is on the GPU. Kept and pinned anyway because --num-gpu can drop
+# the reader back to CPU, where thread count IS load-bearing (it changes the
+# float reduction order across loads). It is a real pin for the CPU path, not a
+# dependency of the GPU path.
+READER_NUM_THREAD = 8
 
 
 def reader_prompt_hash() -> str:
@@ -63,6 +81,20 @@ def reader_prompt_hash() -> str:
 # full_history overflows. Rather than let Ollama silently drop tokens, the reader
 # truncates explicitly (keep-most-recent, drop-oldest) and reports what it cut.
 # The gate uses a char/token estimate; the exact fed count comes back from Ollama.
+#
+# Why a measured run feeds ~27k tokens and not ~32k. Two separate effects:
+#   1. Deliberate reserve, 1,280 tokens: `answer_reserve` (1024) keeps room for
+#      the generation, `_SCAFFOLD_TOKENS` (256) for the system prompt and the
+#      question framing. Without these the prompt could fill the window and
+#      leave nothing to answer with.
+#   2. A conservative estimate, ~4k tokens. The trim gate assumes 4 chars per
+#      token, but this dataset actually runs ~4.7 (26,662 tokens measured from
+#      125,952 chars). Assuming a denser encoding than reality means the gate
+#      cuts more than it needs to, so the window is under-filled.
+# Effect (1) is intentional; effect (2) is a known conservatism that costs
+# roughly 4k tokens of usable evidence. Raising _CHARS_PER_TOKEN toward the
+# measured ratio would recover it — but it changes every truncated number, so
+# it is left alone here and flagged rather than tuned mid-phase.
 _CHARS_PER_TOKEN = 4
 _SCAFFOLD_TOKENS = 256  # headroom for the system prompt + question framing
 
@@ -204,6 +236,8 @@ def predict(
     num_ctx: int,
     num_gpu: int = READER_NUM_GPU,
     dataset_file: str | None = None,
+    strategy: str = SAMPLE_STRATIFIED,
+    sample_seed: int = DEFAULT_SAMPLE_SEED,
     progress: PredictProgressFn | None = None,
     reader_client=None,
 ) -> list[Prediction]:
@@ -213,7 +247,9 @@ def predict(
     reader over every question — which is exactly why it is separable from the
     half that gets re-run.
     """
-    questions = load(limit=limit, filename=dataset_file)
+    questions = load(
+        limit=limit, filename=dataset_file, strategy=strategy, seed=sample_seed
+    )
     reader = Reader(reader_model, num_ctx=num_ctx, num_gpu=num_gpu, client=reader_client)
 
     predictions: list[Prediction] = []

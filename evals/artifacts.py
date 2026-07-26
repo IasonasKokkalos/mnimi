@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 
@@ -67,12 +70,94 @@ def harness_git_sha() -> str | None:
     return f"{sha}-dirty" if _git("status", "--porcelain") else sha
 
 
+def capture_environment(
+    ollama_host: str = "http://localhost:11434", serve_log: str | None = None
+) -> dict:
+    """Diagnostic snapshot of the machine that produced a run.
+
+    **Deliberately NOT part of pins.** These fields describe the environment,
+    not the configuration: folding them into ``pins_hash`` would make every run
+    on a different machine — or after a driver update — look like a different
+    configuration, which destroys the ability to compare runs at all. They are
+    recorded so a surprising number can be investigated, not so it can be
+    invalidated. ``tests/test_artifacts.py`` asserts they stay out of the hash.
+    """
+    env: dict = {
+        "gpu_model": None,
+        "driver_version": None,
+        "cuda_version": None,
+        "ollama_version": None,
+        "offloaded_layers": None,
+        "offloaded_layers_source": None,
+    }
+
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            name, _, driver = proc.stdout.strip().splitlines()[0].partition(",")
+            env["gpu_model"] = name.strip()
+            env["driver_version"] = driver.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi"], capture_output=True, text=True, timeout=10, check=False
+        )
+        m = re.search(r"CUDA Version:\s*([0-9.]+)", proc.stdout or "")
+        if m:
+            env["cuda_version"] = m.group(1)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    try:
+        with urllib.request.urlopen(f"{ollama_host}/api/version", timeout=5) as resp:
+            env["ollama_version"] = json.load(resp).get("version")
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+
+    # Layer count is READ, never assumed. Preference order: the server log (it
+    # states the split outright), then the runtime signal from /api/ps. A
+    # manually launched `ollama serve` discards stdout, so the log is often
+    # absent — in which case say which signal was used rather than inventing a
+    # number.
+    if serve_log and Path(serve_log).exists():
+        try:
+            text = Path(serve_log).read_text(encoding="utf-8", errors="ignore")
+            hits = re.findall(r"offloaded (\d+)/(\d+) layers to GPU", text)
+            if hits:
+                env["offloaded_layers"] = f"{hits[-1][0]}/{hits[-1][1]}"
+                env["offloaded_layers_source"] = "server_log"
+        except OSError:
+            pass
+    if env["offloaded_layers"] is None:
+        try:
+            with urllib.request.urlopen(f"{ollama_host}/api/ps", timeout=5) as resp:
+                for m in json.load(resp).get("models", []):
+                    size, vram = m.get("size", 0), m.get("size_vram", 0)
+                    if size:
+                        env["offloaded_layers"] = (
+                            "all (size_vram == size)" if vram == size
+                            else ("none (size_vram == 0)" if vram == 0 else "partial")
+                        )
+                        env["offloaded_layers_source"] = "api_ps_vram"
+                    break
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+    return env
+
+
 def build_pins(
     *,
     dataset_file: str,
     dataset_sha256: str,
     system: str,
     limit: int | None,
+    sample_strategy: str,
+    sample_seed: int,
     reader_model: str,
     reader_digest: str | None,
     reader_num_ctx: int,
@@ -107,6 +192,10 @@ def build_pins(
         "dataset_sha256": dataset_sha256,
         "system": system,
         "limit": limit,
+        # Which questions were selected is part of the number: a file-order
+        # slice and a stratified slice of the same size are different benchmarks.
+        "sample_strategy": sample_strategy,
+        "sample_seed": sample_seed,
         "reader_model": reader_model,
         "reader_digest": reader_digest,
         "reader_num_ctx": reader_num_ctx,
