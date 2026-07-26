@@ -319,7 +319,9 @@ def main(argv: list[str] | None = None) -> int:
         "abstention_questions": sum(1 for r in results if r.is_abstention),
         # Diagnostic only — never folded into pins_hash (see capture_environment).
         "environment": artifacts.capture_environment(
-            ollama_host=OLLAMA_HOST, serve_log=os.environ.get("OLLAMA_SERVE_LOG")
+            ollama_host=OLLAMA_HOST,
+            serve_log=artifacts.default_serve_log(),
+            save_log_to=directory / "model_load.log",
         ),
     }
     provisional = _provisional_reasons(pins)

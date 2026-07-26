@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import urllib.error
@@ -70,8 +71,70 @@ def harness_git_sha() -> str | None:
     return f"{sha}-dirty" if _git("status", "--porcelain") else sha
 
 
+def default_serve_log() -> str | None:
+    """Best guess at the Ollama server log, if one is being written."""
+    explicit = os.environ.get("OLLAMA_SERVE_LOG")
+    if explicit:
+        return explicit
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidate = Path(local) / "Ollama" / "server.log"
+        if candidate.exists():
+            return str(candidate)
+    home = Path.home() / ".ollama" / "logs" / "server.log"
+    return str(home) if home.exists() else None
+
+
+def _parse_daemon_env(log_text: str) -> dict:
+    """OLLAMA_* settings the *daemon* actually resolved.
+
+    Ollama logs its effective configuration once at startup as
+    ``msg="server config" env="map[K:V K:V ...]"``. That is the daemon's view,
+    which is the one that matters — the client process can hold entirely
+    different values and frequently does (a variable set after the daemon
+    started, or a process-scoped override, is invisible to the running server).
+    """
+    matches = re.findall(r'env="map\[(.*?)\]"', log_text, re.S)
+    if not matches:
+        return {}
+    out: dict = {}
+    # Space-separated K:V pairs; values may be empty, and may contain ':'.
+    for token in re.findall(r"(\w+):((?:[^\s]|\s(?!\w+:))*)", matches[-1]):
+        key, value = token[0], token[1].strip()
+        if key.startswith("OLLAMA_"):
+            # The log escapes backslashes, so a Windows path arrives doubled.
+            # Unescaped here so the recorded value is the real path and a
+            # comparison against the client's value is not pure noise.
+            out[key] = value.replace("\\\\", "\\")
+    return out
+
+
+def _norm_env_value(value: str) -> str:
+    """Comparison form for an env value: escaping, separators and case folded.
+
+    Without this, every Windows path looks like a client/daemon mismatch and
+    the mismatch field is worthless precisely where it matters.
+    """
+    return value.replace("\\\\", "\\").replace("/", "\\").rstrip("\\").casefold()
+
+
+def _tail_model_load(log_text: str) -> str:
+    """The most recent model-load block, verbatim.
+
+    Bounded to the last load so the artifact records what produced *this* run
+    rather than the whole file's history.
+    """
+    starts = [m.start() for m in re.finditer(r"starting llama server|load_tensors:", log_text)]
+    if not starts:
+        return ""
+    block = log_text[starts[-1] if len(starts) < 2 else starts[-2] :]
+    return block[:200_000]
+
+
 def capture_environment(
-    ollama_host: str = "http://localhost:11434", serve_log: str | None = None
+    ollama_host: str = "http://localhost:11434",
+    serve_log: str | None = None,
+    save_log_to: Path | None = None,
 ) -> dict:
     """Diagnostic snapshot of the machine that produced a run.
 
@@ -81,6 +144,14 @@ def capture_environment(
     configuration, which destroys the ability to compare runs at all. They are
     recorded so a surprising number can be investigated, not so it can be
     invalidated. ``tests/test_artifacts.py`` asserts they stay out of the hash.
+
+    The load-time toggles below exist because of a real, still-unexplained
+    drift: an identical request under an identical ``pins_hash`` and identical
+    model digest produced different output after the model store moved and the
+    daemon restarted. These are the unpinned knobs most likely to account for
+    it. Capturing them costs nothing now and cannot be reconstructed later, so
+    a second occurrence becomes a diff of two run blocks instead of another
+    blind bisection.
     """
     env: dict = {
         "gpu_model": None,
@@ -89,6 +160,23 @@ def capture_environment(
         "ollama_version": None,
         "offloaded_layers": None,
         "offloaded_layers_source": None,
+        # Client vs daemon are recorded separately and never merged: when they
+        # disagree, the disagreement is itself the finding.
+        "ollama_env_client": {},
+        "ollama_env_daemon": {},
+        "ollama_env_mismatch": None,
+        # Resolved, not requested: "flash_attn = auto" is a request, "Flash
+        # Attention enabled" is what actually happened.
+        "flash_attention_reported": None,
+        "kv_cache_type": None,
+        "model_blob_path": None,
+        "runner_cmd": None,
+        "serve_log_path": serve_log,
+        "model_load_log": None,
+    }
+
+    env["ollama_env_client"] = {
+        k: v for k, v in sorted(os.environ.items()) if k.startswith("OLLAMA_")
     }
 
     try:
@@ -127,12 +215,88 @@ def capture_environment(
     if serve_log and Path(serve_log).exists():
         try:
             text = Path(serve_log).read_text(encoding="utf-8", errors="ignore")
+
             hits = re.findall(r"offloaded (\d+)/(\d+) layers to GPU", text)
             if hits:
                 env["offloaded_layers"] = f"{hits[-1][0]}/{hits[-1][1]}"
                 env["offloaded_layers_source"] = "server_log"
+
+            env["ollama_env_daemon"] = _parse_daemon_env(text)
+
+            # Resolved flash-attention state. Prefer the outcome line over the
+            # request line; record whichever is present so "auto" is never
+            # mistaken for a resolution.
+            fa = re.findall(r"Flash Attention (enabled|disabled)", text)
+            if fa:
+                env["flash_attention_reported"] = f"Flash Attention {fa[-1]}"
+            else:
+                fa_req = re.findall(r"flash_attn\s*=\s*(\S+)", text)
+                if fa_req:
+                    env["flash_attention_reported"] = (
+                        f"requested flash_attn={fa_req[-1]} (no resolution logged)"
+                    )
+
+            kv = re.findall(
+                r"(type_k\s*=\s*\S+.*?type_v\s*=\s*\S+|KV cache type[^\n]*|"
+                r"kv_cache_type[^\n]*|K \([^)]*\), V \([^)]*\))",
+                text,
+            )
+            if kv:
+                env["kv_cache_type"] = f"{kv[-1].strip()} (from load log)"
+
+            # Matched separately, not as an alternation: "starting llama server"
+            # appears earlier on the same line and would swallow the match
+            # before the cmd= capture group is ever reached.
+            cmds = re.findall(r'cmd="([^"]*)"', text)
+            if cmds:
+                env["runner_cmd"] = cmds[-1].strip()[:4000]
+            else:
+                fallback = re.findall(r"starting llama server[^\n]*", text)
+                if fallback:
+                    env["runner_cmd"] = fallback[-1].strip()[:4000]
+
+            blobs = re.findall(r"(--model\s+(\S+)|from\s+(\S*blobs[\\/]sha256-\S+))", text)
+            if blobs:
+                last_blob = blobs[-1]
+                env["model_blob_path"] = (last_blob[1] or last_blob[2] or "").strip()
+
+            # Verbatim load log: saved beside the run when a destination exists
+            # (keeps results.json readable), inlined otherwise so it is never
+            # simply lost.
+            block = _tail_model_load(text)
+            if block:
+                if save_log_to is not None:
+                    try:
+                        save_log_to.parent.mkdir(parents=True, exist_ok=True)
+                        save_log_to.write_text(block, encoding="utf-8")
+                        env["model_load_log"] = f"see {save_log_to.name}"
+                    except OSError:
+                        env["model_load_log"] = block
+                else:
+                    env["model_load_log"] = block
         except OSError:
             pass
+
+    # Not every Ollama build logs the KV cache type at load. When it does not,
+    # fall back to the daemon's configured value and say so, rather than
+    # recording None and losing the setting entirely.
+    if env["kv_cache_type"] is None and env["ollama_env_daemon"]:
+        configured = env["ollama_env_daemon"].get("OLLAMA_KV_CACHE_TYPE", "")
+        env["kv_cache_type"] = (
+            f"OLLAMA_KV_CACHE_TYPE={configured or 'unset (build default)'} "
+            "(from daemon config; not stated in load log)"
+        )
+
+    if env["ollama_env_daemon"]:
+        shared = set(env["ollama_env_client"]) & set(env["ollama_env_daemon"])
+        differing = sorted(
+            k for k in shared
+            if _norm_env_value(str(env["ollama_env_client"][k]))
+            != _norm_env_value(str(env["ollama_env_daemon"][k]))
+        )
+        env["ollama_env_mismatch"] = differing or "none"
+    else:
+        env["ollama_env_mismatch"] = "daemon env unavailable (no server config in log)"
     if env["offloaded_layers"] is None:
         try:
             with urllib.request.urlopen(f"{ollama_host}/api/ps", timeout=5) as resp:

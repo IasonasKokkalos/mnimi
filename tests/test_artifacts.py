@@ -90,20 +90,135 @@ def test_prompt_hashes_track_the_real_prompt_text():
     assert judge_prompt_hash() != reader_prompt_hash()
 
 
-def test_environment_capture_never_enters_pins_hash():
+ENV_FIELDS = (
+    "gpu_model", "driver_version", "cuda_version", "ollama_version",
+    "offloaded_layers", "offloaded_layers_source",
+    "ollama_env_client", "ollama_env_daemon", "ollama_env_mismatch",
+    "flash_attention_reported", "kv_cache_type", "model_blob_path",
+    "runner_cmd", "serve_log_path", "model_load_log",
+)
+
+# A realistic slice of an Ollama server log, including the daemon's own config
+# line, the resolved flash-attention state, and the runner command. Forward
+# slashes keep the fixture free of backslash-escaping ambiguity.
+MODELS_DIR = "D:/ollama-models"
+FAKE_SERVE_LOG = (
+    'time=2026-07-26T10:11:58Z level=INFO source=routes.go:2054 msg="server config" '
+    'env="map[HTTP_PROXY: OLLAMA_DEBUG:false OLLAMA_FLASH_ATTENTION:true '
+    f'OLLAMA_KV_CACHE_TYPE:q8_0 OLLAMA_MODELS:{MODELS_DIR} OLLAMA_NUM_PARALLEL:1]"\n'
+    'time=2026-07-26T10:12:00Z level=INFO msg="starting llama server" '
+    f'cmd="ollama runner --model {MODELS_DIR}/blobs/sha256-635e70c8 '
+    '--ctx-size 32768 --batch-size 512"\n'
+    "load_tensors: loading model tensors, this can take a while...\n"
+    "llama_context: flash_attn    = auto\n"
+    "llama_context: Flash Attention enabled\n"
+    "llama_kv_cache: type_k = f16, type_v = f16\n"
+    "load_tensors: offloaded 29/29 layers to GPU\n"
+)
+
+
+def test_environment_capture_never_enters_pins_hash(tmp_path):
     """CHANGE 4: env fields are diagnostic. If they hashed, every machine would
     look like a different configuration and no two runs could be compared."""
-    env = artifacts.capture_environment(ollama_host="http://127.0.0.1:1")  # unreachable
+    log = tmp_path / "serve.log"
+    log.write_text(FAKE_SERVE_LOG, encoding="utf-8")
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1",  # unreachable on purpose
+        serve_log=str(log),
+        save_log_to=tmp_path / "model_load.log",
+    )
     # Shape is stable even with nothing reachable — absence is recorded, not faked.
-    for key in ("gpu_model", "driver_version", "cuda_version",
-                "ollama_version", "offloaded_layers", "offloaded_layers_source"):
-        assert key in env
+    for key in ENV_FIELDS:
+        assert key in env, f"missing diagnostic field {key}"
 
     pins = _pins()
     baseline = artifacts.pins_hash(pins)
-    # Env keys must not be pin keys, and injecting them must not change the hash.
+    # Every env key — including the ones added for the drift investigation —
+    # must be absent from pins, and a populated capture must not move the hash.
     assert not (set(env) & set(pins)), "environment leaked into pins"
     assert artifacts.pins_hash(_pins()) == baseline
+    # Populated, not merely present: this is the case that would catch a leak.
+    assert env["ollama_env_daemon"], "daemon env should parse from the log"
+    assert artifacts.pins_hash({**pins}) == baseline
+
+
+def test_environment_capture_reads_resolved_load_state(tmp_path):
+    """Resolved values, not requested ones, and the daemon's own OLLAMA_* view."""
+    log = tmp_path / "serve.log"
+    log.write_text(FAKE_SERVE_LOG, encoding="utf-8")
+    saved = tmp_path / "model_load.log"
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log), save_log_to=saved
+    )
+
+    # flash_attn was "auto"; the resolution is what gets recorded.
+    assert env["flash_attention_reported"] == "Flash Attention enabled"
+    assert "f16" in env["kv_cache_type"]
+    assert "load log" in env["kv_cache_type"], "source of the value must be stated"
+    assert "sha256-635e70c8" in env["model_blob_path"]
+    assert "--ctx-size 32768" in env["runner_cmd"]
+    assert env["offloaded_layers"] == "29/29"
+    assert env["offloaded_layers_source"] == "server_log"
+
+    # Daemon-side OLLAMA_* parsed from the server's own config line.
+    daemon = env["ollama_env_daemon"]
+    assert daemon["OLLAMA_FLASH_ATTENTION"] == "true"
+    assert daemon["OLLAMA_KV_CACHE_TYPE"] == "q8_0"
+    assert "ollama-models" in daemon["OLLAMA_MODELS"]
+    assert all(k.startswith("OLLAMA_") for k in daemon)
+
+    # Verbatim load log is saved beside the run, with a pointer recorded.
+    assert saved.exists() and "offloaded 29/29" in saved.read_text(encoding="utf-8")
+    assert env["model_load_log"] == "see model_load.log"
+
+
+def test_client_and_daemon_env_mismatch_is_surfaced(tmp_path, monkeypatch):
+    """The C:-vs-D: OLLAMA_MODELS split cost a run; a disagreement must be loud."""
+    log = tmp_path / "serve.log"
+    log.write_text(FAKE_SERVE_LOG, encoding="utf-8")
+    monkeypatch.setenv("OLLAMA_MODELS", "C:/somewhere/else")
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert env["ollama_env_client"]["OLLAMA_MODELS"] == "C:/somewhere/else"
+    assert "OLLAMA_MODELS" in env["ollama_env_mismatch"]
+
+    # Agreement reports "none", not an empty value that reads as missing data.
+    monkeypatch.setenv("OLLAMA_MODELS", MODELS_DIR)
+    env2 = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert env2["ollama_env_mismatch"] == "none"
+
+
+def test_windows_path_escaping_is_not_a_mismatch(tmp_path, monkeypatch):
+    """Regression: the daemon logs backslashes doubled.
+
+    Comparing raw strings reported a mismatch on every Windows path, which
+    would make the mismatch field noise in exactly the case it exists for.
+    """
+    log = tmp_path / "serve.log"
+    log.write_text(
+        'msg="server config" env="map[OLLAMA_MODELS:D:\\\\ollama-models '
+        'OLLAMA_DEBUG:false]"\n',
+        encoding="utf-8",
+    )
+    # Client holds the same path with single separators, as Windows reports it.
+    monkeypatch.setenv("OLLAMA_MODELS", "D:\\ollama-models")
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert env["ollama_env_daemon"]["OLLAMA_MODELS"] == "D:\\ollama-models", (
+        "daemon value should be unescaped when recorded"
+    )
+    assert env["ollama_env_mismatch"] == "none", "same path must not read as a mismatch"
+
+    # A genuinely different drive still registers.
+    monkeypatch.setenv("OLLAMA_MODELS", "C:\\Users\\me\\.ollama\\models")
+    env2 = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert "OLLAMA_MODELS" in env2["ollama_env_mismatch"]
 
 
 def test_sampling_pins_are_part_of_the_hash():
