@@ -36,9 +36,8 @@ class HashingEmbedder:
 
     Tokens are hashed (BLAKE2b, not Python's salted ``hash``) into buckets with a
     sign, summed, and L2-normalized. Lexically similar texts land near each other
-    under cosine/L2 distance. No training, no deps, fully reproducible.
-
-    THIS NEED TO CHANGE.
+    under cosine/L2 distance. No training, no deps, fully reproducible. This is
+    the CI path; real semantic similarity comes from ``BgeSmallEmbedder``.
     """
 
     def __init__(self, dim: int = 256) -> None:
@@ -62,3 +61,61 @@ class HashingEmbedder:
         if norm > 0.0:
             vec /= norm
         return vec.tolist()
+
+
+class BgeSmallEmbedder:
+    """``BAAI/bge-small-en-v1.5`` via ONNX Runtime, revision-pinned.
+
+    Hardcoded for the eval per SPEC — no user-facing model choice. Needs the
+    ``[embed]`` extra (onnxruntime, tokenizers, huggingface_hub); the core
+    import path never touches it. CLS-token pooling per the model card, and
+    vectors are unit-normalized here, inside ``embed()`` — the one normalize
+    boundary any insert or query path is allowed to use.
+    """
+
+    name = "BAAI/bge-small-en-v1.5"
+    revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    _MAX_TOKENS = 512
+
+    def __init__(self) -> None:
+        try:
+            import onnxruntime
+            from huggingface_hub import hf_hub_download
+            from tokenizers import Tokenizer
+        except ImportError as exc:  # pragma: no cover - exercised only without the extra
+            raise ImportError(
+                "BgeSmallEmbedder needs the [embed] extra: pip install mnimi[embed]"
+            ) from exc
+
+        model_path = hf_hub_download(self.name, "onnx/model.onnx", revision=self.revision)
+        tokenizer_path = hf_hub_download(self.name, "tokenizer.json", revision=self.revision)
+        self._session = onnxruntime.InferenceSession(
+            model_path, providers=["CPUExecutionProvider"]
+        )
+        self._input_names = {node.name for node in self._session.get_inputs()}
+        self._output_name = self._session.get_outputs()[0].name
+        self._tokenizer = Tokenizer.from_file(tokenizer_path)
+        self._tokenizer.enable_truncation(max_length=self._MAX_TOKENS)
+        self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+
+    @property
+    def dim(self) -> int:
+        return 384
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        encodings = self._tokenizer.encode_batch(texts)
+        input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
+        attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+        feed = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": np.zeros_like(input_ids),
+        }
+        feed = {name: value for name, value in feed.items() if name in self._input_names}
+        (hidden,) = self._session.run([self._output_name], feed)
+        cls = hidden[:, 0]  # BGE pools the [CLS] token, not the mean
+        norms = np.linalg.norm(cls, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        return (cls / norms).astype(np.float32).tolist()

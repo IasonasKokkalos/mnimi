@@ -29,6 +29,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The real embedder (BAAI/bge-small-en-v1.5 via ONNX). Optional so the core
+# stays sqlite-vec + numpy; CI and the default import path use HashingEmbedder.
+embed = [
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+    "huggingface-hub>=0.25",
+]
 # The eval harness (python -m evals) is NOT part of the library. These deps are
 # only needed to run benchmarks, never to use mnimi.
 eval = [
@@ -60,6 +67,9 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "bge: needs the [embed] extra and a ~130MB model download; skipped in CI",
+]
 # Put the repo root on sys.path so tests can import the top-level `evals` package
 # (the library lives under src/ and is installed editable; evals is run in place).
 pythonpath = ["."]
