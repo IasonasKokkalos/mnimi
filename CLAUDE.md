@@ -55,7 +55,11 @@ resolution. Both roles are in extraction scope.
   `temperature=0`, `top_k=1`, fixed seed/threads/batch. Local, pinned, never API.
 - **Embedder:** `BAAI/bge-small-en-v1.5` @ 384-dim, HF revision pinned. Vectors
   unit-normalized inside `embeddings.py`; vec0 uses `distance_metric=L2`.
-  Embedded string is `f"{raw}\n{content}"` — never `content` alone.
+  Embedded string, scoped by era: extraction-era = `f"{raw}\n{content}"`; v1
+  (pre-extraction — no `raw` exists yet) = bare `content`, role as metadata
+  only, never in the vector (a role prefix drags all similarities together and
+  degrades the cosine dedup threshold). Reopens when extraction lands — SPEC
+  CHANGELOG #15.
 - **Ranking:** `score = (w_sim·relevance + w_rec·recency) · salience`, defaults
   `{similarity: 1.0, recency: 0.0}`. Salience is a multiplier, not a term. No
   `access_count` — inert under the eval protocol.
@@ -63,9 +67,12 @@ resolution. Both roles are in extraction scope.
   (0.15): it down-ranks, never excludes.
 - **Benchmark = LongMemEval** (`longmemeval_s`, ~500 questions). The harness in
   `evals/` is the source of truth.
-- **Baselines = no-memory (floor), full-history (ceiling), naive round-RAG (the
-  bar).** mnimi must beat naive-RAG and approach full-history at a fraction of
-  the tokens. Competitor runs (OMEGA first) go through the same harness.
+- **Baselines = no-memory (floor), full-history (truncated-context baseline —
+  NOT a ceiling: at 32K it sees ~23% of each history), oracle (THE ceiling —
+  annotated evidence sessions only, the paper's own choice), naive round-RAG
+  (the bar).** mnimi must beat naive-RAG and approach oracle at a fraction of
+  full-history's tokens. Competitor runs (OMEGA first) go through the same
+  harness.
 - **Harness pins:** reader = local Ollama `qwen2.5:1.5b-instruct-q4_0`
   (`num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`, temp 0,
   `num_ctx=32768`) **plus two daemon-level pins that cannot be sent per request**
@@ -131,8 +138,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 
 - **W3 (Jul 17, 2026):** the read/write loop must beat the naive baselines by a
   repeatable margin. If it does not, stop and rethink the approach. The W3
-  artifact is all four systems (no_memory, full_history, naive_rag, mnimi) on the
-  same stratified slice, same reader, same prompt.
+  artifact is all five systems (no_memory, full_history, oracle, naive_rag,
+  mnimi) on one stratified slice at n≥100, same reader, same prompt, one
+  sitting. n=20 is a smoke test only — it proves the loop closes; smoke numbers
+  never enter a published table (categories sit at n=3-4, one question is 5
+  points). Cost check: full_history ≈ 3.2 min/20q on GPU, so n=100 ≈ 16 min.
 - **W6 (Aug 7, 2026):** either a competitive LongMemEval number, or reframe the
   project as a zero-infra usability play (the "one file, no server" pitch) rather
   than a state-of-the-art accuracy play.
@@ -179,7 +189,8 @@ triple fields, `valid_time`, `system_time`, `memory_meta` guard, the real
 embedder, extraction, dedup, conflict, decay. `models.py` still carries `pinned`
 and `created_at`; `memory.py` stores whole messages and `consolidate()` is a
 stub; the default embedder is a numpy hashing placeholder. `systems/` has only
-`no_memory` and `full_history` — `naive_rag` and `mnimi` ship in one batch.
+`no_memory` and `full_history` — `naive_rag`, `oracle`, and `mnimi` ship in
+one batch.
 
 ## Do not
 

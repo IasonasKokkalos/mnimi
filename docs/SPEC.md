@@ -7,6 +7,25 @@ Storage backend: SQLite + sqlite-vec for v1.
 
 ## CHANGELOG (locked decisions changed, with evidence — newest first)
 
+14. **Oracle retrieval added as the ceiling; full-history demoted to a
+    truncated-context baseline.** The paper's own ceiling is oracle retrieval
+    (§5.5); full-history at the pinned 32K reader context truncated 20/20
+    smoke-slice questions, feeding ~27,210 tokens and dropping ~91,844 — the
+    reader sees ~23% of each history, and the floor-to-"ceiling" band it
+    anchors (10% → 20% at n=20) is too narrow to rank anything inside.
+    `systems/oracle.py` returns only the annotated evidence sessions
+    (`answer_session_ids`, already loaded by `dataset.py`), same reader, same
+    prompt. The W3 artifact is five systems, not four.
+15. **Embedding-input lock scoped by era: `f"{raw}\n{content}"` is the
+    extraction-era template; v1 (pre-extraction) embeds bare `content`, role
+    as metadata only.** v1 has no `raw` field — nothing is extracted; the
+    stored unit is the verbatim round. A `"user: "`/`"assistant: "` prefix in
+    every vector drags all pairwise similarities toward each other, directly
+    degrading the single cosine threshold v1 dedup depends on. When extraction
+    lands the embedded string becomes the extracted fact, not a raw turn — a
+    different input, so the role-in-vector question reopens on its merits at
+    that migration instead of being silently superseded. See §Embedding config
+    for what v1's `embed_template_hash` covers.
 11. **Decay floor added.** Salience decays toward `decay_floor` (default 0.15),
     never to zero; salience 0 is reserved exclusively for superseded records.
     Decay can now only down-rank old evidence, never exclude it — closing the
@@ -552,7 +571,9 @@ config field. Pluggable choice deferred to FUTURE.md.
 - Prior-art note: OMEGA uses the same embedder (bge-small-en-v1.5 via ONNX
   CPU, `cli.py:54-57`) — the embedder is table stakes, not differentiation.
 
-**Embedding input composition (locked):** the embedded string is `raw` +
+**Embedding input composition (locked, scoped by era — CHANGELOG #15).**
+
+*Extraction-era (the target schema):* the embedded string is `raw` +
 `content` concatenated (K=V+fact), NOT content alone. Fact-only keys
 underperform raw+fact on both retrieval and downstream QA across every reader
 tested (LongMemEval Table 3, §5.3). Template, fixed at write time:
@@ -561,11 +582,31 @@ tested (LongMemEval Table 3, §5.3). Template, fixed at write time:
 embed_input = f"{raw}\n{content}"
 ```
 
-- `embeddings.py` embeds `embed_input`; `content` alone is never embedded.
+- `embeddings.py` embeds `embed_input`; `content` alone is never embedded
+  (in this era).
 - `raw` is stored and immutable. On merge, keep the surviving record's `raw`;
   do not concatenate raw spans (unbounded growth).
 - The template string's hash is pinned in the guard so a silent template
   change fails loudly.
+
+*v1 (pre-extraction ingestion):* the template above cannot apply — there is
+no `raw` field because nothing is extracted; the stored unit is the verbatim
+round. **v1 embeds bare `content`. Role is metadata only and never enters
+the embedded string.** Rationale: a `"user: "`/`"assistant: "` prefix in
+every vector drags all pairwise similarities toward each other, which
+directly degrades the single cosine threshold (`dedup_cosine_threshold`)
+that v1 dedup depends on.
+
+- v1's `embed_template_hash` pins the bare-`content` v1 template — there is
+  no `raw` to cover. The extraction-era migration to `f"{raw}\n{content}"`
+  changes the hash and invalidates existing DBs for comparability. That is
+  the guard working as designed: versioned migration + re-ingest, never an
+  in-place edit.
+- When extraction lands, the embedded string is the **extracted fact**, not
+  a raw turn — a different input distribution. The role-in-vector question
+  therefore reopens on its merits at that migration (the schema above, with
+  role-prefixed `raw`, is the standing position until measured evidence says
+  otherwise) — it is not silently superseded in either direction.
 
 **vec0 schema:**
 ```sql
@@ -617,12 +658,22 @@ identically for every system so results are comparable.
 - Question date is passed to the reader ("Today's date is {question_date}") —
   temporal questions are unanswerable without it.
 
-**Locked baselines:**
-- No-memory (question only) — floor.
+**Locked baselines — the full set, roles marked (CHANGELOG #14):**
+- No-memory (question only) — the floor.
+- Full-history — the entire history stuffed into the reader context. A
+  truncated-context baseline, **not** the ceiling: at the pinned 32K context
+  it truncates every smoke-slice question (20/20) and the reader sees ~23%
+  of each history. It measures what naive context-stuffing buys, not what
+  is achievable.
+- Oracle retrieval — **the ceiling**, the paper's own choice (§5.5). Context
+  = only the annotated evidence sessions (`answer_session_ids`), same
+  reader, same prompt: the score a perfect retriever would get under this
+  reader.
 - Naive round-RAG: rounds stored verbatim, K=V, same retriever, same k, same
-  reader, same prompt. This is the paper's strong baseline (Table 3, K=V
-  rows) and the W3 kill-gate bar: mnimi's write-side policy must beat it by a
-  repeatable margin or the thesis fails.
+  reader, same prompt, ingestion granularity identical to mnimi's. This is
+  the paper's strong baseline (Table 3, K=V rows) and the W3 kill-gate bar:
+  mnimi's write-side policy must beat it by a repeatable margin or the
+  thesis fails.
 - Competitor runs (OMEGA first — the only other in-scope system) go through
   this same harness, same reader, same prompt. Note in methodology: OMEGA has
   no raw-chat ingestion path, so the comparison requires an ingestion

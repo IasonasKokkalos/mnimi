@@ -12,7 +12,9 @@ Locked choices and why. Append-only; supersede, don't delete.
 - **Benchmark = LongMemEval (`longmemeval_s`, ~500 questions).** The harness is
   the source of truth for every claim.
 - **Baselines = no-memory, full-history, naive-RAG.** Floor, ceiling, and the bar
-  mnimi must clear.
+  mnimi must clear. *(Superseded 2026-07-28: oracle retrieval added as the
+  ceiling; full-history demoted to a truncated-context baseline — see "Oracle is
+  the ceiling" below.)*
 - **Eval loader uses `huggingface-hub`, not `datasets`.** The dataset's nested
   `haystack_sessions` breaks the HF Arrow viewer; we download the raw
   `longmemeval_s_cleaned.json` via `hf_hub_download` and parse with stdlib `json`.
@@ -165,3 +167,34 @@ figure. That is verdict-cache bookkeeping against predictions of unknown
 provenance, not a controlled comparison. When quoting a reproducibility number,
 check `run.stage` first: only `stage='all'` (or a fresh `predict`) re-runs the
 reader, and only that can measure reader drift.
+
+## Oracle is the ceiling; full-history is not (2026-07-28)
+
+**Decision:** add `systems/oracle.py` and label it **the ceiling** — the
+paper's own choice for the role (§5.5). Oracle's context is only the annotated
+evidence sessions (`answer_session_ids`, which `dataset.py` already loads and
+never uses), through the same reader and the same prompt: the score a perfect
+retriever would get. full_history is relabelled a **truncated-context
+baseline** everywhere it was called a ceiling.
+
+**Why full-history cannot be the ceiling:** at the pinned 32K reader context
+it truncated 20/20 smoke-slice questions — ~27,210 tokens fed, ~91,844
+dropped, so the reader saw ~23% of each history. The band it anchored (floor
+10% → "ceiling" 20% at n=20) was about two questions wide; nothing can be
+ranked inside it. A "ceiling" that truncates measures the context window, not
+achievable accuracy.
+
+Oracle is ~20 lines over data already loaded, produces small contexts, and is
+near-free to run. The W3 artifact becomes five systems (no_memory,
+full_history, oracle, naive_rag, mnimi-v1) on one stratified slice.
+
+## Sample size: n=20 is smoke, n=100+ is evidence (2026-07-28)
+
+**Decision:** n=20 runs prove the loop closes and nothing else. Their numbers
+never appear in a published table: the six categories sit at n=3-4 each, so a
+single question moves a category cell by 25-33 points (and the overall score
+by 5).
+
+The evidence table is **n≥100 on one stratified slice, all five systems, one
+sitting**. Cost, measured: full_history ≈ 3.2 min per 20 questions on GPU, so
+n=100 ≈ 16 min for the most expensive system — affordable.
