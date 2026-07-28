@@ -41,6 +41,3 @@ class MemoryRecord:
 
     supersedes: int | None = None
     """Id of a memory this one replaces (conflict resolution / updates)."""
-
-    pinned: bool = False
-    """If true, never decayed or consolidated away."""

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from mnimi.embeddings import HashingEmbedder
@@ -77,6 +79,20 @@ def test_search_surfaces_cosine_similarity(tmp_path):
     assert cos_first == pytest.approx(1.0, abs=1e-6)
     assert second.content == "offset"
     assert cos_second == pytest.approx(0.6, abs=1e-6)
+
+
+def test_pinned_is_gone_but_salience_and_supersedes_stay(tmp_path):
+    """`pinned` is spec'd dead (no producer). salience/supersedes stay, inert —
+    there is no migration system, so re-adding a column later means a
+    hand-written ALTER."""
+    fields = {field.name for field in dataclasses.fields(MemoryRecord)}
+    assert "pinned" not in fields
+    assert {"salience", "supersedes"} <= fields
+
+    store = _open(tmp_path / "mem.db")
+    columns = {row["name"] for row in store.db.execute("PRAGMA table_info(memories)")}
+    assert "pinned" not in columns
+    assert {"salience", "supersedes"} <= columns
 
 
 def test_vec0_ddl_pins_distance_metric_explicitly(tmp_path):

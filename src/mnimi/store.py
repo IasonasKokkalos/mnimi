@@ -108,8 +108,7 @@ class Store:
                 created_at TEXT    NOT NULL,
                 salience   REAL    NOT NULL DEFAULT 1.0,
                 source     TEXT    NOT NULL DEFAULT 'message',
-                supersedes INTEGER,
-                pinned     INTEGER NOT NULL DEFAULT 0
+                supersedes INTEGER
             )
             """
         )
@@ -135,8 +134,8 @@ class Store:
         cur = self.db.execute(
             """
             INSERT INTO memories
-                (user_id, content, created_at, salience, source, supersedes, pinned)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (user_id, content, created_at, salience, source, supersedes)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 record.user_id,
@@ -145,7 +144,6 @@ class Store:
                 record.salience,
                 record.source,
                 record.supersedes,
-                int(record.pinned),
             ),
         )
         record.id = int(cur.lastrowid)
@@ -176,7 +174,7 @@ class Store:
                 WHERE embedding MATCH ? AND k = ?
             )
             SELECT m.id, m.user_id, m.content, m.created_at, m.salience,
-                   m.source, m.supersedes, m.pinned, knn.distance
+                   m.source, m.supersedes, knn.distance
             FROM knn
             JOIN memories m ON m.id = knn.memory_id
             WHERE m.user_id = ?
@@ -213,5 +211,4 @@ class Store:
             salience=row["salience"],
             source=row["source"],
             supersedes=row["supersedes"],
-            pinned=bool(row["pinned"]),
         )
