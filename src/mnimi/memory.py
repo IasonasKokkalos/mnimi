@@ -36,19 +36,25 @@ class Memory:
         )
 
     def add(self, messages, user_id: str) -> None:
-        """Write path: store each entry unless dedup says it is already known.
+        """Write path: one record per user+assistant round, deduped.
+
+        ``messages`` is ``list[dict]`` with ``role`` / ``content`` / ``ts`` —
+        nothing else. Granularity is per-round (a user turn and its assistant
+        reply), which must match ``naive_rag`` exactly or the comparison is
+        confounded. The session date is folded into content so it reaches the
+        reader; role stays metadata and never enters the embedded string.
 
         v1 dedup is exact-normalize collapse followed by ONE cosine-threshold
         probe against the store. No negation screen, no entropy gate — those
         arrive with extraction, post-v1.
         """
-        entries = _messages_to_texts(messages)
-        if not entries:
+        rounds = _messages_to_rounds(messages)
+        if not rounds:
             return
         seen = {_normalize(content) for content in self.store.contents(user_id)}
-        embeddings = self.embedder.embed([text for text, _ in entries])
-        for (text, ts), embedding in zip(entries, embeddings, strict=True):
-            normalized = _normalize(text)
+        embeddings = self.embedder.embed([content for content, _, _ in rounds])
+        for (content, roles, ts), embedding in zip(rounds, embeddings, strict=True):
+            normalized = _normalize(content)
             if normalized in seen:
                 continue
             hits = self.store.search(embedding, user_id=user_id, k=1)
@@ -57,10 +63,10 @@ class Memory:
             self.store.insert(
                 MemoryRecord(
                     user_id=user_id,
-                    content=text,
+                    content=content,
                     embedding=embedding,
                     created_at=ts,
-                    source="message",
+                    source=roles,
                 )
             )
             seen.add(normalized)
@@ -90,27 +96,53 @@ def _normalize(text: str) -> str:
     return " ".join(_PUNCT_RE.sub("", text.lower()).split())
 
 
-def _messages_to_texts(messages) -> list[tuple[str, str | None]]:
-    """Normalise the shapes ``add`` might be handed into ``(text, ts)`` pairs.
+def _messages_to_rounds(messages) -> list[tuple[str, str, str | None]]:
+    """Group ``{"role", "content", "ts"}`` dicts into per-round records.
 
-    Accepts a bare string, a list of strings, or a list of
-    ``{"role", "content", "ts"}`` message dicts (the LongMemEval turn shape).
-    Only dicts can carry a ``ts``; the store refuses records without one.
+    Returns ``(content, roles, ts)`` per round: a user turn paired with the
+    assistant reply that follows it, or a solo turn when no pairing exists.
+    Content carries the folded session date (reader-visible; temporal questions
+    die without it) and NO role labels — role is metadata, the embedded string
+    is bare content (SPEC CHANGELOG #15). ``ts`` comes from the round's first
+    turn and is the record's only clock.
     """
-    if isinstance(messages, str):
-        return [(messages, None)] if messages.strip() else []
-
-    entries: list[tuple[str, str | None]] = []
+    if not isinstance(messages, list):
+        raise TypeError(
+            f"add() takes list[dict] messages, got {type(messages).__name__}"
+        )
+    turns: list[dict] = []
     for message in messages:
-        if isinstance(message, dict):
-            content = str(message.get("content", "")).strip()
-            if not content:
-                continue
-            role = message.get("role")
-            text = f"{role}: {content}" if role else content
-            entries.append((text, message.get("ts")))
+        if not isinstance(message, dict):
+            raise TypeError(
+                "add() takes list[dict] messages with 'role'/'content'/'ts', "
+                f"got a list containing {type(message).__name__}"
+            )
+        if str(message.get("content", "")).strip():
+            turns.append(message)
+
+    rounds: list[tuple[str, str, str | None]] = []
+    index = 0
+    while index < len(turns):
+        turn = turns[index]
+        follower = turns[index + 1] if index + 1 < len(turns) else None
+        if (
+            turn.get("role") == "user"
+            and follower is not None
+            and follower.get("role") == "assistant"
+        ):
+            batch = [turn, follower]
         else:
-            text = str(message).strip()
-            if text:
-                entries.append((text, None))
-    return entries
+            batch = [turn]
+        index += len(batch)
+
+        ts = batch[0].get("ts")
+        text = "\n".join(str(t["content"]).strip() for t in batch)
+        content = f"[Session date: {_date_of(ts)}] {text}" if ts else text
+        roles = "+".join(str(t.get("role")) for t in batch)
+        rounds.append((content, roles, ts))
+    return rounds
+
+
+def _date_of(ts: str) -> str:
+    """The date part of an ISO timestamp; the fold is a date, not a time."""
+    return ts.split("T")[0].split(" ")[0]
