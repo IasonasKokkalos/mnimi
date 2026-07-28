@@ -8,10 +8,14 @@ public surface stays at four methods regardless.
 
 from __future__ import annotations
 
+import re
+
 from .config import MemoryConfig
 from .embeddings import Embedder
 from .models import MemoryRecord
 from .store import Store
+
+_PUNCT_RE = re.compile(r"[^\w\s]")
 
 _DEFAULT_CONFIG = MemoryConfig()
 
@@ -32,16 +36,24 @@ class Memory:
         )
 
     def add(self, messages, user_id: str) -> None:
-        """Write path. Thin today: store each message's text as a memory.
+        """Write path: store each entry unless dedup says it is already known.
 
-        Real extraction / dedup / salience scoring will replace this body without
-        changing the signature.
+        v1 dedup is exact-normalize collapse followed by ONE cosine-threshold
+        probe against the store. No negation screen, no entropy gate — those
+        arrive with extraction, post-v1.
         """
         entries = _messages_to_texts(messages)
         if not entries:
             return
+        seen = {_normalize(content) for content in self.store.contents(user_id)}
         embeddings = self.embedder.embed([text for text, _ in entries])
         for (text, ts), embedding in zip(entries, embeddings, strict=True):
+            normalized = _normalize(text)
+            if normalized in seen:
+                continue
+            hits = self.store.search(embedding, user_id=user_id, k=1)
+            if hits and hits[0][1] >= self.config.dedup_cosine_threshold:
+                continue
             self.store.insert(
                 MemoryRecord(
                     user_id=user_id,
@@ -51,6 +63,7 @@ class Memory:
                     source="message",
                 )
             )
+            seen.add(normalized)
 
     def recall(self, query: str, user_id: str) -> list[MemoryRecord]:
         """Raw retrieval: the nearest stored memories, no assembly."""
@@ -70,6 +83,11 @@ class Memory:
         write-side policy will live.
         """
         return None
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace — the exact-dup key."""
+    return " ".join(_PUNCT_RE.sub("", text.lower()).split())
 
 
 def _messages_to_texts(messages) -> list[tuple[str, str | None]]:

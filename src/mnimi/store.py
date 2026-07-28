@@ -193,6 +193,13 @@ class Store:
             (self._row_to_record(row), 1.0 - (row["distance"] ** 2) / 2.0) for row in rows[:k]
         ]
 
+    def contents(self, user_id: str) -> list[str]:
+        """All stored content strings for a user — feeds dedup's exact screen."""
+        rows = self.db.execute(
+            "SELECT content FROM memories WHERE user_id = ?", (user_id,)
+        ).fetchall()
+        return [row["content"] for row in rows]
+
     def count(self, user_id: str | None = None) -> int:
         """Number of stored memories, optionally scoped to a user."""
         if user_id is None:
