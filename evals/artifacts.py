@@ -145,13 +145,19 @@ def capture_environment(
     recorded so a surprising number can be investigated, not so it can be
     invalidated. ``tests/test_artifacts.py`` asserts they stay out of the hash.
 
-    The load-time toggles below exist because of a real, still-unexplained
-    drift: an identical request under an identical ``pins_hash`` and identical
-    model digest produced different output after the model store moved and the
-    daemon restarted. These are the unpinned knobs most likely to account for
-    it. Capturing them costs nothing now and cannot be reconstructed later, so
-    a second occurrence becomes a diff of two run blocks instead of another
-    blind bisection.
+    The load-time toggles below exist because of a real drift: an identical
+    request under an identical ``pins_hash`` and identical model digest produced
+    different output after the model store moved and the daemon restarted. That
+    drift is now RESOLVED — flash attention and the llama.cpp prompt cache, both
+    since promoted to pins (see ``runner.READER_FLASH_ATTENTION`` /
+    ``READER_CACHE_RAM``) — and these fields are what made the diagnosis
+    possible, so they stay. They remain diagnostics rather than pins: they
+    describe the machine, and the two settings that describe the *configuration*
+    now live in ``build_pins`` where a mismatch changes ``pins_hash``.
+
+    ``prompt_cache_reported`` follows the same requested-vs-resolved discipline
+    that caught flash attention: the daemon prints its own cache limit, and that
+    printed limit — not the env var that asked for it — is what gets recorded.
     """
     env: dict = {
         "gpu_model": None,
@@ -168,6 +174,10 @@ def capture_environment(
         # Resolved, not requested: "flash_attn = auto" is a request, "Flash
         # Attention enabled" is what actually happened.
         "flash_attention_reported": None,
+        # Resolved prompt-cache limit as the daemon printed it. "0.000 MiB" is
+        # the disabled state this harness requires; anything else means a
+        # prediction can depend on which request preceded it.
+        "prompt_cache_reported": None,
         "kv_cache_type": None,
         "model_blob_path": None,
         "runner_cmd": None,
@@ -226,15 +236,35 @@ def capture_environment(
             # Resolved flash-attention state. Prefer the outcome line over the
             # request line; record whichever is present so "auto" is never
             # mistaken for a resolution.
-            fa = re.findall(r"Flash Attention (enabled|disabled)", text)
-            if fa:
+            # `flash_attn = enabled|disabled` IS a resolution; only `auto` is an
+            # unresolved request, and `auto` means the daemon was launched
+            # without OLLAMA_FLASH_ATTENTION — i.e. very likely the tray app.
+            # Precedence: an explicit `flash_attn = enabled|disabled` is itself a
+            # resolution; `auto` is not, and is resolved only by the later fused-
+            # ops line. `auto` surviving with no resolution means the daemon
+            # started without OLLAMA_FLASH_ATTENTION at all.
+            fa = re.findall(r"flash_attn\s*=\s*(\S+)", text)
+            fused = re.findall(r"Flash Attention (enabled|disabled)", text)
+            if fa and fa[-1] in {"enabled", "disabled"}:
                 env["flash_attention_reported"] = f"Flash Attention {fa[-1]}"
-            else:
-                fa_req = re.findall(r"flash_attn\s*=\s*(\S+)", text)
-                if fa_req:
-                    env["flash_attention_reported"] = (
-                        f"requested flash_attn={fa_req[-1]} (no resolution logged)"
-                    )
+            elif fused:
+                env["flash_attention_reported"] = f"Flash Attention {fused[-1]}"
+            elif fa:
+                env["flash_attention_reported"] = (
+                    f"requested flash_attn={fa[-1]} (unresolved — daemon started "
+                    "without OLLAMA_FLASH_ATTENTION)"
+                )
+
+            # Resolved prompt-cache limit, e.g.
+            #   cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, ...)
+            cache = re.findall(r"cache state:[^(]*\(limits:\s*([0-9.]+)\s*MiB", text)
+            if cache:
+                limit = float(cache[-1])
+                env["prompt_cache_reported"] = (
+                    f"prompt cache limit {limit:.3f} MiB"
+                    + (" (disabled)" if limit == 0 else " (ACTIVE — output may "
+                       "depend on the preceding request)")
+                )
 
             kv = re.findall(
                 r"(type_k\s*=\s*\S+.*?type_v\s*=\s*\S+|KV cache type[^\n]*|"
@@ -330,6 +360,8 @@ def build_pins(
     reader_num_gpu: int,
     reader_num_thread: int,
     reader_num_batch: int,
+    reader_flash_attention: int,
+    reader_cache_ram: int,
     reader_prompt_version: str,
     reader_prompt_hash: str,
     judge_model: str,
@@ -368,6 +400,13 @@ def build_pins(
         "reader_num_gpu": reader_num_gpu,
         "reader_num_thread": reader_num_thread,
         "reader_num_batch": reader_num_batch,
+        # Daemon-level, not per-request: both are resolved when the daemon
+        # starts. They are pins because they change the output — FA changed 2/2
+        # probe predictions with cache state held constant, and a live prompt
+        # cache makes a prediction depend on what ran before it. `preflight_
+        # reader_env` asserts the serving daemon actually resolved to these.
+        "reader_flash_attention": reader_flash_attention,
+        "reader_cache_ram": reader_cache_ram,
         "reader_prompt_version": reader_prompt_version,
         "reader_prompt_hash": reader_prompt_hash,
         "judge_model": judge_model,

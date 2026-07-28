@@ -76,6 +76,38 @@ def ollama_preflight(model: str) -> tuple[str | None, str | None]:
     return None, match.get("digest")
 
 
+def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
+    """Load the model so the daemon logs its resolved settings.
+
+    Uses the run's real ``num_ctx``/``num_gpu``: loading under different values
+    would make the daemon log a configuration the run does not use, and would
+    force a second load when the first real question arrives.
+    """
+    try:
+        _ollama_post(
+            "/api/generate",
+            {
+                "model": model,
+                "prompt": "ready",
+                "stream": False,
+                "options": {"num_predict": 1, "num_ctx": num_ctx, "num_gpu": num_gpu},
+            },
+        )
+    except (urllib.error.URLError, OSError, ValueError):
+        pass  # preflight_reader_env reports the missing log far more usefully
+
+
+def _recent_model_load_log() -> str:
+    """Tail of the daemon's serve log covering the most recent model load."""
+    path = artifacts.default_serve_log()
+    if not path:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")[-400_000:]
+    except OSError:
+        return ""
+
+
 def ollama_context_length(model: str) -> int | None:
     """Best-effort declared context length from /api/show, for visibility only."""
     try:
@@ -171,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     from .judge_cache import JudgeCache
     from .report import print_report
     from .runner import (
+        READER_CACHE_RAM,
+        READER_FLASH_ATTENTION,
         READER_NUM_BATCH,
         READER_NUM_GPU,
         READER_NUM_THREAD,
@@ -178,8 +212,10 @@ def main(argv: list[str] | None = None) -> int:
         READER_SEED,
         READER_TOP_K,
         Prediction,
+        ReaderEnvError,
         judge_predictions,
         predict,
+        preflight_reader_env,
         reader_prompt_hash,
     )
 
@@ -212,6 +248,19 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         declared_ctx = ollama_context_length(args.model)
 
+        # The daemon only reports its resolved flash-attention and prompt-cache
+        # settings when it loads a model, so force the load the run needs anyway
+        # and then assert the serving daemon is the one the pins describe. A run
+        # served by the tray app's daemon carries `flash_attn = auto` and a live
+        # prompt cache, which is a different configuration wearing this
+        # configuration's pins_hash.
+        try:
+            _force_model_load(args.model, args.num_ctx, num_gpu)
+            preflight_reader_env(_recent_model_load_log())
+        except ReaderEnvError as exc:
+            print(f"ERROR: reader environment does not match pins: {exc}", file=sys.stderr)
+            return 2
+
     started = time.perf_counter()
 
     if do_predict:
@@ -231,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
             reader_num_gpu=num_gpu,
             reader_num_thread=READER_NUM_THREAD,
             reader_num_batch=READER_NUM_BATCH,
+            reader_flash_attention=READER_FLASH_ATTENTION,
+            reader_cache_ram=READER_CACHE_RAM,
             reader_prompt_version=READER_PROMPT_VERSION,
             reader_prompt_hash=reader_prompt_hash(),
             judge_model=args.judge_model,
@@ -365,6 +416,11 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
         file=sys.stderr,
     )
     print(
+        f"reader daemon:    flash_attn={pins.get('reader_flash_attention')} "
+        f"cache_ram={pins.get('reader_cache_ram')} (verified resolved at preflight)",
+        file=sys.stderr,
+    )
+    print(
         f"judge (literal):  {pins.get('judge_model')}  prompts="
         f"{pins.get('judge_prompt_version')} ({str(pins.get('judge_prompt_hash'))[:12]}...)",
         file=sys.stderr,
@@ -380,9 +436,15 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
 
 def _provisional_reasons(pins: dict) -> list[str]:
     """Why this artifact is not yet a publishable number. Empty list = it is."""
-    from .runner import READER_NUM_BATCH, READER_NUM_GPU
+    from .runner import READER_CACHE_RAM, READER_NUM_BATCH, READER_NUM_GPU
 
     reasons = []
+    if pins.get("reader_cache_ram") != READER_CACHE_RAM:
+        reasons.append(
+            f"reader_cache_ram={pins.get('reader_cache_ram')} overrides the pin "
+            f"({READER_CACHE_RAM}) — a live prompt cache makes a prediction "
+            "depend on which request preceded it"
+        )
     if pins.get("reader_prompt_version") != "json-con-v1":
         reasons.append(
             f"reader prompt is {pins.get('reader_prompt_version')} "

@@ -9,6 +9,7 @@ then score the answer with the LLM judge. The reader is a local Ollama model
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -26,10 +27,18 @@ READER_SYSTEM = (
     "information to answer, say you don't know rather than guessing."
 )
 
+# The system message is prefixed with the question id, as the very first text,
+# purely to make the prompt unique per question. This is cache-busting, not
+# instruction: it forces the shared prefix against any other question to zero
+# length so every prefill starts at n_past=0 rather than resuming at whatever
+# offset the previous request left in the slot. See CACHE STATE below.
+READER_SYSTEM_TEMPLATE = "{cache_bust}\n\n" + READER_SYSTEM
+
 # Bumped whenever the reader prompt changes shape. Phase D replaces this with a
 # JSON + Chain-of-Note prompt carrying the question date; the version string and
 # the hash below both move then, which is what makes that swap loud in the header.
-READER_PROMPT_VERSION = "plain-prose-v1"
+# v2: added the per-question cache-bust prefix (see CACHE STATE).
+READER_PROMPT_VERSION = "plain-prose-v2"
 
 # Decode config, pinned. temperature=0 alone does NOT give greedy decoding — it
 # leaves the sampler free to break ties differently between runs, which was
@@ -72,10 +81,57 @@ READER_NUM_BATCH = 512
 # dependency of the GPU path.
 READER_NUM_THREAD = 8
 
+# Flash attention, pinned. FA changes attention tiling, which changes the order
+# of float reductions, which flips argmax at near-ties: with cache state held
+# constant, FA=0 vs FA=1 changed 2/2 probe predictions (divergence at byte 0 of
+# a 1,924-char answer, and at byte 255 of a 383-char one).
+#
+# Left unset, the daemon resolves `flash_attn = auto`, and what `auto` picks is
+# a property of the host GPU, not of this configuration — so an unpinned run is
+# only reproducible on one machine. Pinned to 1 (enabled) because that is what
+# `auto` already resolved to on the development GPU, which keeps continuity with
+# every run recorded so far, and because it is the faster kernel. The value
+# matters less than the fact that it is stated: 0 is equally reproducible.
+#
+# This is a DAEMON-level setting. It cannot be sent per request — it is read
+# from OLLAMA_FLASH_ATTENTION when the daemon starts. Hence the run precondition
+# in `preflight_reader_env`.
+READER_FLASH_ATTENTION = 1
+
+# CACHE STATE. Load-bearing, and the pin that closed the drift that survived
+# `num_batch`. Pinning num_batch is NOT sufficient: llama.cpp keeps a
+# content-addressed prompt cache, and a cache hit recomputes the final logits in
+# a batch of ONE token ("need to evaluate at least 1 token", n_past=27622)
+# instead of inside the 512-token prefill batch a cold pass uses. Different
+# batch size at the logits position, different reduction order, different
+# argmax — the exact mechanism num_batch was pinned to prevent, re-entering
+# through the cache. Both states are individually deterministic and both
+# survive a daemon restart, so this presents as a bistable output, not as noise.
+#
+# `cache_prompt: false` in the request options is IGNORED by this Ollama build
+# (measured). The only switch that works is llama.cpp's `--cache-ram 0`, reached
+# through the LLAMA_ARG_CACHE_RAM passthrough on the daemon environment — so,
+# like flash attention, it is a daemon-level precondition rather than a
+# per-request option.
+READER_CACHE_RAM = 0
+
+# The daemon environment this harness requires. Both are resolved at daemon
+# start, so a run served by a daemon launched without them is not the
+# configuration these pins describe, whatever pins.json says.
+REQUIRED_OLLAMA_ENV = {
+    "OLLAMA_FLASH_ATTENTION": str(READER_FLASH_ATTENTION),
+    "LLAMA_ARG_CACHE_RAM": str(READER_CACHE_RAM),
+}
+
 
 def reader_prompt_hash() -> str:
-    """Digest of the exact reader prompt text that produced a run."""
-    return fingerprint(READER_SYSTEM)
+    """Digest of the exact reader prompt text that produced a run.
+
+    Hashes the template, not a rendered instance: the cache-bust prefix varies
+    per question by design, so hashing a rendered system message would make
+    every question look like a different prompt configuration.
+    """
+    return fingerprint(READER_SYSTEM_TEMPLATE)
 
 # LongMemEval-S is ~115k tokens/question and this reader's window is ~32k, so
 # full_history overflows. Rather than let Ollama silently drop tokens, the reader
@@ -186,17 +242,23 @@ class Reader:
         dropped = _estimate_tokens(context) - _estimate_tokens(kept)
         return kept, True, dropped
 
-    def answer(self, context: str, question: str) -> ReaderOutput:
+    def answer(self, context: str, question: str, cache_bust: str = "") -> ReaderOutput:
         context, truncated, dropped = self._fit(context)
         user = (
             f"# Memory context\n{context}\n\n# Question\n{question}"
             if context.strip()
             else question
         )
+        # cache_bust leads the system message so the shared prefix against the
+        # previous request is zero-length. Measured: with the prompt cache off,
+        # this takes prefill from "27,191 of 27,255 tokens" (64 reused from the
+        # shared system prompt, i.e. the boundary depends on the PREVIOUS
+        # question) to the full token count every time.
+        system = READER_SYSTEM_TEMPLATE.format(cache_bust=cache_bust)
         response = self.client.chat(
             model=self.model,
             messages=[
-                {"role": "system", "content": READER_SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
             # num_ctx pinned so Ollama does not silently fall back to its
@@ -222,6 +284,54 @@ class Reader:
             text = response.message.content
             prompt_tokens = getattr(response, "prompt_eval_count", None)
         return ReaderOutput((text or "").strip(), prompt_tokens, truncated, dropped)
+
+
+class ReaderEnvError(RuntimeError):
+    """The serving daemon is not the configuration the pins claim."""
+
+
+def preflight_reader_env(model_load_log: str, daemon_env: dict | None = None) -> None:
+    """Fail fast when the daemon's RESOLVED settings contradict the pins.
+
+    Checks resolved, not requested. `flash_attn = auto` in a load log is a
+    request whose answer depends on the host GPU; `enabled`/`disabled` is what
+    actually happened. The tray app is the specific hazard this guards against:
+    it starts a daemon on 11434 with none of REQUIRED_OLLAMA_ENV set, and a run
+    served by it silently carries `auto` and a live prompt cache.
+
+    Raises ReaderEnvError rather than warning: a run under the wrong daemon is
+    not a degraded number, it is a different configuration.
+    """
+    want_fa = "enabled" if READER_FLASH_ATTENTION else "disabled"
+    m = re.search(r"flash_attn\s*=\s*(\w+)", model_load_log or "")
+    resolved = m.group(1) if m else None
+    if resolved is None:
+        raise ReaderEnvError(
+            "no resolved flash_attn line in the model load log — cannot confirm "
+            "the daemon matches the pins. Launch the daemon manually with "
+            + ", ".join(f"{k}={v}" for k, v in REQUIRED_OLLAMA_ENV.items())
+        )
+    if resolved != want_fa:
+        hint = (
+            " (`auto` means OLLAMA_FLASH_ATTENTION was unset — this is the tray "
+            "app's daemon, not a manually launched one)"
+            if resolved == "auto"
+            else ""
+        )
+        raise ReaderEnvError(
+            f"daemon resolved flash_attn={resolved}, pins require {want_fa}"
+            f"{hint}. Kill all ollama processes (including the tray app) and "
+            f"relaunch with OLLAMA_FLASH_ATTENTION={READER_FLASH_ATTENTION}."
+        )
+    # The prompt cache announces its own limit; 0 MiB is the disabled state.
+    cache = re.search(r"limits:\s*([0-9.]+)\s*MiB", model_load_log or "")
+    if cache and float(cache.group(1)) != float(READER_CACHE_RAM):
+        raise ReaderEnvError(
+            f"daemon prompt cache limit is {cache.group(1)} MiB, pins require "
+            f"{READER_CACHE_RAM}. Relaunch with "
+            f"LLAMA_ARG_CACHE_RAM={READER_CACHE_RAM} — a live prompt cache makes "
+            "output depend on what ran before it."
+        )
 
 
 PredictProgressFn = Callable[[int, int, Question, bool], None]
@@ -258,7 +368,7 @@ def predict(
         for session in q.sessions:
             system.add(_session_to_messages(session))
         context = system.get_context(q.question)
-        out = reader.answer(context, q.question)
+        out = reader.answer(context, q.question, cache_bust=q.question_id)
         predictions.append(
             Prediction(
                 question_id=q.question_id,

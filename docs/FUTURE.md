@@ -1,11 +1,17 @@
 # FUTURE SPECS AND IDEAS
 
 Deferred / unvalidated work for mnimi. Nothing here is v1 scope. Each entry
-tags the SPEC.md line(s) that govern or reference it, so the two documents stay
-in sync. Line numbers refer to the current SPEC.md.
+tags the SPEC.md section and line(s) that govern or reference it, so the two
+documents stay in sync. Section names are given alongside line numbers because
+line numbers rot on the next SPEC edit and section names don't.
+
+**Refs last verified against SPEC.md on 2026-07-28.** If you renumber SPEC,
+re-verify or drop the numbers and keep the section names.
 
 Legend:
 - **[SPEC-deferred]** — SPEC explicitly pushes this here with reasoning.
+- **[SPEC-open]** — SPEC lists it as undecided with a stated leaning; it is not
+  yet a deferral, and the leaning is not a lock.
 - **[FUTURE-origin]** — originated in this file; SPEC has no conflicting lock.
 - **[already-enforced]** — listed here historically but is in fact a live v1
   constraint; kept only as a pointer, not real future work.
@@ -18,84 +24,98 @@ Legend:
 * **Hybrid FTS5 + reciprocal-rank fusion.** FTS5 lives inside SQLite, so this
   adds no dependency. Helps exact-term queries (IDs, names, numbers) where
   dense retrieval misses. BM25-alone measured well below dense on LongMemEval
-  (Table 9); the hybrid's effect is unmeasured. **[SPEC-deferred: lines
-  662-667]** · **[trigger]** W3 error analysis shows exact-term retrieval
-  misses.
+  (Table 9); the hybrid's effect is unmeasured. **[SPEC-deferred: §Deferred /
+  Unvalidated, lines 662-667]** · **[trigger]** W3 error analysis shows
+  exact-term retrieval misses.
 
 * **In-process cross-encoder reranker.** Runs *after* the cosine KNN narrows
   candidates — a reranker over the top-k, never a replacement for the
   embedding pass (too heavy to run across the whole DB). Feasibility is
   source-proven: OMEGA ships cross-encoder/ms-marco-MiniLM-L-6-v2 via ONNX
   (int8 ≈ 571 MB disk / ~650 MB RSS, lazy-loaded). Cost: a second model
-  download in the install story. **[SPEC-deferred: lines 668-672]** ·
-  **[FUTURE-origin: cross-encoder note]** · **[trigger]** W3 shows
-  retrieval-*ordering* failures (not recall failures).
+  download in the install story. **[SPEC-deferred: §Deferred / Unvalidated,
+  lines 668-672]** · **[FUTURE-origin: cross-encoder note]** · **[trigger]** W3
+  shows retrieval-*ordering* failures (not recall failures).
 
 * **Time-aware query expansion.** +6.8–11.3% temporal-reasoning recall in the
   paper (Table 4) — but only with a strong LLM extracting time ranges; weak
   models hallucinate ranges and prune wrongly. Also puts an LLM on the read
-  path, which the current design forbids. **[SPEC-deferred: lines 679-684]** ·
-  **[trigger]** W3 shows TR *retrieval* (not reading) is the bottleneck — and
-  even then, try a deterministic date-range parser first.
+  path, which the current design forbids. **[SPEC-deferred: §Deferred /
+  Unvalidated, lines 679-684]** · **[trigger]** W3 shows TR *retrieval* (not
+  reading) is the bottleneck — and even then, try a deterministic date-range
+  parser first.
 
 * **Recency weight > 0 in ranking.** `salience_weights` defaults to
   `{similarity: 1.0, recency: 0.0}` because the paper's winning config ranks
   by dense similarity alone (§5.1). A positive recency weight risks burying
-  old evidence (information-extraction questions). **[SPEC-deferred: lines
-  685-686, config at 147-151]** · **[trigger]** W3 tuning evidence only.
+  old evidence (information-extraction questions). **[SPEC-deferred: §Deferred
+  / Unvalidated, lines 685-686; config at §MemoryConfig, lines 147-151]** ·
+  **[trigger]** W3 tuning evidence only.
 
 * **`recall_min_relevance` > 0.** The read-side relevance floor ships at 0.0
   (off) because BGE absolute similarity values are unreliable and retrieval
   recall gates ~90% of correct answers (Fig 14) — a fixed floor risks dropping
   true evidence. OMEGA ships this on at 0.60, untested on LongMemEval-style
-  recall. **[SPEC-deferred: lines 687-688, config at 137-146]** · **[trigger]**
-  W3 shows distractor-driven reading failures.
+  recall. **[SPEC-deferred: §Deferred / Unvalidated, lines 687-688; config at
+  §MemoryConfig, lines 137-146]** · **[trigger]** W3 shows distractor-driven
+  reading failures.
 
 ## Extraction (revisit only if extraction is the measured bottleneck)
+
+**Constraint every entry below inherits:** the extraction output schema orders
+free-prose fields (`content`, `raw`) *before* constrained slots
+(`subject`/`predicate`/`object`, times), because premature serialization
+degrades capacity-limited models. Any future schema change keeps that ordering
+and re-hashes `extractor_prompt_hash` — the grammar is part of the pin.
+**[already-enforced: §CHANGELOG #12, lines 18-24; §Stage 2 output contract,
+lines 261-282]**
 
 * **Extractor LoRA fine-tune.** The measured lever for small-model extraction
   quality: fine-tuned small models can match much larger teachers on
   extraction, and off-the-shelf triple extractors perform poorly untuned
   (PMC12065832; arXiv 2507.13827). Effort cost, not infra cost — no new
-  runtime dependency. **[SPEC-deferred: lines 673-678, risk stated at
-  311-316]** · **[trigger]** W3 error analysis shows extraction (not retrieval
-  or reading) is the bottleneck.
+  runtime dependency. **[SPEC-deferred: §Deferred / Unvalidated, lines 673-678;
+  risk stated at §Stage 2, lines 311-316]** · **[trigger]** W3 error analysis
+  shows extraction (not retrieval or reading) is the bottleneck.
 
 * **Deterministic (spaCy / rule) extraction fallback.** An alternative to the
-  pinned local LLM for the extraction stage. **[SPEC-deferred: lines 370-373,
-  701-702]** · **[trigger]** LongMemEval number shows extraction is the
-  bottleneck.
+  pinned local LLM for the extraction stage. **[SPEC-deferred: §Extraction →
+  Out of scope, lines 370-373; §Deferred / Unvalidated, lines 701-702]** ·
+  **[trigger]** LongMemEval number shows extraction is the bottleneck.
 
 * **Pluggable / API-backed extractors.** Swap the hardcoded Qwen3-1.7B for a
   configurable or API model. Rejected in v1 because an API model can change
-  under a benchmark run and silently invalidate the number. **[SPEC-deferred:
-  lines 370, 300-302]**
+  under a benchmark run and silently invalidate the number. **Scope of the
+  rejection, stated precisely:** it is a *benchmark* prohibition, not a library
+  one — an API extractor may become a shipped option, but never the one a
+  published number was produced under. **[SPEC-deferred: §Extraction → Out of
+  scope, line 370; §Stage 2 (Model), lines 300-302]**
 
 * **Per-record-type extraction schemas.** Different extraction contracts per
-  fact type. **[SPEC-deferred: line 370-371]**
+  fact type. **[SPEC-deferred: §Extraction → Out of scope, lines 370-371]**
 
 * **Multi-turn coreference windows** beyond the single conversation.
-  **[SPEC-deferred: line 371-372]**
+  **[SPEC-deferred: §Extraction → Out of scope, lines 371-372]**
 
 ## Decay / salience / lifecycle
 
 * **`pinned` records.** Decay-exempt, conflict-winning identity facts. Removed
   from the v1 schema because no LongMemEval question type depends on
   decay-immunity within the eval horizon, and extraction-inferred pinning is
-  an unmeasured judgment handed to a 1.7B model. **[SPEC-deferred: lines 54-57
-  (CHANGELOG #6), 696-697]**
+  an unmeasured judgment handed to a 1.7B model. **[SPEC-deferred: §CHANGELOG
+  #6, lines 54-57; §Deferred / Unvalidated, lines 696-697]**
 
 * **Per-type decay rates / permanent types.** OMEGA's `_DECAY_LAMBDAS` (λ=0 for
   constraints/preferences) is effectively `pinned`-by-type; it reintroduces
   the same unmeasured type judgment. Bundled with `pinned` above.
-  **[SPEC-deferred: lines 692-695]**
+  **[SPEC-deferred: §Deferred / Unvalidated, lines 692-695]**
 
 * **Prospective-fact expiry.** The legitimate residue of the removed
   `valid_time` step-function decay: facts that describe a *future* validity
   window could expire once that window closes. Hard constraint carried over
   from the removal: **past events never expire** (zeroing them forfeits the
-  27% temporal-reasoning slice). **[SPEC-deferred: lines 41-45 (CHANGELOG #3),
-  698-700]**
+  27% temporal-reasoning slice). **[SPEC-deferred: §CHANGELOG #3, lines 41-45;
+  §Deferred / Unvalidated, lines 698-700]**
 
 * **Optional purge / GC.** Hard-delete old records for users who don't need
   audit history. Off by default — deletion breaks `export()`'s point-in-time
@@ -104,8 +124,8 @@ Legend:
   `decay_floor = 0.15` and reserves salience 0 for superseded records only —
   no *active* record ever falls below the floor. Rewritten trigger: hard-delete
   **superseded** records (salience 0) older than N days. **[FUTURE-origin,
-  reconciled against: lines 129-131 (decay_floor), 177-179 (salience 0 =
-  superseded only), 638-650 (export point-in-time guarantee)]**
+  reconciled against: §MemoryConfig decay_floor, lines 129-131; §MemoryRecord
+  note, lines 177-179; §Human-readable memory, lines 638-650]**
 
 ## Access-frequency signals
 
@@ -114,21 +134,48 @@ Legend:
   (reset-per-instance, one query per question — the count is a constant zero at
   query time), and carries a feedback-loop risk in production
   (frequently-recalled → ranks higher → recalled more). Shipped by both OMEGA
-  and Hypabase; rejected here on protocol grounds. **[SPEC-deferred: lines
-  58-63 (CHANGELOG #7), 498-503, 689-691]**
+  and Hypabase; rejected here on protocol grounds. **[SPEC-deferred: §CHANGELOG
+  #7, lines 58-63; §Ranking, lines 498-503; §Deferred / Unvalidated, lines
+  689-691]**
 
 ## Embedder flexibility (all deferred together)
 
 * **`MemoryConfig.embedder` — swappable embedder at init time only**, never
   mid-corpus (a corpus embedded under one model can't be queried with another;
-  the guard raises on mismatch). **[SPEC-deferred: lines 544-545, 583-585;
-  guard at 342-345]** · **[FUTURE-origin]**
+  the guard raises on mismatch). **Scope clarification (2026-07-28):** the
+  `Embedder` *protocol* and the `embedder` *constructor argument* are live
+  today — they are in the locked public signature (§Public API, line 90) and in
+  `src/mnimi/embeddings.py`. What is deferred is (a) an embedder field on
+  `MemoryConfig` and (b) any embedder choice for the *eval run*, which is
+  hardcoded. Do not read this entry as "the library has no pluggable embedder."
+  **[SPEC-deferred: §Embedding config, lines 543-545; §Embedding config → Out
+  of scope, lines 583-585; guard at §Reproducibility guard, lines 342-345]** ·
+  **[FUTURE-origin]**
 
 * **Custom embedder model in config init**, **Matryoshka dim truncation**,
   **hot-swap / re-embed workflow**, **API-backed embedder options.** The whole
   pluggable-embedder surface. v1 hardcodes `BAAI/bge-small-en-v1.5` @ 384-dim
-  with a pinned HF revision. **[SPEC-deferred: lines 583-585 (Out of scope →
-  FUTURE.md), 701-702]** · **[FUTURE-origin]**
+  with a pinned HF revision. **[SPEC-deferred: §Embedding config → Out of
+  scope, lines 583-585; §Deferred / Unvalidated, lines 701-702]** ·
+  **[FUTURE-origin]**
+
+## Architecture questions SPEC leaves open
+
+Both are *undecided with a stated leaning*, not deferrals. The leaning is the
+current position, not a lock — reopening either needs a reason, not a vote.
+
+* **Tiered model (core / recall / archival, Letta-style).** Lean *no* for v1:
+  the differentiator is write-path policy, not tier structure. A tier system
+  would also add a second retrieval surface to hold identical across every
+  baseline, which the benchmark contract makes expensive. **[SPEC-open: §Open
+  questions, lines 652-658]** · **[trigger]** context-budget pressure that
+  ranking and decay demonstrably cannot solve.
+
+* **Self-editing memory (agent edits its own store via tools).** Lean *no*:
+  mnimi manages memory *for* the agent, and an agent-writable store puts an
+  LLM back inside the bookkeeping loop that SPEC deliberately keeps
+  deterministic. **[SPEC-open: §Open questions, lines 652-658]** · related
+  lock: §Extraction, lines 318-328.
 
 ## Storage / scale / sync (post-SQLite)
 
@@ -136,27 +183,25 @@ Legend:
   brute-force KNN over sqlite-vec is correct; a graph backend is a
   large-scale-only concern. **Hard constraint, already live:** do not hardcode
   sqlite-vec calls into write-path logic, so the store stays swappable.
-  **[already-enforced: lines 112-113 (MemoryConfig — never hardcoded in
-  write-path logic), 533-540 (normalize/store boundary discipline)]** ·
-  **[FUTURE-origin: 1M-entity target]**
+  **[already-enforced: §MemoryConfig, lines 112-113; §Embedding normalization,
+  lines 533-540]** · **[FUTURE-origin: 1M-entity target]**
 
 * **ANN near-duplicate caveat (post-SQLite).** When switching off sqlite-vec's
   brute-force KNN to an approximate index (ANN), a true near-duplicate can
   occasionally miss the candidate set entirely, silently degrading merge
   quality. Worth a comment/test now, real fix later. Note that v1's
   brute-force choice is deliberate and reproducibility-preserving.
-  **[FUTURE-origin]** · related SPEC context: dedup cosine gate at lines
-  418-420.
+  **[FUTURE-origin]** · related SPEC context: §Dedup strategy cosine gate,
+  lines 418-420.
 
 * **Multi-device sync.** A raw SQLite file synced across devices risks
   corruption; sync must be a separate layer, not a property of the file.
-  **[FUTURE-origin]** · related SPEC context: single-writer/WAL concurrency at
-  lines 587-591.
+  **[FUTURE-origin]** · related SPEC context: §Concurrency, lines 587-591.
 
 * **Multi-agent / multi-user concurrent writes + queueing.** Several agents
   (or users) writing at once, with a queueing/sync strategy. v1 serializes all
   writes through a single connection/queue and does not race `consolidate()`
-  against `add()`. **[FUTURE-origin]** · related SPEC context: Concurrency at
+  against `add()`. **[FUTURE-origin]** · related SPEC context: §Concurrency,
   lines 587-591.
 
 ## Replay / ablation infrastructure
@@ -166,8 +211,8 @@ Legend:
   half-life, thresholds, etc.) and diffed against the original — enables
   ablations without live re-benchmarking. Complements the logical-clock and
   hash-pin guarantees that already make a run reproducible. **[FUTURE-origin]**
-  · related SPEC context: logical time at lines 193-201, reproducibility guard
-  at lines 330-366, decay-on/off ablation at lines 631-636.
+  · related SPEC context: §Logical time, lines 193-201; §Reproducibility guard,
+  lines 330-366; decay-on/off ablation at §Benchmark contract, lines 631-636.
 
 ## Pattern recognition
 
@@ -175,7 +220,8 @@ Legend:
   patterns across a user's history (beyond fact storage/retrieval). No SPEC
   surface yet; genuinely new capability, not a deferral of existing scope.
   **[FUTURE-origin]** · adjacent to the "learn user patterns, not just store
-  facts" gap noted across competitors.
+  facts" gap noted across competitors. **Constraint if ever built:** it does
+  not get a public method — §Public API is five methods and locked.
 
 ## Packaging / integration
 
@@ -183,23 +229,15 @@ Legend:
   etc. Kept out of the library core deliberately — mnimi is import-as-library
   (`pip install → import → wrap`), and library-not-server is a positioning
   point. A wrapper is additive and would not change the core. **[FUTURE-origin]**
-  · related SPEC context: the library-vs-server distinction at lines 454-457.
-
----
-
-## Cross-references retired from earlier drafts
-
-These were listed as future work in prior notes but are resolved or superseded:
-
-* *"pluggable embedders / Matryoshka / API embedders — already in FUTURE.md,
-  unchanged"* — SPEC line 701-702 points here; consolidated under **Embedder
-  flexibility** above.
-* *"cross-encoder reranker"* — SPEC previously double-listed it; consolidated
-  under **Retrieval quality → In-process cross-encoder reranker** above.
+  · related SPEC context: the library-vs-server distinction at §Dedup strategy
+  prior-art delta, lines 454-457.
 
 ## Reproducibility Tiers
-  
+
 ### Tier 3 — Reference environment (deferred)
+
+**[SPEC-deferred: §Reproducibility Tiers, line 786 ("SEE TIER 3 IN FUTURE.md");
+improves Tier 2 at lines 739-786]**
 
 **Goal:** close the cross-hardware gap in Tier 2 by pinning the SIMD dispatch
 path, so regeneration is bit-identical regardless of the host CPU's instruction
@@ -226,3 +264,45 @@ from the baseline SIMD target) and the payoff is bounded.
 
 Until one of those fires, the honest tolerance statement in Tier 2 is the
 correct position.
+
+---
+
+## Prohibited — do not file these here
+
+These look like deferrals and are not. Each is a lock with a measured or
+structural reason; wanting one back is not evidence. They are listed so a future
+reader stops rather than opening a FUTURE entry for them.
+
+* **Per-category reader prompts.** One reader prompt across all question types,
+  for every system under test including competitors. Category-tuned prompts are
+  a documented comparability leak (5–15 point swings). **[already-enforced:
+  §CHANGELOG #13, lines 25-29; §Benchmark contract harness pins, lines 611-618]**
+
+* **Wall-clock time in decay, recency, or ordering.** All time is logical
+  (`now_logical` = max `system_time` in the store). Wall-clock makes the same DB
+  score differently on different days — the exact reproducibility failure the
+  hash guards cannot catch. **[already-enforced: §CHANGELOG #8, lines 64-71;
+  §Logical time, lines 193-201]**
+
+* **An LLM in the merge / conflict / decay loop, or anywhere on the read path.**
+  Extraction is the single permitted LLM, and it is upstream of the
+  deterministic pipeline. External evidence for the lock: Mem0's LLM-routed
+  ADD/UPDATE/DELETE measured emitting malformed routing ~25% of the time.
+  **[already-enforced: §Extraction, lines 318-328]** · this is also why
+  "self-editing memory" above leans *no*.
+
+* **`valid_time` as an expiry (step-function decay to 0).** Zeroes every past
+  dated event and forfeits the 27% temporal-reasoning slice. The legitimate
+  residue is prospective-fact expiry, which is filed above with the
+  past-events-never-expire constraint. **[already-enforced: §CHANGELOG #3,
+  lines 41-45]**
+
+## Cross-references retired from earlier drafts
+
+These were listed as future work in prior notes but are resolved or superseded:
+
+* *"pluggable embedders / Matryoshka / API embedders — already in FUTURE.md,
+  unchanged"* — SPEC lines 701-702 point here; consolidated under **Embedder
+  flexibility** above.
+* *"cross-encoder reranker"* — SPEC previously double-listed it; consolidated
+  under **Retrieval quality → In-process cross-encoder reranker** above.

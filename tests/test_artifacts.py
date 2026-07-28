@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 
-from evals import artifacts
+import pytest
+from evals import artifacts, runner
 from evals.dataset import file_sha256
 from evals.judge import judge_prompt_hash
 from evals.judge_cache import JudgeCache
@@ -31,7 +32,9 @@ def _pins(**overrides) -> dict:
         reader_num_gpu=99,
         reader_num_thread=8,
         reader_num_batch=512,
-        reader_prompt_version="plain-prose-v1",
+        reader_flash_attention=1,
+        reader_cache_ram=0,
+        reader_prompt_version="plain-prose-v2",
         reader_prompt_hash="rp",
         judge_model="gpt-4o-2024-08-06",
         judge_prompt_version="longmemeval-paper-v1",
@@ -94,7 +97,8 @@ ENV_FIELDS = (
     "gpu_model", "driver_version", "cuda_version", "ollama_version",
     "offloaded_layers", "offloaded_layers_source",
     "ollama_env_client", "ollama_env_daemon", "ollama_env_mismatch",
-    "flash_attention_reported", "kv_cache_type", "model_blob_path",
+    "flash_attention_reported", "prompt_cache_reported", "kv_cache_type",
+    "model_blob_path",
     "runner_cmd", "serve_log_path", "model_load_log",
 )
 
@@ -170,6 +174,86 @@ def test_environment_capture_reads_resolved_load_state(tmp_path):
     # Verbatim load log is saved beside the run, with a pointer recorded.
     assert saved.exists() and "offloaded 29/29" in saved.read_text(encoding="utf-8")
     assert env["model_load_log"] == "see model_load.log"
+
+
+def test_prompt_cache_limit_is_captured_as_resolved(tmp_path):
+    """A live prompt cache makes a prediction depend on the request before it,
+    so the daemon's own printed limit is recorded — not the env var that asked."""
+    log = tmp_path / "serve.log"
+    log.write_text(
+        FAKE_SERVE_LOG
+        + "cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 32768 tokens)\n",
+        encoding="utf-8",
+    )
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert "8192.000 MiB" in env["prompt_cache_reported"]
+    assert "ACTIVE" in env["prompt_cache_reported"]
+
+    log.write_text(
+        FAKE_SERVE_LOG
+        + "cache state: 0 prompts, 0.000 MiB (limits: 0.000 MiB, 32768 tokens)\n",
+        encoding="utf-8",
+    )
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert "disabled" in env["prompt_cache_reported"]
+
+
+class TestPreflightReaderEnv:
+    """The pins say what the configuration is; preflight says the daemon agrees.
+
+    Every case here was observed for real during the drift investigation, so
+    these are regression tests for a specific wrong number, not hypotheticals.
+    """
+
+    GOOD = (
+        "llama_context: flash_attn    = enabled\n"
+        "cache state: 0 prompts, 0.000 MiB (limits: 0.000 MiB, 32768 tokens)\n"
+    )
+
+    def test_accepts_a_correctly_launched_daemon(self):
+        runner.preflight_reader_env(self.GOOD)
+
+    def test_rejects_auto_because_that_means_the_env_var_was_unset(self):
+        """`auto` is the tray app's signature: it resolves per host GPU, so the
+        run is only reproducible on one machine."""
+        with pytest.raises(runner.ReaderEnvError, match="auto"):
+            runner.preflight_reader_env("llama_context: flash_attn    = auto\n")
+
+    def test_rejects_the_opposite_flash_attention_value(self):
+        with pytest.raises(runner.ReaderEnvError, match="flash_attn=disabled"):
+            runner.preflight_reader_env("llama_context: flash_attn    = disabled\n")
+
+    def test_rejects_a_live_prompt_cache(self):
+        log = (
+            "llama_context: flash_attn    = enabled\n"
+            "cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 32768 tokens)\n"
+        )
+        with pytest.raises(runner.ReaderEnvError, match="prompt cache"):
+            runner.preflight_reader_env(log)
+
+    def test_rejects_a_log_with_no_resolution_at_all(self):
+        """Absence of evidence is not evidence the daemon is right."""
+        with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
+            runner.preflight_reader_env("")
+
+
+def test_cache_bust_prefix_makes_the_system_prompt_unique_per_question():
+    """Zero-length shared prefix is the whole point: it forces every prefill to
+    start at n_past=0 instead of resuming at the previous question's offset."""
+    a = runner.READER_SYSTEM_TEMPLATE.format(cache_bust="q_alpha")
+    b = runner.READER_SYSTEM_TEMPLATE.format(cache_bust="q_beta")
+    assert a != b
+    assert a.startswith("q_alpha"), "must lead the message, or the prefix is shared"
+    assert b.startswith("q_beta")
+    # The hash pins the template, not a rendered instance — otherwise every
+    # question would look like a different prompt configuration.
+    assert runner.reader_prompt_hash() == artifacts.fingerprint(
+        runner.READER_SYSTEM_TEMPLATE
+    )
 
 
 def test_client_and_daemon_env_mismatch_is_surfaced(tmp_path, monkeypatch):
