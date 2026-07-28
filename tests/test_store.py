@@ -60,6 +60,25 @@ def test_unguarded_database_is_refused(tmp_path):
         _open(db)
 
 
+def test_search_surfaces_cosine_similarity(tmp_path):
+    """L2 distance converts to cosine at one boundary: cos = 1 - d^2/2 for unit vectors."""
+    store = _open(tmp_path / "mem.db", dim=2)
+    for content, vector in [("aligned", [1.0, 0.0]), ("offset", [0.6, 0.8])]:
+        store.insert(
+            MemoryRecord(
+                user_id="u1", content=content, embedding=vector, created_at="2023-05-20"
+            )
+        )
+
+    results = store.search([1.0, 0.0], user_id="u1", k=2)
+
+    (first, cos_first), (second, cos_second) = results
+    assert first.content == "aligned"
+    assert cos_first == pytest.approx(1.0, abs=1e-6)
+    assert second.content == "offset"
+    assert cos_second == pytest.approx(0.6, abs=1e-6)
+
+
 def test_vec0_ddl_pins_distance_metric_explicitly(tmp_path):
     store = _open(tmp_path / "mem.db")
     (ddl,) = store.db.execute(
@@ -89,8 +108,9 @@ def test_insert_and_nearest_neighbor_is_sane(tmp_path):
     results = store.search(query_vec, user_id="u1", k=3)
 
     assert results, "expected at least one result"
-    assert "sqlite" in results[0].content  # nearest neighbour is the db/search record
-    assert results[0].id is not None
+    nearest, _ = results[0]
+    assert "sqlite" in nearest.content  # nearest neighbour is the db/search record
+    assert nearest.id is not None
 
 
 def test_search_is_scoped_to_user(tmp_path):
@@ -109,4 +129,4 @@ def test_search_is_scoped_to_user(tmp_path):
     results = store.search(query_vec, user_id="alice", k=5)
 
     assert results
-    assert all(r.user_id == "alice" for r in results)
+    assert all(record.user_id == "alice" for record, _ in results)

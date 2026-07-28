@@ -157,11 +157,16 @@ class Store:
         self.db.commit()
         return record
 
-    def search(self, embedding: list[float], user_id: str, k: int = 5) -> list[MemoryRecord]:
-        """Return the ``k`` nearest memories for ``user_id`` by vector distance.
+    def search(
+        self, embedding: list[float], user_id: str, k: int
+    ) -> list[tuple[MemoryRecord, float]]:
+        """Return the ``k`` nearest memories for ``user_id`` with cosine similarity.
 
         KNN over the vector index is global, so we over-fetch and then filter by
         user — otherwise a busy neighbour could crowd out the queried user.
+        Vectors are unit-length (embeddings.py normalizes at the boundary), so
+        L2 distance converts exactly: cos = 1 − d²/2. This is the ONE place the
+        conversion happens; callers compare genuine cosine numbers.
         """
         rows = self.db.execute(
             """
@@ -179,7 +184,9 @@ class Store:
             """,
             (sqlite_vec.serialize_float32(embedding), max(k * 8, k), user_id),
         ).fetchall()
-        return [self._row_to_record(row) for row in rows[:k]]
+        return [
+            (self._row_to_record(row), 1.0 - (row["distance"] ** 2) / 2.0) for row in rows[:k]
+        ]
 
     def count(self, user_id: str | None = None) -> int:
         """Number of stored memories, optionally scoped to a user."""
