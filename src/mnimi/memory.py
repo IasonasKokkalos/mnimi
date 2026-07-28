@@ -37,16 +37,17 @@ class Memory:
         Real extraction / dedup / salience scoring will replace this body without
         changing the signature.
         """
-        texts = _messages_to_texts(messages)
-        if not texts:
+        entries = _messages_to_texts(messages)
+        if not entries:
             return
-        embeddings = self.embedder.embed(texts)
-        for text, embedding in zip(texts, embeddings, strict=True):
+        embeddings = self.embedder.embed([text for text, _ in entries])
+        for (text, ts), embedding in zip(entries, embeddings, strict=True):
             self.store.insert(
                 MemoryRecord(
                     user_id=user_id,
                     content=text,
                     embedding=embedding,
+                    created_at=ts,
                     source="message",
                 )
             )
@@ -71,25 +72,27 @@ class Memory:
         return None
 
 
-def _messages_to_texts(messages) -> list[str]:
-    """Normalise the many shapes ``add`` might be handed into a list of strings.
+def _messages_to_texts(messages) -> list[tuple[str, str | None]]:
+    """Normalise the shapes ``add`` might be handed into ``(text, ts)`` pairs.
 
-    Accepts a bare string, a list of strings, or a list of ``{"role", "content"}``
-    message dicts (the LongMemEval turn shape).
+    Accepts a bare string, a list of strings, or a list of
+    ``{"role", "content", "ts"}`` message dicts (the LongMemEval turn shape).
+    Only dicts can carry a ``ts``; the store refuses records without one.
     """
     if isinstance(messages, str):
-        return [messages] if messages.strip() else []
+        return [(messages, None)] if messages.strip() else []
 
-    texts: list[str] = []
+    entries: list[tuple[str, str | None]] = []
     for message in messages:
         if isinstance(message, dict):
             content = str(message.get("content", "")).strip()
             if not content:
                 continue
             role = message.get("role")
-            texts.append(f"{role}: {content}" if role else content)
+            text = f"{role}: {content}" if role else content
+            entries.append((text, message.get("ts")))
         else:
             text = str(message).strip()
             if text:
-                texts.append(text)
-    return texts
+                entries.append((text, None))
+    return entries

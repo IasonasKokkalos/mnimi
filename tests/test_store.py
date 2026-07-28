@@ -95,6 +95,25 @@ def test_pinned_is_gone_but_salience_and_supersedes_stay(tmp_path):
     assert {"salience", "supersedes"} <= columns
 
 
+def test_insert_refuses_a_record_without_ts(tmp_path):
+    """ts is the only clock. The store never reads wall-clock — a record with no
+    timestamp is a caller bug, not something to paper over with now()."""
+    store = _open(tmp_path / "mem.db")
+    with pytest.raises(ValueError, match="ts"):
+        store.insert(MemoryRecord(user_id="u1", content="undated", embedding=None))
+
+
+def test_insert_keeps_the_injected_ts_verbatim(tmp_path):
+    store = _open(tmp_path / "mem.db")
+    stored = store.insert(
+        MemoryRecord(user_id="u1", content="dated", embedding=None, created_at="2023-05-20")
+    )
+    (value,) = store.db.execute(
+        "SELECT created_at FROM memories WHERE id = ?", (stored.id,)
+    ).fetchone()
+    assert value == "2023-05-20"
+
+
 def test_vec0_ddl_pins_distance_metric_explicitly(tmp_path):
     store = _open(tmp_path / "mem.db")
     (ddl,) = store.db.execute(
@@ -114,7 +133,9 @@ def test_insert_and_nearest_neighbor_is_sane(tmp_path):
     ]
     for text, vector in zip(texts, embedder.embed(texts), strict=True):
         store.insert(
-            MemoryRecord(user_id="u1", content=text, embedding=vector, source="test")
+            MemoryRecord(
+                user_id="u1", content=text, embedding=vector, created_at="2023-05-20", source="test"
+            )
         )
 
     assert store.count("u1") == 3
@@ -134,12 +155,15 @@ def test_search_is_scoped_to_user(tmp_path):
     store = _open(tmp_path / "mem.db", dim=embedder.dim)
 
     (shared_vec,) = embedder.embed(["a shared note about vector databases"])
-    store.insert(
-        MemoryRecord(user_id="alice", content="alice: vector databases", embedding=shared_vec)
-    )
-    store.insert(
-        MemoryRecord(user_id="bob", content="bob: vector databases", embedding=shared_vec)
-    )
+    for user in ("alice", "bob"):
+        store.insert(
+            MemoryRecord(
+                user_id=user,
+                content=f"{user}: vector databases",
+                embedding=shared_vec,
+                created_at="2023-05-20",
+            )
+        )
 
     (query_vec,) = embedder.embed(["vector databases"])
     results = store.search(query_vec, user_id="alice", k=5)

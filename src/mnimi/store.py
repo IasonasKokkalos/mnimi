@@ -9,7 +9,6 @@ user. Everything is one file on disk — that is the whole zero-infra pitch.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
 
 import sqlite_vec
 
@@ -128,9 +127,17 @@ class Store:
         self.db.commit()
 
     def insert(self, record: MemoryRecord) -> MemoryRecord:
-        """Persist a record, assigning it an id and (if unset) a timestamp."""
+        """Persist a record, assigning it an id.
+
+        The record must carry its timestamp already: ``ts`` from the ingested
+        message is the only clock. The store never reads wall-clock — doing so
+        would make the same DB score differently on different days.
+        """
         if record.created_at is None:
-            record.created_at = datetime.now(timezone.utc).isoformat()
+            raise ValueError(
+                "record has no timestamp; pass the message ts as created_at - "
+                "ts is the only clock, the store never stamps wall-clock time"
+            )
         cur = self.db.execute(
             """
             INSERT INTO memories

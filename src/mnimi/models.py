@@ -31,7 +31,9 @@ class MemoryRecord:
     """Dense vector for similarity search. Not re-hydrated on read."""
 
     created_at: str | None = None
-    """ISO-8601 timestamp; the store stamps it on insert if unset."""
+    """The session timestamp (``ts``) of the source message, ISO-8601. The
+    caller must set it before insert; the store refuses a record without one
+    and never stamps wall-clock time."""
 
     salience: float = 1.0
     """How much this memory matters. Drives ranking and decay later."""
