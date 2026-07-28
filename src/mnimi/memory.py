@@ -24,7 +24,12 @@ class Memory:
     ) -> None:
         self.embedder = embedder
         self.config = config
-        self.store = Store(db_path, dim=embedder.dim)
+        self.store = Store(
+            db_path,
+            dim=embedder.dim,
+            embedder_name=embedder.name,
+            embedder_revision=embedder.revision,
+        )
 
     def add(self, messages, user_id: str) -> None:
         """Write path. Thin today: store each message's text as a memory.

@@ -16,20 +16,87 @@ import sqlite_vec
 from .models import MemoryRecord
 
 
+class MemoryMetaError(RuntimeError):
+    """The store's pinned identity does not match what the caller provided.
+
+    Raised at open time so a mismatched embedder fails loudly as a
+    reproducibility error instead of surfacing later as an opaque sqlite-vec
+    dimension error at insert time.
+    """
+
+
 class Store:
     """Owns the SQLite connection and the mnimi schema."""
 
-    def __init__(self, db_path: str, dim: int) -> None:
+    def __init__(
+        self, db_path: str, dim: int, *, embedder_name: str, embedder_revision: str
+    ) -> None:
         self.dim = dim
+        self.embedder_name = embedder_name
+        self.embedder_revision = embedder_revision
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
         self._load_extension()
-        self._create_schema()
+        self._init_schema()
 
     def _load_extension(self) -> None:
         self.db.enable_load_extension(True)
         sqlite_vec.load(self.db)
         self.db.enable_load_extension(False)
+
+    def _init_schema(self) -> None:
+        tables = {
+            row["name"]
+            for row in self.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if "memory_meta" in tables:
+            self._validate_meta()
+            return
+        if "memories" in tables:
+            raise MemoryMetaError(
+                "existing database has no memory_meta table; it predates the "
+                "reproducibility guard and cannot be validated - re-ingest into a fresh store"
+            )
+        self._create_schema()
+        self._write_meta()
+
+    def _write_meta(self) -> None:
+        # Written once at DB creation, validated on every open. A mismatch means
+        # the store and the embedder disagree about what the vectors are.
+        self.db.execute(
+            "CREATE TABLE memory_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        self.db.executemany(
+            "INSERT INTO memory_meta (key, value) VALUES (?, ?)",
+            [
+                ("embedder_name", self.embedder_name),
+                ("embedder_revision", self.embedder_revision),
+                ("embedder_dim", str(self.dim)),
+            ],
+        )
+        self.db.commit()
+
+    def _validate_meta(self) -> None:
+        stored = {
+            row["key"]: row["value"]
+            for row in self.db.execute("SELECT key, value FROM memory_meta")
+        }
+        expected = {
+            "embedder_name": self.embedder_name,
+            "embedder_revision": self.embedder_revision,
+            "embedder_dim": str(self.dim),
+        }
+        mismatches = [
+            f"{key}: store has {stored.get(key)!r}, caller provided {value!r}"
+            for key, value in expected.items()
+            if stored.get(key) != value
+        ]
+        if mismatches:
+            raise MemoryMetaError(
+                "memory_meta mismatch - this store was created under a different "
+                "embedder pin: " + "; ".join(mismatches) + ". Re-ingest into a "
+                "fresh store; never mix pins under a run."
+            )
 
     def _create_schema(self) -> None:
         self.db.execute(
@@ -50,11 +117,12 @@ class Store:
             "CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id)"
         )
         # vec0 virtual table; rowid is shared with the memories table so the two
-        # stay joined without an extra key column.
+        # stay joined without an extra key column. distance_metric is spelled
+        # out even though L2 is the default: the ranking contract depends on it.
         self.db.execute(
             f"""
             CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
-                embedding float[{self.dim}]
+                embedding float[{self.dim}] distance_metric=L2
             )
             """
         )

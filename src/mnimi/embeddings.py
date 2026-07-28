@@ -22,6 +22,16 @@ class Embedder(Protocol):
     """Anything that turns texts into fixed-dimensional vectors."""
 
     @property
+    def name(self) -> str:
+        """Model identity, pinned into ``memory_meta`` at DB creation."""
+        ...
+
+    @property
+    def revision(self) -> str:
+        """Immutable model revision (e.g. an HF commit sha), pinned alongside name."""
+        ...
+
+    @property
     def dim(self) -> int:
         """Dimensionality of the vectors this embedder produces."""
         ...
@@ -39,6 +49,9 @@ class HashingEmbedder:
     under cosine/L2 distance. No training, no deps, fully reproducible. This is
     the CI path; real semantic similarity comes from ``BgeSmallEmbedder``.
     """
+
+    name = "hashing"
+    revision = "v1"
 
     def __init__(self, dim: int = 256) -> None:
         self._dim = dim
