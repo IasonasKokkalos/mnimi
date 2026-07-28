@@ -1,0 +1,32 @@
+{
+  "pins": {
+    "artifact_schema": "mnimi-eval-artifact/1",
+    "dataset_file": ".data\\longmemeval_s_cleaned.json",
+    "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "embedder_dim": null,
+    "embedder_name": null,
+    "extractor_model": null,
+    "harness_git_sha": "c85a1749f79a172d22713cb443f3b67847d1e0cc-dirty",
+    "judge_model": "gpt-4o-2024-08-06",
+    "judge_prompt_hash": "f4d66a3baeea53ff7d8a3b3e6283cef35fb1ff3addda2661692d74a9ad02d235",
+    "judge_prompt_version": "longmemeval-paper-v1",
+    "k": null,
+    "limit": 20,
+    "reader_cache_ram": 0,
+    "reader_digest": "635e70c8687b9d74080d28893d462dd3785adea62437de360afd54bdb3a058fc",
+    "reader_flash_attention": 1,
+    "reader_model": "qwen2.5:1.5b-instruct-q4_0",
+    "reader_num_batch": 512,
+    "reader_num_ctx": 32768,
+    "reader_num_gpu": 99,
+    "reader_num_thread": 8,
+    "reader_prompt_hash": "0f91ab6d7592a0f1fba06d51c38bd7aca1e824b6e1c2c7dad3cfd309cfdefceb",
+    "reader_prompt_version": "plain-prose-v2",
+    "reader_seed": 0,
+    "reader_top_k": 1,
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "system": "no_memory"
+  },
+  "pins_hash": "f549cd26b7866c280f28234d353e09f81924a5f359d5e3377eb1cf56a59d5422"
+}

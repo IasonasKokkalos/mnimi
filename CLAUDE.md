@@ -67,7 +67,9 @@ resolution. Both roles are in extraction scope.
   bar).** mnimi must beat naive-RAG and approach full-history at a fraction of
   the tokens. Competitor runs (OMEGA first) go through the same harness.
 - **Harness pins:** reader = local Ollama `qwen2.5:1.5b-instruct-q4_0`
-  (`num_gpu=99`, `num_batch=512`, `top_k=1`, `seed=0`, temp 0); judge =
+  (`num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`, temp 0,
+  `num_ctx=32768`) **plus two daemon-level pins that cannot be sent per request**
+  (`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`); judge =
   `gpt-4o-2024-08-06` with the paper's five per-type prompts. Reader is pinned in
   `evals/`, never in `memory_meta` — it is a harness property, not a store one.
 - **One reader prompt for every question type**, for every system under test.
@@ -91,21 +93,39 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 - **Sampling is stratified.** The dataset is category-clustered, so a file-order
   `--limit` slice is single-category and not comparable across systems.
 - **Run artifacts.** Every run writes `pins.json` / `predictions.jsonl` /
-  `results.json` under `runs/<system>__<Nq>/`. `runs/` is gitignored, so
-  publishing a number means explicitly committing that predictions+results pair
-  alongside it (Tier 1 audit). Deviating from a decode pin marks the artifact
-  **PROVISIONAL — not publishable**; don't quote a provisional number.
+  `results.json` under `runs/<system>__<Nq>/`. `runs/` is gitignored scratch; a
+  number that gets quoted has its three files copied to
+  `results/published/<system>__<Nq>/` and committed. Deviating from a decode pin
+  marks the artifact **PROVISIONAL — not publishable**; don't quote a provisional
+  number. Provisional and auditable are separate claims — a provisional artifact
+  is still fully auditable.
+- **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
+  reason Tier 1 exists; removing them to denormalize deletes the audit path.
+- **The daemon precondition is part of the run.** Launch Ollama manually with
+  `OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0`, with the tray app not
+  serving. Preflight asserts the daemon's *resolved* values and refuses
+  otherwise. Kill `llama-server` children too — they outlive the daemon and hold
+  VRAM.
 
 ## Reproducibility tiers (what a number is allowed to claim)
 
-- **Tier 1 — auditable.** `--stage judge` replays committed predictions through
-  the judge on any machine, no GPU or dataset needed. Proves scoring, not
-  generation. Say *auditable*, never *reproducible*.
-- **Tier 2 — reproducible on comparable hardware.** `--stage predict` reproduces
-  predictions given the pins, with a stated cross-SIMD tolerance. The `run` block
-  (cpu/simd/cores/threads/ollama version) is diagnostic only and never enters
-  `pins_hash`.
-- **Tier 3** (pinned reference image) is deferred — see `docs/FUTURE.md`.
+- **Tier 1 — auditable.** `python -m evals --stage judge --predictions <file>`
+  re-grades committed predictions on any machine: no GPU, no Ollama, no dataset,
+  no `--system`. Read-only. Proves scoring, not generation. Say *auditable*,
+  never *reproducible* — this is a language rule, not a preference.
+- **Tier 2 — reproducible given the pins AND the daemon precondition.**
+  `--stage predict` reproduces predictions on comparable hardware. Measured error
+  bar across a daemon restart: **0/20 predictions changed** on both published
+  systems. No bit-identity claim across different GPUs, drivers, CUDA versions or
+  Ollama builds. The `run.environment` block is diagnostic only and never enters
+  `pins_hash`; `pins_hash` identifies what was *requested*, the run block what
+  was *resolved*.
+- **Tier 3** (containerized reference environment) is queued, not forced — see
+  `docs/FUTURE.md`.
+- **The verdict cache is the drift detector.** An unchanged re-run that misses
+  the cache means the reader moved. Check `run.stage` before quoting any
+  reproducibility number: only `stage='all'` or a fresh `predict` re-runs the
+  reader.
 
 ## Kill gates
 

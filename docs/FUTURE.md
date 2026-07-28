@@ -234,36 +234,93 @@ current position, not a lock — reopening either needs a reason, not a vote.
 
 ## Reproducibility Tiers
 
-### Tier 3 — Reference environment (deferred)
+### Tier 3 — Containerized reference environment (queued, NOT forced)
 
-**[SPEC-deferred: §Reproducibility Tiers, line 786 ("SEE TIER 3 IN FUTURE.md");
-improves Tier 2 at lines 739-786]**
+**[SPEC-deferred: §Reproducibility Tiers, line 943 ("SEE TIER 3 IN FUTURE.md");
+strengthens Tier 2 at lines 767-944]**
 
-**Goal:** close the cross-hardware gap in Tier 2 by pinning the SIMD dispatch
-path, so regeneration is bit-identical regardless of the host CPU's instruction
-set.
+**Goal:** make regeneration bit-identical across *machines*, not just across
+restarts of one machine, by pinning the entire execution environment rather than
+the request options.
 
-**Sketch:** a Dockerfile pinning the llama.cpp / Ollama build to a fixed
-baseline SIMD target (AVX2 dispatch only, AVX-512 disabled), fixed thread count,
-CPU-only, pinned base image digest. Publish the image digest in the pins header
-so a Tier-3 run is identifiable as such.
+**Sketch:** a container image pinning, by digest, the Ollama / llama.cpp build,
+the CUDA runtime and driver, and the daemon environment
+(`OLLAMA_FLASH_ATTENTION`, `LLAMA_ARG_CACHE_RAM`, `OLLAMA_KV_CACHE_TYPE`) — with
+the model blob pulled by digest, not by tag. The image digest is published in the
+pins header so a Tier-3 run is identifiable as such. Note the pinning target has
+moved since the first sketch of this idea: at the pinned full GPU offload the
+variables that decide reduction order are the GPU, driver, CUDA version and
+daemon build — not the CPU's AVX2/AVX-512 dispatch, which only governs the
+`--num-gpu 0` path.
 
-**Why deferred:** Tier 1 already provides hardware-independent verification of
-the number, which is the claim that matters for credibility. Tier 3 only
-improves Tier 2, which is the weaker claim and the one with an honestly stated
-tolerance. Build cost is real (image maintenance, a second CI path, slower runs
-from the baseline SIMD target) and the payoff is bounded.
+#### Trigger status: nothing currently forces this
 
-**Trigger conditions — build this if any occur:**
-- A measured cross-hardware divergence turns out to be large enough to change a
-  published conclusion, not just a decimal.
+Two candidate forcing conditions were investigated and **both closed without
+needing a container**:
+
+* **Flash attention** was a real variable — FA=0 vs FA=1 changed 2/2 probe
+  predictions with cache state held constant — and, left unset, resolves to
+  `auto`, which is a property of the host GPU. That is exactly the shape of
+  problem that forces a reference environment. It did not, because FA proved
+  **controllable in-process**: it is pinned via `OLLAMA_FLASH_ATTENTION` and
+  asserted at preflight against the daemon's *resolved* value.
+* **The prompt cache** produced bistable output that survived daemon restarts,
+  and was the last unexplained drift. It also proved **fixable in-process**, via
+  `LLAMA_ARG_CACHE_RAM=0` plus a per-question cache-bust prefix. Measured error
+  bar after the fix: 0/20 predictions changed on both published systems.
+
+So Tier 3 is **queued for cross-machine reproduction, not a fix for anything
+currently broken**. Reading this entry as urgent would misrepresent the state of
+the harness: single-machine reproducibility is measured and closed at 0/20, and
+Tier 1 already gives hardware-independent verification of the *number*, which is
+the claim that carries the credibility. Tier 3 only strengthens Tier 2, which is
+the weaker claim and the one that already ships with an honest tolerance
+statement.
+
+**Cost, stated so the trade stays visible:** image maintenance, a second CI path,
+a GPU-enabled container runtime on every machine that wants to reproduce, and a
+model-blob distribution story. Real, and currently unjustified.
+
+**Build this if any of these fire:**
+- A measured cross-hardware divergence is large enough to change a published
+  conclusion, not just a decimal.
 - A third party attempts regeneration, diverges, and cannot diagnose why from
-  the `run` block.
-- A competitor comparison hinges on a delta small enough that cross-hardware
-  noise is the same order of magnitude as the effect.
+  the `run.environment` block.
+- A competitor comparison hinges on a delta of the same order of magnitude as
+  cross-hardware noise.
+- A new drift source is found that is *not* controllable per-request or
+  per-daemon-env — the condition that both closed investigations above failed to
+  meet.
 
-Until one of those fires, the honest tolerance statement in Tier 2 is the
-correct position.
+Until one fires, the honest tolerance statement in Tier 2 is the correct
+position. **[FUTURE-origin: trigger set]**
+
+### `--verify-drift` — regeneration check against committed predictions
+
+**[FUTURE-origin]** · related SPEC context: §Tier 2 verdict-cache drift detector,
+lines 934-941; Tier 1 artifacts at lines 713-766.
+
+A harness flag that re-runs `--stage predict` and diffs the fresh predictions
+against a committed `predictions.jsonl`, reporting a divergence count (N/20
+changed) and the first byte offset of each divergence, rather than only a score
+delta.
+
+**Why it is worth building.** The drift investigation was won by an accident of
+instrumentation: the judge verdict cache keys on `(question_id,
+sha256(predicted))`, so an unchanged re-run that *missed* the cache proved the
+reader had moved. That signal is currently a side effect of a cost optimization,
+observable only as a `judge_cache_misses` count in the run block, and it is
+mute about *where* the outputs diverged. `--verify-drift` promotes it to a
+first-class reproducibility instrument: an explicit command whose output is a
+divergence count, which is the number Tier 2 actually claims.
+
+It is also the mechanism that would produce the cross-hardware delta Tier 2
+promises to publish "once available", and the diagnostic a third party would run
+before filing the divergence report that could trigger Tier 3.
+
+**[trigger]** Before the first published cross-machine reproduction attempt, or
+the next time a drift hunt starts — whichever comes first. Not blocking any
+current number.
 
 ---
 

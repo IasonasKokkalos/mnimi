@@ -466,6 +466,19 @@ def read_predictions(directory: Path, cls):
         raise FileNotFoundError(
             f"no predictions.jsonl in {directory} — run the predict stage first"
         )
+    return read_predictions_file(path, cls)
+
+
+def read_predictions_file(path: Path, cls):
+    """Rehydrate predictions from an explicit path — the Tier 1 audit entry point.
+
+    A published ``predictions.jsonl`` is self-sufficient: every row carries the
+    question and the gold answer, so grading it needs no dataset, no pins, no
+    reader and no memory system. Auditing therefore means pointing at one file,
+    not reconstructing the run that produced it.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"no predictions file at {path}")
     out = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -473,6 +486,44 @@ def read_predictions(directory: Path, cls):
             if line:
                 out.append(cls(**json.loads(line)))
     return out
+
+
+def read_pins_optional(directory: Path) -> dict:
+    """Best-effort pins for a directory that may not carry all three artifacts.
+
+    Prefers ``pins.json``, falls back to the copy embedded in ``results.json``,
+    and returns ``{}`` when neither is present. Tier 1 must still grade a bare
+    ``predictions.jsonl`` — a missing header costs the auditor provenance, not
+    the ability to recompute the score.
+    """
+    try:
+        return read_pins(directory)
+    except (FileNotFoundError, KeyError, ValueError):
+        pass
+    results = directory / "results.json"
+    if results.exists():
+        try:
+            return json.loads(results.read_text(encoding="utf-8")).get("pins", {})
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
+def read_published_score(directory: Path) -> tuple[int, int] | None:
+    """``(correct, total)`` from a published ``results.json``, or ``None``.
+
+    This is what a Tier 1 audit checks its recomputed score against: the claim
+    is "given these predictions, the judge produces the published score", and
+    the published score has to come from the published artifact to test it.
+    """
+    path = directory / "results.json"
+    if not path.exists():
+        return None
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))["results"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return sum(1 for r in rows if r.get("correct")), len(rows)
 
 
 def write_results(

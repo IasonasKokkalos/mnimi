@@ -150,9 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--system",
-        required=True,
         choices=["no_memory", "full_history"],
-        help="which baseline to evaluate",
+        help="which baseline to evaluate. Required to predict; NOT required to "
+        "judge, because predictions.jsonl carries everything the judge reads.",
     )
     parser.add_argument(
         "--limit",
@@ -214,6 +214,14 @@ def main(argv: list[str] | None = None) -> int:
         help="where staged artifacts live (default runs/<system>__<limit>q). "
         "Pass the same value to --stage judge that --stage predict used.",
     )
+    parser.add_argument(
+        "--predictions",
+        default=None,
+        help="TIER 1 AUDIT: grade this predictions.jsonl directly. Implies "
+        "--stage judge and needs no --system, no dataset, no reader and no "
+        "Ollama. Read-only: it writes nothing, so auditing a published artifact "
+        "cannot modify it.",
+    )
     args = parser.parse_args(argv)
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
@@ -244,11 +252,42 @@ def main(argv: list[str] | None = None) -> int:
 
     num_gpu = READER_NUM_GPU if args.num_gpu is None else args.num_gpu
 
-    do_predict = args.stage in {"all", "predict"}
-    do_judge = args.stage in {"all", "judge"}
-    directory = Path(args.run_dir) if args.run_dir else artifacts.run_dir(
-        args.system, args.limit
+    # A Tier 1 audit points at one predictions file: judge only, no system, no
+    # dataset, no reader — and no writes into the artifact being audited.
+    auditing = args.predictions is not None
+    if auditing and args.stage == "predict":
+        print(
+            "ERROR: --predictions grades an existing file; it cannot predict.",
+            file=sys.stderr,
+        )
+        return 2
+
+    do_predict = args.stage in {"all", "predict"} and not auditing
+    do_judge = args.stage in {"all", "judge"} or auditing
+    if do_predict and not args.system:
+        print(
+            "ERROR: --system is required for the predict stage (choices: "
+            "no_memory, full_history).",
+            file=sys.stderr,
+        )
+        return 2
+    if not do_predict and not auditing and not args.system and not args.run_dir:
+        print(
+            "ERROR: judging needs somewhere to read from - pass --predictions "
+            "<file>, --run-dir <dir>, or --system to use the default run dir.",
+            file=sys.stderr,
+        )
+        return 2
+
+    predictions_path = Path(args.predictions) if auditing else None
+    # source_dir is where artifacts are READ from; directory is where they are
+    # written. They differ only when auditing into a separate run dir.
+    source_dir = (
+        predictions_path.parent
+        if auditing
+        else (Path(args.run_dir) if args.run_dir else artifacts.run_dir(args.system, args.limit))
     )
+    directory = Path(args.run_dir) if args.run_dir else source_dir
 
     # Guards are stage-scoped: the predict stage never touches OpenAI, and the
     # judge stage never touches Ollama. Demanding both for either would make
@@ -337,12 +376,23 @@ def main(argv: list[str] | None = None) -> int:
     else:
         # Judge-only replay: the header and the rows both come off disk.
         try:
-            pins = artifacts.read_pins(directory)
-            predictions = artifacts.read_predictions(directory, Prediction)
+            if auditing:
+                pins = artifacts.read_pins_optional(source_dir)
+                predictions = artifacts.read_predictions_file(predictions_path, Prediction)
+            else:
+                pins = artifacts.read_pins(source_dir)
+                predictions = artifacts.read_predictions(source_dir, Prediction)
         except FileNotFoundError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
-        _print_pins(pins, None)
+        if pins:
+            _print_pins(pins, None)
+        else:
+            print(
+                "--- pins ---\nno pins.json or results.json beside the predictions "
+                "file: grading rows without provenance.\n------------",
+                file=sys.stderr,
+            )
         if pins.get("judge_model") != args.judge_model:
             print(
                 f"WARNING: judging with {args.judge_model} but predictions were "
@@ -375,7 +425,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     elapsed = time.perf_counter() - started
 
-    print_report(args.system, results)
+    print_report(args.system or source_dir.name, results)
+
+    if auditing:
+        _report_audit(source_dir, results, cache)
+        return 0
 
     # Run-level stats (kept out of report.py, which is category-table only).
     fed = [r.reader_prompt_tokens for r in results if r.reader_prompt_tokens is not None]
@@ -416,6 +470,55 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+def _report_audit(source_dir: Path, results, cache) -> None:
+    """Tier 1 verdict: does re-judging these predictions reproduce the score?
+
+    Checks the recomputed score against the ``results.json`` published beside
+    the predictions. This is the whole Tier 1 claim and its whole limit — it
+    proves the SCORING step, not that the predictions came from the pipeline
+    the pins header names. Auditable, never reproducible.
+    """
+    correct = sum(1 for r in results if r.correct)
+    total = len(results)
+    published = artifacts.read_published_score(source_dir)
+    if not total:
+        print("\nTier 1 audit — no rows in the predictions file.", file=sys.stderr)
+        return
+    print(
+        f"\nTier 1 audit - recomputed {correct}/{total} ({correct / total:.1%})",
+        file=sys.stderr,
+    )
+    if published is None:
+        print(
+            f"no results.json beside {source_dir} to compare against - "
+            "recomputed score printed above, nothing verified.",
+            file=sys.stderr,
+        )
+    elif published == (correct, total):
+        print(
+            f"MATCHES the published {published[0]}/{published[1]}. The judge "
+            "reproduces the published score from the published predictions.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"DIVERGES from the published {published[0]}/{published[1]}. Either "
+            "the judge moved (model, prompt templates, or their hash) or the "
+            "predictions file was edited — both are bugs worth locating.",
+            file=sys.stderr,
+        )
+    print(
+        f"judge cache: {cache.hits} hit / {cache.misses} miss "
+        "(a full-hit audit costs nothing; misses cost cents)",
+        file=sys.stderr,
+    )
+    print(
+        "This verifies scoring only. It does NOT verify that the predictions "
+        "were generated by the pipeline the pins claim - that is Tier 2.",
+        file=sys.stderr,
+    )
 
 
 def _print_pins(pins: dict, declared_ctx: int | None) -> None:

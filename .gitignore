@@ -28,7 +28,10 @@ htmlcov/
 *.sqlite
 *.sqlite3
 
-# Staged eval run artifacts (predictions/results are regenerated, not source)
+# Scratch eval runs. Every run writes here and most are throwaway, so runs/ is
+# the workbench. A number that gets published is COPIED to results/published/
+# and committed — that directory is the record, and it is deliberately NOT
+# ignored. See results/published/README.md before adding anything to it.
 runs/
 
 # Downloaded eval data (LongMemEval is large; never commit it)

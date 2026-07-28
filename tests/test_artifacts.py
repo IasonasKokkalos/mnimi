@@ -472,6 +472,68 @@ def test_verdict_cache_avoids_the_second_call(tmp_path):
     assert warm.hits == 2
 
 
+class TestTier1Audit:
+    """A published predictions.jsonl must be gradeable on its own.
+
+    Tier 1's claim is that anyone can recompute the published score from the
+    published predictions with no dataset, no reader and no run directory. Each
+    test here removes one of those props and asserts the audit still works.
+    """
+
+    def test_prediction_rows_carry_question_and_gold_answer(self, tmp_path):
+        """Without these two fields inline, Tier 1 needs the dataset and dies."""
+        artifacts.write_predictions(tmp_path, _predictions())
+        rows = [
+            json.loads(line)
+            for line in (tmp_path / "predictions.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        for row in rows:
+            assert row["question"], "question text must travel with the prediction"
+            assert row["answer"], "gold answer must travel with the prediction"
+
+    def test_predictions_load_from_an_explicit_path(self, tmp_path):
+        """The auditor points at a file, not at a run directory layout."""
+        artifacts.write_predictions(tmp_path, _predictions())
+        moved = tmp_path / "somewhere_else.jsonl"
+        (tmp_path / "predictions.jsonl").rename(moved)
+        assert artifacts.read_predictions_file(moved, Prediction) == _predictions()
+
+    def test_pins_fall_back_to_results_then_to_empty(self, tmp_path):
+        """A bare predictions file still grades; it just loses provenance."""
+        assert artifacts.read_pins_optional(tmp_path) == {}
+
+        artifacts.write_results(tmp_path, _pins(), [], {"stage": "all", "n": 0}, [])
+        assert artifacts.read_pins_optional(tmp_path)["dataset_sha256"] == "abc"
+
+        artifacts.write_pins(tmp_path, _pins(dataset_sha256="from-pins-json"))
+        assert artifacts.read_pins_optional(tmp_path)["dataset_sha256"] == "from-pins-json"
+
+    def test_published_score_is_read_back_for_comparison(self, tmp_path):
+        assert artifacts.read_published_score(tmp_path) is None
+
+        graded = [
+            runner.Result(
+                question_id="q1",
+                category="single-session-user",
+                is_abstention=False,
+                correct=True,
+                answer="a",
+                predicted="a",
+            ),
+            runner.Result(
+                question_id="q2",
+                category="temporal-reasoning",
+                is_abstention=False,
+                correct=False,
+                answer="18",
+                predicted="19",
+            ),
+        ]
+        artifacts.write_results(tmp_path, _pins(), graded, {"stage": "all", "n": 2}, [])
+        assert artifacts.read_published_score(tmp_path) == (1, 2)
+
+
 def test_results_artifact_carries_header_and_provisionality(tmp_path):
     pins = _pins()
     artifacts.write_results(
