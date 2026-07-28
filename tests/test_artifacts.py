@@ -176,30 +176,38 @@ def test_environment_capture_reads_resolved_load_state(tmp_path):
     assert env["model_load_log"] == "see model_load.log"
 
 
-def test_prompt_cache_limit_is_captured_as_resolved(tmp_path):
-    """A live prompt cache makes a prediction depend on the request before it,
-    so the daemon's own printed limit is recorded — not the env var that asked."""
-    log = tmp_path / "serve.log"
-    log.write_text(
-        FAKE_SERVE_LOG
-        + "cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 32768 tokens)\n",
-        encoding="utf-8",
-    )
-    env = artifacts.capture_environment(
-        ollama_host="http://127.0.0.1:1", serve_log=str(log)
-    )
-    assert "8192.000 MiB" in env["prompt_cache_reported"]
-    assert "ACTIVE" in env["prompt_cache_reported"]
+# VERBATIM from a real daemon. The two prompt-cache states announce themselves
+# in different sentences, and the disabled one emits NO `cache state` line at
+# all — so a fixture that invents a "limits: 0.000 MiB" line would test the
+# wrong model of reality and pass against broken code. It did, once.
+CACHE_DISABLED = (
+    "srv    load_model: prompt cache is disabled - use `--cache-ram N` to enable it\n"
+)
+CACHE_ACTIVE = (
+    "srv    load_model: use `--cache-ram 0` to disable the prompt cache\n"
+    "cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 32768 tokens, 299467 est)\n"
+)
 
-    log.write_text(
-        FAKE_SERVE_LOG
-        + "cache state: 0 prompts, 0.000 MiB (limits: 0.000 MiB, 32768 tokens)\n",
-        encoding="utf-8",
-    )
+
+def test_prompt_cache_state_is_captured_as_resolved(tmp_path):
+    """A live prompt cache makes a prediction depend on the request before it,
+    so the daemon's own printed state is recorded — not the env var that asked."""
+    log = tmp_path / "serve.log"
+
+    log.write_text(FAKE_SERVE_LOG + CACHE_ACTIVE, encoding="utf-8")
     env = artifacts.capture_environment(
         ollama_host="http://127.0.0.1:1", serve_log=str(log)
     )
-    assert "disabled" in env["prompt_cache_reported"]
+    assert "ACTIVE" in env["prompt_cache_reported"]
+    assert "8192.000 MiB" in env["prompt_cache_reported"]
+
+    # The state the harness requires must be confirmable, not merely inferred
+    # from the absence of the active line.
+    log.write_text(FAKE_SERVE_LOG + CACHE_DISABLED, encoding="utf-8")
+    env = artifacts.capture_environment(
+        ollama_host="http://127.0.0.1:1", serve_log=str(log)
+    )
+    assert env["prompt_cache_reported"] == "prompt cache disabled"
 
 
 class TestPreflightReaderEnv:
@@ -209,13 +217,16 @@ class TestPreflightReaderEnv:
     these are regression tests for a specific wrong number, not hypotheticals.
     """
 
-    GOOD = (
-        "llama_context: flash_attn    = enabled\n"
-        "cache state: 0 prompts, 0.000 MiB (limits: 0.000 MiB, 32768 tokens)\n"
-    )
+    GOOD = "llama_context: flash_attn    = enabled\n" + CACHE_DISABLED
 
     def test_accepts_a_correctly_launched_daemon(self):
         runner.preflight_reader_env(self.GOOD)
+
+    def test_absent_cache_evidence_is_not_a_pass(self):
+        """The disabled daemon emits no `cache state` line, so keying off that
+        line alone would silently pass a log that proves nothing."""
+        with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
+            runner.preflight_reader_env("llama_context: flash_attn    = enabled\n")
 
     def test_rejects_auto_because_that_means_the_env_var_was_unset(self):
         """`auto` is the tray app's signature: it resolves per host GPU, so the
@@ -228,11 +239,8 @@ class TestPreflightReaderEnv:
             runner.preflight_reader_env("llama_context: flash_attn    = disabled\n")
 
     def test_rejects_a_live_prompt_cache(self):
-        log = (
-            "llama_context: flash_attn    = enabled\n"
-            "cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 32768 tokens)\n"
-        )
-        with pytest.raises(runner.ReaderEnvError, match="prompt cache"):
+        log = "llama_context: flash_attn    = enabled\n" + CACHE_ACTIVE
+        with pytest.raises(runner.ReaderEnvError, match="ACTIVE"):
             runner.preflight_reader_env(log)
 
     def test_rejects_a_log_with_no_resolution_at_all(self):

@@ -85,13 +85,31 @@ this Ollama build; `--cache-ram 0` via the `LLAMA_ARG_CACHE_RAM` passthrough is
 the only switch that works. Note `prompt_eval_count` reports the full prompt
 length on a cache hit, which is why the existing instrumentation never saw this.
 
-**Still open — first-request-after-load.** The very first inference after a model
-load still differs from all subsequent ones, independent of the prompt cache
-(prefill was full in every case). The mechanism is the CUDA graph cache warming
-up. A warmup call is the obvious fix but is **not yet verified**: a synthetic
-warmup reached only 1,033 reused graphs against the saturated 1,608, so it did
-not reproduce the steady state. Until this is closed, the first question of a
-run is not trustworthy.
+**CLOSED — first-request-after-load.** The first inference after a model load
+runs against a cold CUDA graph cache (555 graphs reused vs 1,608 once warm) and
+answers differently from the same input. The fix is `_force_model_load` in
+`evals/__main__.py`, which already runs before question 1 to make the daemon log
+its resolved settings for preflight, and incidentally absorbs this state.
+
+The mechanism matters more than the fix: determinism here does **not** come from
+saturating the graph cache — an early synthetic warmup reached only 1,033 of
+1,608 and still did not reproduce the steady state. It comes from an **identical
+request sequence**. Both runs of a restart pair begin with the same fixed
+30-token generate, so graph reuse tracks identically (1, 95, 205, 458 in both)
+and every question sees the same state. `_force_model_load` is therefore
+load-bearing for reproducibility despite looking like a preflight helper;
+removing it returns question 1 to the cold-graph state.
+
+**Measured error bar (2026-07-28).** Same pins, same `pins_hash`, daemon killed
+and relaunched between runs, on a clean GPU:
+
+| System | Predictions changed | Score |
+|---|---|---|
+| `no_memory` | **0/20** | 10.0% → 10.0% |
+| `full_history` | **0/20** | 20.0% → 20.0% |
+
+Zero. The drift is closed, and the honest error bar across a daemon restart is
+0/20 predictions and 0 points — not the retired 12/20 figure.
 
 **Flash attention is a separate, real variable.** With cache state held
 constant, FA=0 vs FA=1 changed 2/2 probe predictions (byte 0 of a 1,924-char
@@ -109,6 +127,22 @@ requested-vs-resolved, the same discipline that caught flash attention. Set
 `OLLAMA_SERVE_LOG` when launching manually, or the harness reads the tray app's
 log path instead.
 
+**Killing the daemon is not enough — kill `llama-server` too.** Ollama spawns
+`llama-server.exe` child runners that **outlive** `Stop-Process -Name ollama`.
+Six accumulated unnoticed across restarts during this investigation, holding
+5.3 GiB of VRAM on a 6 GiB card with the GPU pinned at 100%; a 27k prefill that
+takes 7.3s on a clean card took 50-59s under that contention. Ollama's own
+`/api/ps` reported one loaded model and gave no hint of the other five — only
+`nvidia-smi --query-compute-apps` showed them. Always:
+
+```
+Get-Process -Name "ollama","ollama app","llama-server" | Stop-Process -Force
+```
+
+Contention of this kind did **not** change output — controlled comparisons run
+under it were still byte-identical — but it makes every timing number
+meaningless, so verify VRAM is released before trusting a wall-clock figure.
+
 **Why the earlier 4-step GPU protocol passed while missing all of this.** Every
 step replayed the **same question**, which held the cache-state sequence
 constant by accident. In a real run each question has a distinct context but
@@ -122,3 +156,12 @@ sequence, not just the repetition count.
 figure must **not** be cited as an error bar. It was a cache-state artifact and
 is reducible; publishing it as irreducible noise would overstate the floor. The
 honest error bar is a re-run under these pins, and is not yet measured.
+
+It was also weaker evidence than it appeared. Both 20-q artifacts it came from
+record `stage='judge'` — they were judge-stage **replays** over a stored
+`predictions.jsonl`, not fresh predict runs, and `full_history`'s
+`judge_cache_hits=8 / misses=12` *is* the "8/20 identical, 12/20 changed"
+figure. That is verdict-cache bookkeeping against predictions of unknown
+provenance, not a controlled comparison. When quoting a reproducibility number,
+check `run.stage` first: only `stage='all'` (or a fresh `predict`) re-runs the
+reader, and only that can measure reader drift.

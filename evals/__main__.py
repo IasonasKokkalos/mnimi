@@ -79,10 +79,27 @@ def ollama_preflight(model: str) -> tuple[str | None, str | None]:
 def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
     """Load the model so the daemon logs its resolved settings.
 
-    Uses the run's real ``num_ctx``/``num_gpu``: loading under different values
-    would make the daemon log a configuration the run does not use, and would
-    force a second load when the first real question arrives.
+    LOAD-BEARING FOR REPRODUCIBILITY — do not delete this as "just a preflight
+    helper". The first inference after a model load runs against a cold CUDA
+    graph cache (measured: 555 graphs reused vs 1,608 once warm) and produces a
+    different answer from the same input. This call absorbs that first-inference
+    state so question 1 never lands in it.
+
+    Note what actually makes the run deterministic: not a saturated graph cache,
+    but an *identical request sequence*. Two runs match because both begin with
+    this same fixed 30-token generate, so the graph state at every subsequent
+    question is the same (verified: reuse counts 1, 95, 205, 458 in both runs of
+    a restart pair, 0/20 predictions changed). Change or remove this call and
+    question 1 drifts again.
+
+    Sends the run's FULL decode pin set, not just num_ctx/num_gpu. llama.cpp
+    fixes ``n_batch`` when the context is created, so a load that omits
+    ``num_batch`` builds an n_batch=1024 context — which Ollama then tears down
+    and reloads at 512 when the first real question arrives. That wasted a load
+    per run and, worse, meant preflight validated a context the run never used.
     """
+    from .runner import READER_NUM_BATCH, READER_NUM_THREAD
+
     try:
         _ollama_post(
             "/api/generate",
@@ -90,7 +107,13 @@ def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
                 "model": model,
                 "prompt": "ready",
                 "stream": False,
-                "options": {"num_predict": 1, "num_ctx": num_ctx, "num_gpu": num_gpu},
+                "options": {
+                    "num_predict": 1,
+                    "num_ctx": num_ctx,
+                    "num_gpu": num_gpu,
+                    "num_batch": READER_NUM_BATCH,
+                    "num_thread": READER_NUM_THREAD,
+                },
             },
         )
     except (urllib.error.URLError, OSError, ValueError):

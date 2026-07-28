@@ -255,16 +255,21 @@ def capture_environment(
                     "without OLLAMA_FLASH_ATTENTION)"
                 )
 
-            # Resolved prompt-cache limit, e.g.
-            #   cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, ...)
-            cache = re.findall(r"cache state:[^(]*\(limits:\s*([0-9.]+)\s*MiB", text)
-            if cache:
-                limit = float(cache[-1])
-                env["prompt_cache_reported"] = (
-                    f"prompt cache limit {limit:.3f} MiB"
-                    + (" (disabled)" if limit == 0 else " (ACTIVE — output may "
-                       "depend on the preceding request)")
-                )
+            # Resolved prompt-cache state. The two states report themselves in
+            # DIFFERENT sentences, and the disabled one emits no `cache state`
+            # line at all — so matching only the limit form records None exactly
+            # when the cache is off, i.e. never confirms the state we want.
+            #   disabled: "prompt cache is disabled - use `--cache-ram N` ..."
+            #   active:   "cache state: 0 prompts, ... (limits: 8192.000 MiB, ...)"
+            if re.search(r"prompt cache is disabled", text):
+                env["prompt_cache_reported"] = "prompt cache disabled"
+            else:
+                cache = re.findall(r"cache state:[^(]*\(limits:\s*([0-9.]+)\s*MiB", text)
+                if cache:
+                    env["prompt_cache_reported"] = (
+                        f"prompt cache ACTIVE, limit {float(cache[-1]):.3f} MiB "
+                        "— output may depend on the preceding request"
+                    )
 
             kv = re.findall(
                 r"(type_k\s*=\s*\S+.*?type_v\s*=\s*\S+|KV cache type[^\n]*|"

@@ -320,18 +320,31 @@ def preflight_reader_env(model_load_log: str, daemon_env: dict | None = None) ->
         )
         raise ReaderEnvError(
             f"daemon resolved flash_attn={resolved}, pins require {want_fa}"
-            f"{hint}. Kill all ollama processes (including the tray app) and "
-            f"relaunch with OLLAMA_FLASH_ATTENTION={READER_FLASH_ATTENTION}."
+            f"{hint}. Kill `ollama`, `ollama app` AND `llama-server` (the child "
+            "runners outlive the daemon and keep holding VRAM), then relaunch "
+            f"with OLLAMA_FLASH_ATTENTION={READER_FLASH_ATTENTION}."
         )
-    # The prompt cache announces its own limit; 0 MiB is the disabled state.
-    cache = re.search(r"limits:\s*([0-9.]+)\s*MiB", model_load_log or "")
-    if cache and float(cache.group(1)) != float(READER_CACHE_RAM):
+    # The prompt cache must be confirmed OFF, not merely un-observed. The
+    # disabled daemon says so in a dedicated line and emits no `cache state`
+    # line at all, so keying off the limit alone would treat "no evidence" as a
+    # pass — which is the one outcome a preflight must never return.
+    log = model_load_log or ""
+    if re.search(r"prompt cache is disabled", log):
+        return
+    active = re.search(r"cache state:[^(]*\(limits:\s*([0-9.]+)\s*MiB", log)
+    if active:
         raise ReaderEnvError(
-            f"daemon prompt cache limit is {cache.group(1)} MiB, pins require "
-            f"{READER_CACHE_RAM}. Relaunch with "
-            f"LLAMA_ARG_CACHE_RAM={READER_CACHE_RAM} — a live prompt cache makes "
-            "output depend on what ran before it."
+            f"daemon prompt cache is ACTIVE (limit {active.group(1)} MiB), pins "
+            f"require it disabled. Relaunch with "
+            f"LLAMA_ARG_CACHE_RAM={READER_CACHE_RAM} — a live prompt cache "
+            "recomputes the final logits in a batch of one on a hit, which "
+            "changes the answer."
         )
+    raise ReaderEnvError(
+        "no prompt-cache state in the model load log — cannot confirm the cache "
+        f"is disabled. Relaunch with LLAMA_ARG_CACHE_RAM={READER_CACHE_RAM} and "
+        "point OLLAMA_SERVE_LOG at that daemon's log."
+    )
 
 
 PredictProgressFn = Callable[[int, int, Question, bool], None]
