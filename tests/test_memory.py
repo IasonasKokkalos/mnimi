@@ -58,6 +58,21 @@ def test_distinct_facts_are_stored_twice(tmp_path):
     assert memory.store.count("u1") == 2
 
 
+def test_recall_reads_top_k_from_config(tmp_path):
+    memory = Memory(str(tmp_path / "mem.db"), HashingEmbedder(), MemoryConfig(top_k=2))
+    facts = [
+        "my sister works as a marine biologist in Crete",
+        "the conference talk covered sqlite virtual tables",
+        "a recipe for baking sourdough bread with fresh yeast",
+        "the golden retriever puppy chased a ball across the park",
+    ]
+    for fact in facts:
+        memory.add([_message(fact)], user_id="u1")
+    assert memory.store.count("u1") == 4
+
+    assert len(memory.recall("tell me about my life", "u1")) == 2
+
+
 def test_dedup_threshold_is_read_from_config_not_hardcoded(tmp_path):
     near_pair = [
         "every saturday morning I hike the coastal trail with my dog before work",
