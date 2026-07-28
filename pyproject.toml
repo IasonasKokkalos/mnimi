@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnimi"
-version = "0.2.0"
+version = "0.3.0"
 description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
 readme = "README.md"
 requires-python = ">=3.10"

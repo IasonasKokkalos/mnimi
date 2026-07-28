@@ -8,16 +8,22 @@ public surface stays at four methods regardless.
 
 from __future__ import annotations
 
+from .config import MemoryConfig
 from .embeddings import Embedder
 from .models import MemoryRecord
 from .store import Store
+
+_DEFAULT_CONFIG = MemoryConfig()
 
 
 class Memory:
     """Embeddable agent memory backed by a single SQLite file."""
 
-    def __init__(self, db_path: str, embedder: Embedder) -> None:
+    def __init__(
+        self, db_path: str, embedder: Embedder, config: MemoryConfig = _DEFAULT_CONFIG
+    ) -> None:
         self.embedder = embedder
+        self.config = config
         self.store = Store(db_path, dim=embedder.dim)
 
     def add(self, messages, user_id: str) -> None:
