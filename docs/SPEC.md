@@ -3,6 +3,11 @@
 The contract. Signatures here are locked; changing them is a breaking change.
 Storage backend: SQLite + sqlite-vec for v1.
 
+Most of this document is the **target**. For what the library actually does
+today, read **§v1 as built (v0.3.2)** first — it is the shipped state, with
+per-section `**v1 as built:**` notes throughout marking where code and target
+diverge. Never assume a spec'd field exists; check that section, then the code.
+
 ---
 
 ## CHANGELOG (locked decisions changed, with evidence — newest first)
@@ -25,7 +30,8 @@ Storage backend: SQLite + sqlite-vec for v1.
     lands the embedded string becomes the extracted fact, not a raw turn — a
     different input, so the role-in-vector question reopens on its merits at
     that migration instead of being silently superseded. See §Embedding config
-    for what v1's `embed_template_hash` covers.
+    for what v1's `embed_template_hash` covers — and §v1 as built for the fact
+    that, as shipped, that hash row is not actually written.
 11. **Decay floor added.** Salience decays toward `decay_floor` (default 0.15),
     never to zero; salience 0 is reserved exclusively for superseded records.
     Decay can now only down-rank old evidence, never exclude it — closing the
@@ -102,6 +108,86 @@ Storage backend: SQLite + sqlite-vec for v1.
 
 ---
 
+## v1 as built (v0.3.2, 2026-07-29)
+
+Everything else in this document is the **target** contract. This section is
+what the library actually does today, read off the code at v0.3.2. Where the
+two disagree the code is described here, and each divergence is logged
+individually in `docs/DECISIONS.md` → "v1 build: PLANNED vs ACTUAL". **Phase C
+wires against this section, not against the target sections.**
+
+| Spec'd | v1 status | Where |
+|---|---|---|
+| `add` / `recall` / `get_context` / `consolidate` | shipped (`consolidate` is a no-op stub) | `memory.py` |
+| `export` | **not built** — the public surface is 4 of 5 methods | — |
+| `MemoryConfig` | **2 of 9 fields**: `dedup_cosine_threshold=0.85`, `top_k=10`. A field no code reads is not present | `config.py` |
+| `MemoryRecord` | `id, user_id, content, embedding, created_at, salience, source, supersedes`. No `raw`, no triple, no `valid_time`; `created_at` carries `ts` (there is no separate `system_time`); no `last_accessed` | `models.py` |
+| `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
+| `memory_meta` guard | **3 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py:46-98` |
+| `embed_template_hash` | **not written — the one guard hole in v1.** Changing v1's content template (e.g. the session-date fold) does *not* fail loudly | — |
+| Extraction | not built. No LLM anywhere in the library | — |
+| Dedup | **steps 1-2 only**: exact-normalize collapse, then ONE cosine probe (`k=1`) against the store at `dedup_cosine_threshold`. No negation screen, no value-substitution screen, no entropy gate | `memory.py:51-72` |
+| Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
+| Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
+| Retriever extras | no active-record filter, no `recall_min_relevance`, no `last_accessed` update | — |
+| `get_context` locked block format | not built. v1 joins record `content` with `"\n"`: no token budget, no per-record block, no re-ordering by time | `memory.py:80-83` |
+| Normalize at the boundary | shipped — both embedders unit-normalize inside `embed()` | `embeddings.py:73-76, 132-134` |
+| `distance_metric=L2` spelled out in the DDL | shipped, asserted by a test | `store.py:120-126` |
+| L2 → cosine conversion | shipped at **exactly one site**: `store.search` returns `(record, cos)`, `cos = 1 − d²/2` | `store.py:193` |
+| All time is logical | shipped by construction — **zero** wall-clock calls in `src/mnimi/`; `insert()` raises `ValueError` when `created_at` is `None` rather than falling back to a clock | `store.py:129-140` |
+| `pinned` | gone from the dataclass and the DDL | — |
+
+### `add()` as built — the exact ingestion contract
+
+`naive_rag` must construct its records with this same procedure, byte for byte;
+it differs from mnimi only in skipping the dedup screens. Any drift here is a
+confound, not a doc gap.
+
+1. `messages` must be `list[dict]`; anything else (a bare `str`, a
+   `list[str]`) raises `TypeError`. The `str | list[str]` union is gone.
+2. Turns whose `content` is empty or whitespace are **dropped before pairing**.
+3. Rounds are formed greedily, left to right: a `user` turn immediately
+   followed by an `assistant` turn forms one round; **every other turn stands
+   alone** (assistant-first, user-user, and a trailing user turn each produce a
+   solo record).
+4. Record content is, exactly:
+   `f"[Session date: {date}] {text}"`, where `text` is each turn's stripped
+   `content` joined with `"\n"` and `date` is the **date part of the round's
+   first turn's `ts`** (`ts.split("T")[0].split(" ")[0]`). No role labels
+   appear in content, so none reach the vector (CHANGELOG #15).
+5. Role is metadata: `source` = the round's roles joined with `"+"` —
+   `"user+assistant"`, or `"user"` / `"assistant"` for a solo turn.
+6. `created_at` = the round's first turn's `ts`, stored verbatim. A round whose
+   first turn has no `ts` gets no date prefix and is then **rejected by
+   `store.insert` with `ValueError`** — the failure surfaces from the store,
+   not from `add`.
+7. Dedup, per round, in order: skip if the normalized content
+   (lowercase → strip punctuation → collapse whitespace) already exists for
+   that user; otherwise skip if a `k=1` vector probe returns
+   `cos >= dedup_cosine_threshold`. The threshold is read from `self.config` on
+   every call. Inserts commit as the loop runs, so rounds inside a single
+   `add()` batch dedup against each other as well as against the store.
+
+### Embedder as built
+
+- `BAAI/bge-small-en-v1.5`, revision pinned to the commit sha
+  **`5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`**, 384-dim, CLS pooling,
+  unit-normalized inside `embed()`.
+- **Provenance of the pin, stated plainly:** the sha was resolved by Claude
+  Code at implementation time (2026-07-28) from the HF API and cross-checked
+  with `git ls-remote`, which agreed. It is the then-current `main` HEAD, not a
+  human-selected release, and it has **not** been independently verified by the
+  maintainer. Treat it as "pinned, machine-resolved" — auditable at any time
+  via `git ls-remote https://huggingface.co/BAAI/bge-small-en-v1.5` — not as a
+  vetted choice.
+- The weights are the repo's **published ONNX export** (`onnx/model.onnx`,
+  fetched with `hf_hub_download` at that revision). Nothing is converted
+  locally; no torch appears in any dependency path.
+- Runtime: `onnxruntime` (CPU provider) + `tokenizers` (WordPiece) +
+  `huggingface-hub`, all behind the `[embed]` extra. `HashingEmbedder`
+  (numpy-only, `name="hashing"`, `revision="v1"`, 256-dim) remains the default
+  and the CI path; BGE tests carry the `bge` marker and skip without the extra.
+
 ## Public API — `mnimi.Memory`
 
 ```python
@@ -126,10 +212,23 @@ class Memory:
 - `consolidate` — merge duplicates, resolve conflicts, decay stale memories.
 - `export` — human-readable text/markdown dump of the store. No UI.
 
+**v1 as built:** four of the five exist. `export` is **not implemented**;
+`consolidate` is a no-op stub; `recall` returns `list[MemoryRecord]`, not
+`list[ScoredRecord]`. The default config is a module-level
+`_DEFAULT_CONFIG = MemoryConfig()` constant rather than a literal
+`MemoryConfig()` in the signature — semantically identical for a frozen
+dataclass, and it keeps ruff's B008 (function call in default argument) quiet.
+
 ## `MemoryConfig`
 
 Tunable parameters, passed at construction. Never hardcoded in write-path
 logic — every threshold below must read from here.
+
+**v1 as built: two of these nine fields exist** —
+`dedup_cosine_threshold = 0.85` and `top_k = 10`. The rest describe stages that
+are not written yet, and `config.py` deliberately carries no field that no code
+reads (a config knob nothing consumes is dead weight that reads as capability).
+They land with the stage that uses them.
 
 Starting values — **v1 defaults, all unmeasured guesses to be tuned on W2/W4
 eval evidence, not sacred:**
@@ -197,6 +296,16 @@ Superseded records are marked inactive (salience set to 0), not deleted —
 history is kept and stays exportable. Decay never produces 0 (floor,
 CHANGELOG #11); only supersession does. `pinned` removed (CHANGELOG #6).
 
+**v1 as built:** the shipped dataclass and `memories` table are
+`id, user_id, content, embedding, created_at, salience, source, supersedes`.
+`created_at` is the session `ts` verbatim and plays the `system_time` role —
+there is no second time column, because with no extraction there is no
+`valid_time` to distinguish it from. `raw`, the triple, and `last_accessed` do
+not exist. `salience` and `supersedes` exist, are persisted and returned, and
+are **read by no code path** — they are placed, not live. `source` currently
+holds the round's roles (`"user+assistant"`), not the spec'd
+`conversation_id/turn_id/role` pointer; provenance is deferred to Phase E.
+
 ### `ScoredRecord` (read-side)
 
 A `MemoryRecord` plus attached retrieval scores. Return type of `recall`.
@@ -208,6 +317,11 @@ A `MemoryRecord` plus attached retrieval scores. Return type of `recall`.
 | `recency` | float | recency component (from `now_logical − system_time`) |
 | `salience` | float | current stored salience |
 | `score` | float | combined rank (see Ranking) |
+
+**v1 as built: `ScoredRecord` does not exist.** `store.search()` returns
+`list[tuple[MemoryRecord, cosine]]` and `Memory.recall()` discards the cosine,
+returning `list[MemoryRecord]` in vec0 distance order. The score is available
+one layer down when a read-side consumer needs it.
 
 ## Logical time (locked)
 
@@ -378,6 +492,31 @@ CREATE TABLE memory_meta (
 - The reader is deliberately NOT here — it is pinned in the benchmark
   contract (below), because it is a harness property, not a store property.
 
+**v1 as built — three of these eleven rows are written:** `embedder_name`,
+`embedder_revision`, `embedder_dim`. They are inserted once in `_write_meta()`
+at DB creation and compared in `_validate_meta()` on **every** open; any
+mismatch raises `MemoryMetaError` naming the offending keys, before a single
+query runs. It **raises — it does not log or repair.** Two behaviours worth
+knowing beyond the spec text:
+
+- A database that has a `memories` table but **no** `memory_meta` is refused,
+  not silently upgraded: it predates the guard, so its vectors cannot be
+  attributed to an embedder. There is no migration system; the fix is
+  re-ingest into a fresh store.
+- The guard is fed by the `Embedder` protocol, which grew `name` and
+  `revision` properties for exactly this purpose. `HashingEmbedder` reports
+  `("hashing", "v1", 256)`, so swapping the CI embedder for BGE on an existing
+  DB fails at open on all three keys rather than at insert on a dimension
+  error.
+
+**Gap, stated so it is not mistaken for coverage:** `embed_template_hash` is
+**not written in v1**. The eight extraction-era rows are unwritable (nothing
+exists to hash), but the template hash is writable today and is not there —
+so a change to v1's content template (the `[Session date: …]` fold, the `"\n"`
+join) silently changes every vector without failing any guard. It is the one
+place where the invariant is documented and unenforced; close it before any
+published mnimi number, or the number's corpus is not pinned.
+
 **Rationale:** reproducibility requires every artifact that determines the
 corpus or the vectors to be fixed for the life of a benchmark run. Quant tag
 and runtime version are included because Q4 vs Q8 changes logits and temp-0
@@ -462,6 +601,21 @@ exact-normalize → cosine gate → negation screen → value-substitution scree
 The pipeline being deterministic + tunable + inspectable *is* the
 differentiator vs competitors' LLM-prompt merges — keep it that way.
 
+**v1 as built: steps 1 and 2 only, and nothing else.** `add()` normalizes
+(lowercase → strip punctuation → collapse whitespace) against the user's
+existing content, then fires exactly one `k=1` vector probe and drops the
+incoming round if `cos >= dedup_cosine_threshold`. Screens 3-5 need the triple
+and the lexicons, i.e. extraction, and are not written. Consequences to hold
+in mind while reading a v1 number: a value substitution ("lives in Boston" →
+"lives in Seattle") is high-cosine with no negation cue, so **v1 can merge it
+destructively** — the exact ChatGPT overwrite failure the screens exist to
+prevent. LongMemEval's non-conflicting history (Appendix A.2) largely masks
+this, which is why the screens can wait, not why they are unnecessary.
+Two details Phase C depends on: the probe is against the store, and inserts
+commit inside the loop, so rounds within one `add()` call dedup against each
+other; and the threshold is read from `self.config` at call time, never
+captured at construction.
+
 **Prior-art delta, source-verified (2026-07-20):** the closest in-scope
 system (OMEGA v1.5.5) deduplicates by exact `content_hash` at write time
 plus an *offline* `compact` action merging near-duplicates at **lexical
@@ -504,6 +658,18 @@ Output:  list[ScoredRecord], length ≤ k.
 - The retriever is a seam: the naive-RAG baseline uses the same retriever
   over raw rounds; only the indexed value differs.
 
+**v1 as built:** `store.search(embedding, user_id, k)` embeds through
+`embeddings.py`, runs the vec0 KNN, joins to metadata, filters to the user and
+returns the first `k` as `(record, cosine)` pairs. Not present: the
+active-record (`salience > 0`) filter, the `recall_min_relevance` drop, the
+`last_accessed` write-back, and the attached component scores. `k` has no
+default at the store layer — callers must pass it, and `Memory.recall` passes
+`config.top_k`. One shape worth knowing: the KNN is global, so the query
+over-fetches `k*8` rows and *then* scopes to the user; a store holding many
+users could in principle return fewer than `k` for a crowded-out user. Under
+the eval protocol (one user per DB, reset per question) it cannot bite, but it
+is a real limit, not a rounding detail.
+
 ### Ranking (canonical)
 
 ```
@@ -520,6 +686,13 @@ field: under the eval protocol (reset per instance, one query per question,
 boost by access count — `_base.py` access-reduces-decay;
 `memory/strength.py:26` `log(1+access_count)` — rejected here on the same
 protocol grounds plus the production feedback-loop risk.)
+
+**v1 as built: there is no ranking layer.** Results come back in vec0 L2
+ascending order, which for unit vectors is exactly cosine-descending order —
+i.e. the defaults (`similarity 1.0`, `recency 0.0`, salience uniformly 1.0)
+already collapse to plain similarity ranking, so v1 matches the spec'd default
+configuration by construction rather than by computing it. The weights and the
+salience multiplier land with decay.
 
 ### `get_context` (locked format)
 
@@ -538,6 +711,16 @@ Assembles top-ranked records into a context string within
 - Inactive (salience 0) records excluded.
 - The block template is fixed and hashed with the embed template family —
   a silent format change is a silent number change.
+
+**v1 as built: none of this format exists.** `get_context` is
+`"\n".join(record.content for record in self.recall(query, user_id))` — no
+token budget, no per-record block, no re-ordering by time, no
+salience-0 exclusion (nothing sets salience to 0 yet). Timestamps still reach
+the reader, because the session date is folded into `content` at write time
+(`[Session date: YYYY-MM-DD] …`) rather than rendered at read time; the two
+approaches are not interchangeable, and the fold is what keeps temporal
+questions answerable in v1. Records arrive in similarity order, not
+chronological order.
 
 ## Embedding normalization (locked)
 
@@ -558,13 +741,26 @@ candidates).
 through `embeddings.py`'s normalize step silently breaks ranking correctness.
 Normalize once at the boundary, never assume callers did it.
 
+**v1 as built:** shipped as written — `HashingEmbedder` and `BgeSmallEmbedder`
+both normalize inside `embed()` before returning, and no other module touches
+vector magnitude. The reverse direction is also implemented and equally
+single-boundary: `store.search` converts vec0's L2 distance back to cosine
+with `cos = 1 − d²/2` (exact for unit vectors) at `store.py:193`, and that is
+the **only** arithmetic on `distance` anywhere in the library. Everything above
+it — dedup's threshold, any future score — compares genuine cosine numbers, so
+`dedup_cosine_threshold` means what its name says.
+
 ## Embedding config (locked for LongMemEval baseline)
 
 **Embedder:** single hardcoded local model for the eval run. No user-facing
 config field. Pluggable choice deferred to FUTURE.md.
 
 - Model: `BAAI/bge-small-en-v1.5`, **revision pinned to a specific HF commit
-  sha** (a bare model name is mutable under the run)
+  sha** (a bare model name is mutable under the run). **As built the pin is
+  `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`**, machine-resolved by Claude Code
+  at implementation time and not independently verified by the maintainer —
+  see "Embedder as built" above for the provenance caveat and the ONNX-export
+  question.
 - Dim: `384`
 - Normalization: `embed()` returns unit-normalized vectors, once, inside
   `embeddings.py`. No call site outside it may skip this.
@@ -597,23 +793,31 @@ every vector drags all pairwise similarities toward each other, which
 directly degrades the single cosine threshold (`dedup_cosine_threshold`)
 that v1 dedup depends on.
 
-- v1's `embed_template_hash` pins the bare-`content` v1 template — there is
-  no `raw` to cover. The extraction-era migration to `f"{raw}\n{content}"`
-  changes the hash and invalidates existing DBs for comparability. That is
-  the guard working as designed: versioned migration + re-ingest, never an
-  in-place edit.
+- v1's `embed_template_hash` is *specified* to pin the bare-`content` v1
+  template — there is no `raw` to cover — and the extraction-era migration to
+  `f"{raw}\n{content}"` would change the hash and invalidate existing DBs for
+  comparability: the guard working as designed, versioned migration plus
+  re-ingest, never an in-place edit. **As built the row is not written**
+  (see the guard section): the intent above holds, the enforcement does not
+  exist yet.
 - When extraction lands, the embedded string is the **extracted fact**, not
   a raw turn — a different input distribution. The role-in-vector question
   therefore reopens on its merits at that migration (the schema above, with
   role-prefixed `raw`, is the standing position until measured evidence says
   otherwise) — it is not silently superseded in either direction.
 
-**vec0 schema:**
+**vec0 schema (as built):** the vector table is `vec_memories`, separate from
+the `memories` metadata table and joined to it by shared rowid — one file, two
+tables, no extra key column.
 ```sql
-CREATE VIRTUAL TABLE memories USING vec0(
+CREATE VIRTUAL TABLE vec_memories USING vec0(
   embedding float[384] distance_metric=L2
 );
 ```
+`distance_metric=L2` is spelled out even though it is vec0's default: the
+ranking contract depends on it, and a defaulted metric is an undocumented
+dependency on a library default. A test asserts the string is in the stored
+DDL.
 
 **Known trade, stated:** BGE-small (33M params) trails the paper's Stella V5
 1.5B; retriever choice moves Recall@5 by up to ~9 points and Contriever beats
@@ -621,9 +825,18 @@ Stella on several cells (Table 9, Appendix E.2). mnimi's absolute recall will
 sit below the paper's numbers; if W3 misses the margin, the embedder is the
 first swap (BGE-base 768-dim, same family, bump `embedder_dim`, re-embed).
 
-**Out of scope → FUTURE.md:** `Embedder` protocol / pluggable embedder
-choice, API-backed embedders, Matryoshka dim truncation, hot-swap /
-re-embed workflow.
+**Out of scope → FUTURE.md:** API-backed embedders, Matryoshka dim
+truncation, hot-swap / re-embed workflow.
+
+**v1 as built — one honest tension.** "No user-facing config field" is true of
+the *model* (nothing selects a checkpoint by name), but the `Embedder` protocol
+is a constructor argument of the locked `Memory.__init__` signature, so a
+caller can inject any embedder. That is deliberate: it is the seam CI uses to
+avoid a 130MB download, and the harness pins the choice by constructing
+`BgeSmallEmbedder` explicitly. The `memory_meta` guard is what makes the seam
+safe — an injected embedder is recorded and re-checked, so "pluggable" cannot
+silently mean "unpinned". The protocol carries `name`, `revision`, `dim`, and
+`embed` for that reason.
 
 ## Concurrency
 

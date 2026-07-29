@@ -198,3 +198,187 @@ by 5).
 The evidence table is **n≥100 on one stratified slice, all five systems, one
 sitting**. Cost, measured: full_history ≈ 3.2 min per 20 questions on GPU, so
 n=100 ≈ 16 min for the most expensive system — affordable.
+
+## v1 build: PLANNED vs ACTUAL (2026-07-29)
+
+The v1 library (v0.3.0–v0.3.2, nine commits) was built from a nine-item plan.
+This is the audit of plan against shipped code, item by item, **including the
+small divergences** — Phase C may be wired from a different session, and a
+divergence that is only in someone's head is a confound waiting to happen.
+`docs/SPEC.md` §v1 as built carries the resulting state; this file carries why
+each one differs.
+
+**Verified as planned, no divergence** (recorded so the audit is a closed set,
+not a highlight reel): `MemoryConfig` holds exactly `dedup_cosine_threshold`
+and `top_k` — nothing crept in; the `memory_meta` check **raises**
+`MemoryMetaError` at open and does not log-and-continue; `distance_metric=L2`
+is explicit in the vec0 DDL with a test asserting the stored SQL string;
+`pinned` is gone from the dataclass and the table; a grep of `src/mnimi/` for
+`datetime` / `time.time` / `now()` / `utcnow` / `monotonic` / `perf_counter`
+returns **zero hits**, and `created_at = None` raises rather than falling back;
+dedup is exact-normalize plus a single `k=1` cosine probe and nothing else,
+with the threshold read from `self.config` at call time; `add()` takes
+`list[dict]` only, at per-round granularity, with the session date folded into
+content and role excluded from the embedded string.
+
+### BGE revision: pinned by the assistant, not maintainer-vetted
+
+**Planned:** pin `BAAI/bge-small-en-v1.5` to an HF commit sha, never a tag,
+with the sha shown before use. **Actual:** pinned to
+`5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`. The sha was resolved by Claude Code
+during implementation from the HF API and independently cross-checked with
+`git ls-remote` (both agreed, re-confirmed 2026-07-29). It is the current
+`main` HEAD of the repo, i.e. "latest", **not** a maintainer-selected release,
+and the human has not verified it. Recorded as machine-resolved so nobody later
+reads it as a vetted choice. Re-checkable in one command:
+`git ls-remote https://huggingface.co/BAAI/bge-small-en-v1.5`. The pin's
+*function* — freezing the corpus's vectors for the life of a run — holds
+regardless of who chose it.
+
+### ONNX weights are the repo's published export, not a local conversion
+
+**Planned:** unstated. **Actual:** `hf_hub_download(name, "onnx/model.onnx",
+revision=…)` — the export BAAI publishes inside the model repo at that same
+revision. Nothing is converted on this machine, so the graph is pinned by the
+same sha as everything else. A locally converted graph would have been an
+unpinned artifact produced by whatever converter version happened to be
+installed — exactly the class of thing the guards exist to prevent.
+
+### `tokenizers` added to the `[embed]` extra
+
+**Planned:** onnxruntime + huggingface_hub, explicitly not
+sentence-transformers/torch. **Actual:** three packages — `onnxruntime`,
+`tokenizers`, `huggingface-hub`. The ONNX graph consumes token ids, so
+WordPiece has to come from somewhere; hand-rolling it over `vocab.txt` is a
+silent-correctness risk on a component that decides every vector. `tokenizers`
+is the HF Rust tokenizer and pulls in no torch. The core deps are still
+`sqlite-vec` + `numpy` and the library still imports with only those.
+
+### `Embedder` protocol widened with `name` and `revision`
+
+**Planned:** not specified. **Actual:** the protocol grew two properties beyond
+`dim`/`embed`, because the `memory_meta` guard has to get the identity from
+*somewhere* and reading it off the class would break the seam. Consequence
+worth stating: any third-party embedder must now declare an identity, which is
+the intended pressure — an embedder that cannot name itself cannot be pinned.
+
+### `memory_meta` ships 3 of 11 rows; `embed_template_hash` is the hole
+
+**Planned:** "embedder name/revision/dim written once, checked on load."
+**Actual:** exactly that — and nothing else. Eight of the remaining rows are
+extraction artifacts that do not exist yet, so they are correctly absent.
+`embed_template_hash` is **not** in that category: v1 has a content template
+(the `[Session date: …]` fold, the `"\n"` join) that is hashable today, and it
+is not hashed. Changing that template silently changes every vector in every
+store without tripping the guard. Logged as the one place where SPEC documents
+an invariant the code does not enforce; close it before a published mnimi
+number, not after.
+
+### Pre-guard databases are refused, not upgraded
+
+**Planned:** unstated. **Actual:** a database with a `memories` table and no
+`memory_meta` raises at open. There is no migration system, so the alternative
+would be inventing an identity for vectors whose embedder is unknowable —
+which is precisely the failure the guard exists to make loud. The remedy is
+re-ingest into a fresh store.
+
+### `HashingEmbedder` kept, and it declares an identity too
+
+**Planned:** keep it as the CI path. **Actual:** kept, and given
+`name="hashing"`, `revision="v1"`, dim 256. It is still the default embedder in
+the constructor. This means the guard is exercised on every CI run, and
+swapping CI's embedder for BGE against an existing DB fails at open on all
+three keys rather than at insert with an opaque sqlite-vec dimension error.
+
+### Default config is a module constant, not an inline `MemoryConfig()`
+
+**Planned:** SPEC shows `config: MemoryConfig = MemoryConfig()`. **Actual:**
+`_DEFAULT_CONFIG = MemoryConfig()` at module level, used as the default
+argument. Ruff's B008 flags a call in a default argument, and the usual danger
+(a shared mutable default) does not apply because the dataclass is frozen —
+so the semantics are identical and the lint stays clean. SPEC's signature block
+is unchanged; the note lives beside it.
+
+### `store.search` lost its default `k`
+
+**Planned:** surface cosine from `search()`. **Actual:** that, plus the removal
+of the old `k=5` default. A silent default at the store layer is how a
+hardcoded `k` sneaks back into the read path after config-reading was made a
+rule; making `k` required means `Memory.recall` has to pass `config.top_k`
+explicitly and any future caller has to make the same decision consciously.
+
+### `recall()` returns `list[MemoryRecord]`, dropping the cosine
+
+**Planned:** unstated for v1; SPEC's target is `list[ScoredRecord]`.
+**Actual:** `store.search` returns `(record, cosine)` pairs and the facade
+discards the score. `ScoredRecord` needs `relevance`/`recency`/`score`
+components that do not exist without a ranking layer, and inventing a
+one-field version now would freeze a shape the ranking work has to change.
+The cosine is available one layer down for anything that needs it — dedup
+already uses it.
+
+### `get_context` is a newline join; the locked block format is not built
+
+**Planned:** unstated for v1. **Actual:** `"\n".join(record.content …)` — no
+token budget, no per-record block, no chronological re-ordering. Timestamps
+still reach the reader, but through a *different mechanism* than SPEC
+describes: the date is folded into `content` at write time instead of rendered
+at read time. Worth flagging because the two are not interchangeable — the
+fold is inside the embedded string and inside the dedup key, so removing it
+later changes vectors, not just formatting.
+
+### `salience` and `supersedes` are stored and read by nothing
+
+**Planned:** "keep salience/supersedes inert." **Actual:** exactly inert — both
+are written on insert and returned on read, and no code path consults either.
+Recorded rather than assumed: a reader of the schema could reasonably think
+ranking already multiplies by salience. It does not. Result order is raw vec0
+L2 ascending, which for unit vectors is cosine-descending — so v1 coincides
+with the spec'd default weights (`similarity 1.0`, `recency 0.0`) by
+construction, not by computing them.
+
+### The vector table is `vec_memories`, not `memories`
+
+**Planned:** SPEC's snippet showed `CREATE VIRTUAL TABLE memories USING vec0`.
+**Actual:** two tables — `memories` (metadata) and `vec_memories` (vec0),
+joined by shared rowid. The spec snippet was wrong, not the code; SPEC is
+corrected. Anything querying the store directly (a debug script, a future
+export) needs the join.
+
+### `store.search` over-fetches then scopes to the user
+
+**Planned:** unstated. **Actual:** vec0 KNN is global, so the query takes
+`k*8` rows, joins to metadata, filters to `user_id`, then truncates to `k`. A
+store holding many users can therefore under-return for a user whose records
+are crowded out of the global window. Inert under the eval protocol (one user
+per DB, reset per question) and wrong at multi-user scale — logged so it is
+found by reading rather than by a support ticket.
+
+### Per-round semantics, stated exactly (Phase C confound risk)
+
+**Planned:** "one record per user+assistant round." **Actual:** that, plus four
+decisions the phrase does not settle, each of which `naive_rag` must copy
+verbatim or the comparison is confounded: (1) turns with empty/whitespace
+content are dropped **before** pairing; (2) pairing is greedy left-to-right and
+only `user` → `assistant` pairs, so assistant-first, user-user and a trailing
+user turn each produce a **solo** record; (3) content is
+`f"[Session date: {date}] {text}"` with `text` = stripped contents joined by
+`"\n"` and `date` taken from the **round's first turn**; (4) `source` is the
+roles joined with `"+"`. See SPEC §`add()` as built for the enumerated
+contract. Note also that mnimi dedups and `naive_rag` must not — they differ in
+policy, never in how a round is constructed.
+
+### A missing `ts` fails at the store, not at `add()`
+
+**Planned:** "insert honors injected ts." **Actual:** `add()` builds the round
+without a date prefix and `store.insert` then raises `ValueError`. So the
+exception a caller sees for an undated message comes from the storage layer and
+mentions `created_at`, not from argument validation. Acceptable — there is
+exactly one clock check and it sits at the boundary that would otherwise have
+needed a fallback — but worth knowing when reading a traceback.
+
+### `export()` was never in the v1 batch
+
+**Planned:** the nine items did not include it. **Actual:** the public surface
+is four methods, not the five SPEC locks. Not a slip; recorded because
+"five methods, locked" appears in three documents and the code has four.

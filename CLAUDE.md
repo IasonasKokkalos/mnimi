@@ -181,16 +181,30 @@ python -m evals --system <name> --limit 10 --stage judge    # needs OPENAI_API_K
   artifacts, environment capture), `report.py`, `systems/`.
 - `tests/` — pytest. `docs/` — SPEC / ARCH / DECISIONS / FUTURE.
 
-## Current state vs SPEC (as of v0.2.2)
+## Current state vs SPEC (as of v0.3.2)
 
-SPEC describes the target; most of it is not built. Don't assume a spec'd field
-exists — check. Known gaps: `MemoryConfig`, `export()`, `ScoredRecord`, `raw` +
-triple fields, `valid_time`, `system_time`, `memory_meta` guard, the real
-embedder, extraction, dedup, conflict, decay. `models.py` still carries `pinned`
-and `created_at`; `memory.py` stores whole messages and `consolidate()` is a
-stub; the default embedder is a numpy hashing placeholder. `systems/` has only
-`no_memory` and `full_history` — `naive_rag`, `oracle`, and `mnimi` ship in
-one batch.
+SPEC describes the target; much of it is still not built. Don't assume a spec'd
+field exists — **read SPEC §"v1 as built" first**, then the code. It is the
+shipped-state section and Phase C wires against it; the per-section
+`**v1 as built:**` notes mark every place code and target diverge, and
+`docs/DECISIONS.md` § "v1 build: PLANNED vs ACTUAL" says why.
+
+Shipped in v1 (v0.3.0–v0.3.2): `MemoryConfig` (two fields only —
+`dedup_cosine_threshold`, `top_k`), the real ONNX BGE embedder behind the
+`[embed]` extra (revision-pinned; `HashingEmbedder` stays the default and the
+CI path), the `memory_meta` guard (3 keys, raises at open), cosine surfaced
+from `store.search`, `pinned` dropped, injected-`ts`-only inserts, v1 dedup
+(exact-normalize + one cosine probe), `recall` reading `config.top_k`, and
+`add()` narrowed to `list[dict]` at per-round granularity.
+
+Still absent: `export()` (the public surface is 4 of the 5 locked methods),
+`ScoredRecord`, `raw` + triple fields, `valid_time` (`created_at` carries `ts`
+and plays the `system_time` role), extraction, conflict, decay, ranking, the
+`get_context` block format, and `embed_template_hash` in the guard —
+that last one is a documented invariant with no enforcement, so treat it as a
+live hole, not a gap. `salience`/`supersedes` exist and are read by nothing.
+`consolidate()` is a no-op stub. `systems/` has only `no_memory` and
+`full_history` — `naive_rag`, `oracle`, and `mnimi` ship in one batch.
 
 ## Do not
 
