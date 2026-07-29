@@ -10,7 +10,7 @@ from mnimi.embeddings import HashingEmbedder
 
 def test_config_defaults_match_spec():
     config = MemoryConfig()
-    assert config.dedup_cosine_threshold == 0.85
+    assert config.dedup_cosine_threshold == 0.95
     assert config.top_k == 10
 
 
@@ -22,7 +22,7 @@ def test_config_is_threaded_into_memory(tmp_path):
 
 def test_memory_defaults_to_spec_config(tmp_path):
     memory = Memory(str(tmp_path / "mem.db"), HashingEmbedder())
-    assert memory.config.dedup_cosine_threshold == 0.85
+    assert memory.config.dedup_cosine_threshold == 0.95
     assert memory.config.top_k == 10
 
 
@@ -39,7 +39,13 @@ def test_exact_duplicate_after_normalization_is_stored_once(tmp_path):
 
 
 def test_cosine_near_duplicate_is_stored_once(tmp_path):
-    memory = Memory(str(tmp_path / "mem.db"), HashingEmbedder())
+    # The pair below measures cosine 0.923 under HashingEmbedder, so the
+    # threshold is stated explicitly rather than inherited from the default:
+    # a test that depends on the default's value fails when the default is
+    # legitimately retuned, which says nothing about the behaviour under test.
+    memory = Memory(
+        str(tmp_path / "mem.db"), HashingEmbedder(), MemoryConfig(dedup_cosine_threshold=0.90)
+    )
     memory.add(
         [_message("every saturday morning I hike the coastal trail with my dog before work")],
         user_id="u1",
@@ -179,16 +185,22 @@ def test_dedup_threshold_is_read_from_config_not_hardcoded(tmp_path):
         "every saturday morning I hike the coastal trail with my dog before breakfast",
     ]
 
+    # near_pair measures cosine 0.923, so 0.95 and 0.90 bracket it. Only the
+    # config value can decide the outcome — nothing here relies on the default.
     strict = Memory(
         str(tmp_path / "strict.db"),
         HashingEmbedder(),
-        MemoryConfig(dedup_cosine_threshold=0.999),
+        MemoryConfig(dedup_cosine_threshold=0.95),
     )
     for text in near_pair:
         strict.add([_message(text)], user_id="u1")
-    assert strict.store.count("u1") == 2, "0.999 must treat the near-pair as distinct"
+    assert strict.store.count("u1") == 2, "0.95 is above the pair's 0.923: keep both"
 
-    default = Memory(str(tmp_path / "default.db"), HashingEmbedder())
+    permissive = Memory(
+        str(tmp_path / "permissive.db"),
+        HashingEmbedder(),
+        MemoryConfig(dedup_cosine_threshold=0.90),
+    )
     for text in near_pair:
-        default.add([_message(text)], user_id="u1")
-    assert default.store.count("u1") == 1, "0.85 must merge the near-pair"
+        permissive.add([_message(text)], user_id="u1")
+    assert permissive.store.count("u1") == 1, "0.90 is below the pair's 0.923: merge"

@@ -382,3 +382,44 @@ needed a fallback — but worth knowing when reading a traceback.
 **Planned:** the nine items did not include it. **Actual:** the public surface
 is four methods, not the five SPEC locks. Not a slip; recorded because
 "five methods, locked" appears in three documents and the code has four.
+
+## `dedup_cosine_threshold` retuned 0.85 → 0.95 (2026-07-29)
+
+**Decision:** raise the default from 0.85 to 0.95, on measurement taken before
+the first mnimi run rather than after a bad one.
+
+**What 0.85 was doing.** On a stratified LongMemEval slice with the pinned BGE
+embedder, ingesting real haystack sessions through `Memory.add`:
+
+| threshold | corpus discarded | evidence rounds dropped | questions losing ≥1 evidence round |
+|---|---|---|---|
+| 0.85 | 37.7% (567/1,505) | **44.2%** (57/129) | **12/12** |
+| 0.95 | — | 2.3% (3/129) | 2/12 |
+
+Retrieval correctness gates ~90% of correct answers (Fig 14), so a write path
+deleting 44% of the annotated evidence is not a tuning nicety.
+
+**Mechanism, after eliminating the wrong suspect.** The first hypothesis was
+that the `[Session date: …]` fold is inside the embedded string, and shared
+boilerplate in every vector drags pairwise cosines up — the mechanism
+CHANGELOG #15 locked out for role prefixes. **Measured and false:** stripping
+the prefix moves the drop rate 42.5% → 46.3%, i.e. nowhere. The real cause is
+the threshold against this data's distribution. For real rounds the
+max-cosine-to-any-earlier-round distribution has **median 0.839**, so 0.85 sits
+at the median of the noise and halves the corpus by construction. Drop rate by
+threshold: 0.85 → 42.5%, 0.90 → 20.1%, 0.92 → 10.4%, 0.95 → 1.9%, 0.97 → 0.4%.
+
+**Why the old number was wrong in a way worth recording.** 0.85 (and SPEC's
+0.80–0.92 tune range) came from NovAScore, which thresholds **extracted
+facts**. v1 embeds **whole conversational rounds** — long, topically clustered
+text where BGE-small's cosines compress into a high, narrow band. The constant
+was imported across a change of embedded unit, which is exactly the kind of
+borrowed number that survives review because it has a citation. When
+extraction lands and the embedded unit becomes a short fact again, this must be
+re-measured, not reverted by memory.
+
+**Consequence for the tests.** Two tests asserted behaviour that depended on
+the default's *value* (a near-pair merging under the default). They now state
+thresholds explicitly and bracket the fixture's measured cosine of 0.923 —
+0.90 merges, 0.95 does not. A test that fails when a default is legitimately
+retuned is testing the wrong thing.

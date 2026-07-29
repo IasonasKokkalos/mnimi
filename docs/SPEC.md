@@ -120,7 +120,7 @@ wires against this section, not against the target sections.**
 |---|---|---|
 | `add` / `recall` / `get_context` / `consolidate` | shipped (`consolidate` is a no-op stub) | `memory.py` |
 | `export` | **not built** — the public surface is 4 of 5 methods | — |
-| `MemoryConfig` | **2 of 9 fields**: `dedup_cosine_threshold=0.85`, `top_k=10`. A field no code reads is not present | `config.py` |
+| `MemoryConfig` | **2 of 9 fields**: `dedup_cosine_threshold=0.95`, `top_k=10`. A field no code reads is not present | `config.py` |
 | `MemoryRecord` | `id, user_id, content, embedding, created_at, salience, source, supersedes`. No `raw`, no triple, no `valid_time`; `created_at` carries `ts` (there is no separate `system_time`); no `last_accessed` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
 | `memory_meta` guard | **3 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py:46-98` |
@@ -225,7 +225,7 @@ Tunable parameters, passed at construction. Never hardcoded in write-path
 logic — every threshold below must read from here.
 
 **v1 as built: two of these nine fields exist** —
-`dedup_cosine_threshold = 0.85` and `top_k = 10`. The rest describe stages that
+`dedup_cosine_threshold = 0.95` and `top_k = 10`. The rest describe stages that
 are not written yet, and `config.py` deliberately carries no field that no code
 reads (a config knob nothing consumes is dead weight that reads as capability).
 They land with the stage that uses them.
@@ -234,11 +234,20 @@ Starting values — **v1 defaults, all unmeasured guesses to be tuned on W2/W4
 eval evidence, not sacred:**
 
 ```python
-dedup_cosine_threshold = 0.85   # merge-candidate floor. BGE model card: absolute
-                                # similarity values unreliable; pick per data
-                                # distribution, e.g. 0.8/0.85/0.9. 0.85 also the
-                                # empirically chosen near-duplicate threshold in
-                                # NovAScore (arXiv 2409.09249). Tune range 0.80-0.92.
+dedup_cosine_threshold = 0.95   # merge-candidate floor. RETUNED 2026-07-29 from
+                                # 0.85 on measurement, not preference — see
+                                # DECISIONS. The BGE model card's warning that
+                                # absolute similarity values are unreliable is
+                                # the whole story here: on whole conversational
+                                # rounds the max-cosine-to-any-earlier-round
+                                # distribution has median 0.839, so 0.85 sat at
+                                # the median of the noise and discarded 37.7% of
+                                # the corpus / 44.2% of evidence rounds. 0.85 and
+                                # the old 0.80-0.92 tune range both came from
+                                # NovAScore (arXiv 2409.09249), which thresholds
+                                # EXTRACTED FACTS; v1 embeds whole rounds. New
+                                # range for this era: 0.93-0.97. Re-measure when
+                                # extraction lands and the embedded unit changes.
 dedup_entropy_gate     = 2.0    # bits; below this skip auto-merge. Convergent
                                 # prior art: Graphiti gates fuzzy dedup on
                                 # Shannon entropy (dedup_helpers.py:52-80,

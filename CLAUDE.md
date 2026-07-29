@@ -94,7 +94,7 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 - **Normalize at the boundary.** Any insert path that bypasses `embeddings.py`
   breaks ranking correctness silently.
 - **Config, not constants.** Every threshold reads from `MemoryConfig`. No
-  hardcoded `0.85`, no hardcoded `k=5` in write- or read-path logic.
+  hardcoded threshold, no hardcoded `k=5` in write- or read-path logic.
 - **Ingestion granularity is per-round**, and `naive_rag` must match mnimi's
   exactly. `k` is identical across all systems.
 - **Sampling is stratified.** The dataset is category-clustered, so a file-order
