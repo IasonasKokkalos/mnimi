@@ -139,7 +139,7 @@ def reader_prompt_hash() -> str:
 # The gate uses a char/token estimate; the exact fed count comes back from Ollama.
 #
 # Why a measured run feeds ~27k tokens and not ~32k. Two separate effects:
-#   1. Deliberate reserve, 1,280 tokens: `answer_reserve` (1024) keeps room for
+#   1. Deliberate reserve, 1,056 tokens: `answer_reserve` (800) keeps room for
 #      the generation, `_SCAFFOLD_TOKENS` (256) for the system prompt and the
 #      question framing. Without these the prompt could fill the window and
 #      leave nothing to answer with.
@@ -153,6 +153,32 @@ def reader_prompt_hash() -> str:
 # it is left alone here and flagged rather than tuned mid-phase.
 _CHARS_PER_TOKEN = 4
 _SCAFFOLD_TOKENS = 256  # headroom for the system prompt + question framing
+
+# Generation budget, 800 to match the paper's max generation length (greedy).
+#
+# NOT a pure generation-length knob — read this before changing it. The value is
+# used TWICE: as Ollama's `num_predict`, and as the reserve subtracted from the
+# context window in `_fit`. Lowering it from 1024 to 800 therefore widened the
+# trim budget by 224 tokens, which changes how much history reaches the reader
+# on every truncated question, which changes full_history's predictions and its
+# score. That coupling was accepted deliberately when the paper's 800 was
+# adopted: full_history is a truncated-context baseline, not the ceiling, so
+# moving its truncation point moves a number that was never a ceiling claim.
+# All three trim inputs are pinned in `pins.json` (schema /2).
+READER_ANSWER_RESERVE = 800
+
+
+def reader_trim_pins() -> dict:
+    """The trim gate's inputs, for `build_pins`.
+
+    `num_ctx` alone does not determine what the reader sees; these three do the
+    rest of the arithmetic, and full_history truncates on every question.
+    """
+    return {
+        "reader_answer_reserve": READER_ANSWER_RESERVE,
+        "reader_scaffold_tokens": _SCAFFOLD_TOKENS,
+        "reader_chars_per_token": _CHARS_PER_TOKEN,
+    }
 
 
 def _estimate_tokens(text: str) -> int:
@@ -210,7 +236,7 @@ class Reader:
         model: str,
         *,
         num_ctx: int,
-        answer_reserve: int = 1024,
+        answer_reserve: int = READER_ANSWER_RESERVE,
         seed: int = READER_SEED,
         top_k: int = READER_TOP_K,
         num_gpu: int = READER_NUM_GPU,
@@ -242,7 +268,23 @@ class Reader:
         dropped = _estimate_tokens(context) - _estimate_tokens(kept)
         return kept, True, dropped
 
-    def answer(self, context: str, question: str, cache_bust: str = "") -> ReaderOutput:
+    def answer(
+        self,
+        context: str,
+        question: str,
+        cache_bust: str = "",
+        question_date: str = "",
+    ) -> ReaderOutput:
+        """Answer one question.
+
+        ``question_date`` is the dataset's "asked on" date. It is threaded here
+        and deliberately unused by ``plain-prose-v2``: temporal questions are
+        unanswerable without knowing when "now" is, and the JSON + Chain-of-Note
+        prompt consumes it. Wiring it in without changing the live template
+        keeps the plumbing and the prompt swap as separate, reviewable steps —
+        the current template's hash, and therefore every current prediction,
+        is untouched by this parameter existing.
+        """
         context, truncated, dropped = self._fit(context)
         user = (
             f"# Memory context\n{context}\n\n# Question\n{question}"
@@ -381,7 +423,9 @@ def predict(
         for session in _sessions_for(system, q):
             system.add(_session_to_messages(session))
         context = system.get_context(q.question)
-        out = reader.answer(context, q.question, cache_bust=q.question_id)
+        out = reader.answer(
+            context, q.question, cache_bust=q.question_id, question_date=q.question_date
+        )
         predictions.append(
             Prediction(
                 question_id=q.question_id,

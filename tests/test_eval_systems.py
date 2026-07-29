@@ -144,6 +144,34 @@ def test_reset_gives_each_question_a_fresh_store_on_disk():
         assert system.db_path() != first, "each question gets its own file"
 
 
+def test_retrieving_systems_declare_their_pins_and_others_declare_none():
+    for cls in (NoMemorySystem, FullHistorySystem, OracleSystem):
+        assert cls().retrieval_pins() == {}, cls
+
+    naive = _naive().retrieval_pins()
+    assert naive == {"embedder_name": "hashing", "embedder_dim": 256, "k": 10}
+
+    mnimi = _mnimi(config=MemoryConfig(top_k=4, dedup_cosine_threshold=0.9)).retrieval_pins()
+    assert mnimi["k"] == 4
+    assert mnimi["dedup_cosine_threshold"] == 0.9
+    assert mnimi["embedder_name"] == "hashing"
+
+
+def test_retrieved_context_is_time_ordered_oldest_first():
+    """A reader handed dated blocks in relevance order cannot recover the
+    chronology, and temporal reasoning is 27% of the benchmark."""
+    for system in (_naive(), _mnimi()):
+        system.reset()
+        system.add(_round("I adopted a dog", "lovely", ts="2023-07-01"))
+        system.add(_round("I moved to Athens", "noted", ts="2023-01-15"))
+        system.add(_round("I started a new job", "congratulations", ts="2023-04-20"))
+
+        context = system.get_context("what happened?")
+        dates = [line.split("]")[0].split(": ")[1] for line in context.splitlines() if "[" in line]
+        assert dates == sorted(dates), f"{system.name}: {dates}"
+        assert dates == ["2023-01-15", "2023-04-20", "2023-07-01"], system.name
+
+
 def test_session_dates_reach_the_reader_for_every_context_bearing_system():
     """Temporal questions are unanswerable if the dates never reach the reader."""
     for system in (FullHistorySystem(), OracleSystem(), _naive(), _mnimi()):

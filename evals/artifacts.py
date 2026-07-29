@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/1"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/2"
 
 
 def fingerprint(text: str) -> str:
@@ -369,6 +369,9 @@ def build_pins(
     reader_cache_ram: int,
     reader_prompt_version: str,
     reader_prompt_hash: str,
+    reader_answer_reserve: int,
+    reader_scaffold_tokens: int,
+    reader_chars_per_token: int,
     judge_model: str,
     judge_prompt_version: str,
     judge_prompt_hash: str,
@@ -376,6 +379,7 @@ def build_pins(
     embedder_dim: int | None = None,
     extractor_model: str | None = None,
     k: int | None = None,
+    dedup_cosine_threshold: float | None = None,
 ) -> dict:
     """Everything that determines the number, and nothing that does not.
 
@@ -383,8 +387,22 @@ def build_pins(
     to run metadata. Two runs are comparable exactly when their pins match, so
     anything that varies between identical re-runs must stay out of here.
 
-    Retrieval and extraction fields are present but ``None`` for the baselines —
-    the schema is stable from v0.2 on, and a system that retrieves fills them.
+    Retrieval and extraction fields are ``None`` for systems that do not
+    retrieve; a retrieving system fills them via ``MemorySystem.retrieval_pins``.
+
+    Schema /2 (2026-07-29) added ``dedup_cosine_threshold`` and the three
+    reader-trim fields, and made the retrieval fields actually get filled. The
+    hole they close was found by measurement, not review: two mnimi runs
+    differing by 19/20 predictions and 20 accuracy points carried identical
+    ``pins_hash`` under /1, because the only thing separating them — the dedup
+    threshold — had no slot, and ``embedder_name``/``embedder_dim``/``k`` were
+    documented as "a system that retrieves fills them" while nothing did.
+
+    The reader-trim trio is here for the same reason. ``num_ctx`` alone does not
+    determine how much context reaches the reader: the budget is
+    ``num_ctx - answer_reserve - scaffold_tokens``, compared against a
+    ``chars_per_token`` estimate. All three move the fed-token count, and
+    full_history truncates on every question, so all three move its score.
     """
     return {
         "artifact_schema": ARTIFACT_SCHEMA,
@@ -414,6 +432,11 @@ def build_pins(
         "reader_cache_ram": reader_cache_ram,
         "reader_prompt_version": reader_prompt_version,
         "reader_prompt_hash": reader_prompt_hash,
+        # The trim gate: budget = num_ctx - answer_reserve - scaffold_tokens,
+        # measured in chars_per_token estimates. Determines what the reader sees.
+        "reader_answer_reserve": reader_answer_reserve,
+        "reader_scaffold_tokens": reader_scaffold_tokens,
+        "reader_chars_per_token": reader_chars_per_token,
         "judge_model": judge_model,
         "judge_prompt_version": judge_prompt_version,
         "judge_prompt_hash": judge_prompt_hash,
@@ -421,6 +444,7 @@ def build_pins(
         "embedder_dim": embedder_dim,
         "extractor_model": extractor_model,
         "k": k,
+        "dedup_cosine_threshold": dedup_cosine_threshold,
     }
 
 

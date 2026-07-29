@@ -39,6 +39,8 @@ def _pins(**overrides) -> dict:
         judge_model="gpt-4o-2024-08-06",
         judge_prompt_version="longmemeval-paper-v1",
         judge_prompt_hash="jp",
+        # Real values, so the test moves with the trim gate rather than a copy.
+        **runner.reader_trim_pins(),
     )
     base.update(overrides)
     return artifacts.build_pins(**base)
@@ -59,6 +61,36 @@ def test_pins_hash_changes_when_any_pin_changes():
     # Decode config determines the output text, so it must move the pins hash.
     assert artifacts.pins_hash(_pins(reader_seed=1)) != baseline
     assert artifacts.pins_hash(_pins(reader_top_k=40)) != baseline
+
+
+def test_dedup_threshold_moves_the_pins_hash():
+    """Found by measurement, not review: two mnimi runs whose only difference
+    was this threshold differed by 19/20 predictions and 20 accuracy points,
+    and carried the same pins_hash because there was no slot for it."""
+    at_095 = _pins(system="mnimi", dedup_cosine_threshold=0.95)
+    at_085 = _pins(system="mnimi", dedup_cosine_threshold=0.85)
+
+    assert at_095["dedup_cosine_threshold"] == 0.95
+    assert artifacts.pins_hash(at_095) != artifacts.pins_hash(at_085)
+
+
+def test_retrieval_pins_move_the_pins_hash():
+    baseline = artifacts.pins_hash(_pins())
+    assert artifacts.pins_hash(_pins(embedder_name="BAAI/bge-small-en-v1.5")) != baseline
+    assert artifacts.pins_hash(_pins(embedder_dim=384)) != baseline
+    assert artifacts.pins_hash(_pins(k=10)) != baseline
+
+
+def test_reader_prompt_and_trim_gate_move_the_pins_hash():
+    """Phase D swaps the reader prompt; the swap has to be loud in the header."""
+    baseline = artifacts.pins_hash(_pins())
+    assert artifacts.pins_hash(_pins(reader_prompt_version="json-con-v1")) != baseline
+    assert artifacts.pins_hash(_pins(reader_prompt_hash="different")) != baseline
+    # num_ctx alone does not decide what the reader sees: the trim budget is
+    # num_ctx - answer_reserve - scaffold, estimated at chars_per_token.
+    assert artifacts.pins_hash(_pins(reader_answer_reserve=1024)) != baseline
+    assert artifacts.pins_hash(_pins(reader_scaffold_tokens=512)) != baseline
+    assert artifacts.pins_hash(_pins(reader_chars_per_token=5)) != baseline
 
 
 def test_reader_sends_pinned_decode_options():

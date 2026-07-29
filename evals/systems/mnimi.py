@@ -48,6 +48,14 @@ class MnimiSystem(MemorySystem):
         self._memory: Memory | None = None
         self.reset()
 
+    def retrieval_pins(self) -> dict:
+        return {
+            "embedder_name": self._embedder.name,
+            "embedder_dim": self._embedder.dim,
+            "k": self._config.top_k,
+            "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
+        }
+
     def reset(self) -> None:
         if self._memory is not None:
             self._memory.store.close()  # close before the file is unlinked

@@ -130,7 +130,7 @@ wires against this section, not against the target sections.**
 | Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
 | Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
 | Retriever extras | no active-record filter, no `recall_min_relevance`, no `last_accessed` update | — |
-| `get_context` locked block format | not built. v1 joins record `content` with `"\n"`: no token budget, no per-record block, no re-ordering by time | `memory.py:80-83` |
+| `get_context` locked block format | partly built. v1 joins record `content` with `"\n"`, **time-ordered oldest-first** as the locked format requires; still no token budget and no per-record block | `memory.py` |
 | Normalize at the boundary | shipped — both embedders unit-normalize inside `embed()` | `embeddings.py:73-76, 132-134` |
 | `distance_metric=L2` spelled out in the DDL | shipped, asserted by a test | `store.py:120-126` |
 | L2 → cosine conversion | shipped at **exactly one site**: `store.search` returns `(record, cos)`, `cos = 1 − d²/2` | `store.py:193` |
@@ -721,15 +721,22 @@ Assembles top-ranked records into a context string within
 - The block template is fixed and hashed with the embed template family —
   a silent format change is a silent number change.
 
-**v1 as built: none of this format exists.** `get_context` is
-`"\n".join(record.content for record in self.recall(query, user_id))` — no
-token budget, no per-record block, no re-ordering by time, no
-salience-0 exclusion (nothing sets salience to 0 yet). Timestamps still reach
-the reader, because the session date is folded into `content` at write time
+**v1 as built: the ordering rule is built, the block format is not.**
+`get_context` joins record `content` with `"\n"` after sorting oldest-first on
+`created_at` (ties broken by insertion order) — the ordering this section
+locks. Not built: the token budget, the per-record block, and the salience-0
+exclusion (nothing sets salience to 0 yet). Timestamps reach the reader because
+the session date is folded into `content` at **write** time
 (`[Session date: YYYY-MM-DD] …`) rather than rendered at read time; the two
-approaches are not interchangeable, and the fold is what keeps temporal
-questions answerable in v1. Records arrive in similarity order, not
-chronological order.
+approaches are not interchangeable, and the fold is inside both the embedded
+string and the dedup key, so it cannot be swapped for read-time rendering
+without changing every vector.
+
+The sort is lexicographic on the timestamp string. Session timestamps are
+zero-padded and date-first (`2023-05-20`, `2023/05/20`), so string order is
+chronological order without parsing a format the caller owns. A caller feeding
+mixed or non-date-first `ts` values gets an ordering that is deterministic but
+not chronological — the `ts` contract is what makes this safe.
 
 ## Embedding normalization (locked)
 

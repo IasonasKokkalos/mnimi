@@ -29,6 +29,21 @@ class MemorySystem(ABC):
     #: this flag instead, and therefore never branches on a system's name.
     evidence_only: bool = False
 
+    def retrieval_pins(self) -> dict:
+        """Number-determining configuration this system contributes to `pins.json`.
+
+        Empty for systems that do not retrieve. A retrieving system returns the
+        subset of ``build_pins``' retrieval keys it actually uses —
+        ``embedder_name``, ``embedder_dim``, ``k``, ``dedup_cosine_threshold``.
+
+        This exists because leaving them unset was not a cosmetic gap: two mnimi
+        runs whose only difference was the dedup threshold produced identical
+        ``pins_hash`` while differing by 19/20 predictions and 20 accuracy
+        points. A configuration knob that moves the score and not the hash makes
+        the hash a false claim.
+        """
+        return {}
+
     @abstractmethod
     def reset(self) -> None:
         """Drop all per-question state so the next question starts clean."""

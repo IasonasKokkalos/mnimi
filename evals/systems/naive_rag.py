@@ -12,7 +12,7 @@ from mnimi.embeddings import Embedder
 # guarantee that is to run the SAME CODE rather than a faithful-looking copy.
 # A copy is exactly how the confound gets in — it stays faithful right up until
 # one side is edited.
-from mnimi.memory import _messages_to_rounds
+from mnimi.memory import _messages_to_rounds, _time_ordered
 from mnimi.models import MemoryRecord
 from mnimi.store import Store
 
@@ -57,6 +57,15 @@ class NaiveRagSystem(MemorySystem):
         self._store: Store | None = None
         self.reset()
 
+    def retrieval_pins(self) -> dict:
+        # No dedup_cosine_threshold: this system does not dedup, and reporting a
+        # threshold it never applies would misdescribe the run.
+        return {
+            "embedder_name": self._embedder.name,
+            "embedder_dim": self._embedder.dim,
+            "k": self._config.top_k,
+        }
+
     def reset(self) -> None:
         if self._store is not None:
             self._store.close()  # close before the file is unlinked
@@ -85,10 +94,16 @@ class NaiveRagSystem(MemorySystem):
             )
 
     def get_context(self, query: str) -> str:
-        """Top-k by cosine, joined — the same assembly ``Memory`` performs."""
+        """Top-k by cosine, time-ordered, joined — the assembly ``Memory`` performs.
+
+        ``_time_ordered`` is imported rather than reimplemented for the same
+        reason as ``_messages_to_rounds``: ordering is held identical across the
+        pair, so it cannot become a second difference between them.
+        """
         (query_embedding,) = self._embedder.embed([query])
         hits = self._store.search(query_embedding, user_id=EVAL_USER_ID, k=self._config.top_k)
-        return "\n".join(record.content for record, _cosine in hits)
+        records = _time_ordered([record for record, _cosine in hits])
+        return "\n".join(record.content for record in records)
 
     # -- diagnostics, not part of the MemorySystem contract --------------------
 

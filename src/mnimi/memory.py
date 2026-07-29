@@ -78,8 +78,15 @@ class Memory:
         return [record for record, _cosine in hits]
 
     def get_context(self, query: str, user_id: str) -> str:
-        """Assemble recalled memories into a single context string for a reader."""
-        records = self.recall(query, user_id)
+        """Assemble recalled memories into a single context string for a reader.
+
+        Ordered oldest-first, not by relevance. Retrieval order is a similarity
+        ranking; handing a reader dated blocks in ranking order asks it to
+        reconstruct a chronology from a shuffle, and temporal questions are 27%
+        of the benchmark. The paper's own pipeline sorts retrieved items by
+        timestamp before reading (§5.1).
+        """
+        records = _time_ordered(self.recall(query, user_id))
         return "\n".join(record.content for record in records)
 
     def consolidate(self, user_id: str) -> None:
@@ -89,6 +96,18 @@ class Memory:
         write-side policy will live.
         """
         return None
+
+
+def _time_ordered(records: list[MemoryRecord]) -> list[MemoryRecord]:
+    """Oldest first, ties broken by insertion order.
+
+    Sorts on the ``created_at`` string directly: session timestamps are
+    zero-padded date-first (``2023-05-20``, ``2023/05/20``), so lexicographic
+    order is chronological order without parsing — and parsing would mean
+    guessing a format the caller owns. The ``id`` tiebreak keeps two records
+    from one session in a deterministic order.
+    """
+    return sorted(records, key=lambda r: (r.created_at or "", r.id or 0))
 
 
 def _normalize(text: str) -> str:

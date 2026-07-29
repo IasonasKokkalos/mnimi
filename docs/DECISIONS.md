@@ -423,3 +423,90 @@ the default's *value* (a near-pair merging under the default). They now state
 thresholds explicitly and bracket the fixture's measured cosine of 0.923 —
 0.90 merges, 0.95 does not. A test that fails when a default is legitimately
 retuned is testing the wrong thing.
+
+## The n=20 stratified slice is a DEV slice (2026-07-29)
+
+**Decision:** the n=20 stratified slice is development data. Its numbers are
+not publishable and never were — not because n=20 is small (it is), but because
+**the dedup threshold was selected against it**. The selection was made on
+evidence-round retention rather than on accuracy, which is the more defensible
+of the two, but it was still made against this slice. That makes every number
+computed on it a training number.
+
+**How the evidence slice relates to it, stated plainly rather than implied.**
+`sample_stratified` seeds one RNG, shuffles each category bucket once, then
+takes round-robin until `limit`. The shuffle does not depend on `limit`, so
+slices nest. Verified, not assumed:
+
+- n=20 is a strict **prefix** of n=100 — the same 20 questions, in the same
+  order, `s100[:20] == s20`.
+- n=100 is a subset of n=500.
+
+So **the n=100 evidence slice contains the entire dev slice**: 20 of its 100
+questions are the ones the threshold was tuned against, 20% contamination.
+
+**Consequence for the W3 artifact.** Report the n=100 headline *and* the 80
+held-out questions as a separate line. It costs nothing — it is a slice of the
+same run's results, no extra compute — and it is the number that carries no
+contamination. A reader who wants the clean claim gets it without having to
+trust that 20% did not matter.
+
+**Prohibited: further threshold sweeps against this benchmark.** Fixing a
+default that was destroying 44% of evidence is bug-fixing; scanning 0.90 /
+0.93 / 0.97 for the best score is tuning on the test set, and it is the single
+easiest way to get the whole number dismissed. If the threshold needs revisiting
+it is revisited on a retention or distributional criterion, on a held-out slice,
+and the fact is recorded here.
+
+## Oracle is a ceiling on evidence AVAILABILITY, not on retrieval quality (2026-07-29)
+
+On the n=20 dev slice mnimi scored 45.0% and oracle 35.0%. At n=20 that gap is
+two questions and inside the noise — but "a system beat the ceiling" will be
+read as a bug unless the mechanism is written down, so:
+
+**Oracle dumps whole evidence sessions, including every irrelevant turn in
+them** (5,126 mean prompt tokens). mnimi retrieves the top-10 rounds (4,708).
+Oracle therefore bounds what a system could know — perfect *availability* of the
+annotated evidence — and does not bound how well a system presents it. A
+focused retriever can hand the reader a cleaner context than the evidence
+session it came from, and a 1.5B reader is sensitive to exactly that: weak
+readers degrade past ~3k retrieved tokens (LongMemEval §5.2).
+
+So a system scoring above oracle is not prima facie a bug, and oracle scoring
+below a retrieval system is not evidence the oracle is broken. What *would* be
+a bug: a system scoring above oracle while missing evidence oracle had.
+
+## Pins schema /2: everything that moves the score is in the hash (2026-07-29)
+
+**Decision:** `artifact_schema` → `mnimi-eval-artifact/2`, adding
+`dedup_cosine_threshold` and the three reader-trim fields, and actually filling
+`embedder_name` / `embedder_dim` / `k` for retrieving systems.
+
+**Why, in one measurement.** Two mnimi runs differing only in dedup threshold
+produced **19/20 different predictions and a 20-point score difference**, and
+carried byte-identical `pins_hash` (`649681397649b99d…`). Under /1 the threshold
+had no slot at all, and the retrieval fields carried a docstring saying "a
+system that retrieves fills them" while nothing filled them. A hash that cannot
+tell those two runs apart is not a weak guarantee, it is a false one — the third
+time the pins contract has been falsified by measurement rather than review.
+
+**The trim trio came along for the same reason.** `reader_num_ctx` was pinned
+but `answer_reserve`, `_SCAFFOLD_TOKENS` and `_CHARS_PER_TOKEN` were not, and
+the budget is `num_ctx − answer_reserve − scaffold` compared against a
+`chars_per_token` estimate. full_history truncates on every question, so all
+three move its score. Pinning one input of an arithmetic expression and not the
+others is not a partial guarantee either.
+
+**Mechanism:** `MemorySystem.retrieval_pins()` returns `{}` by default; a
+retrieving system returns the knobs it uses. The runner branches on nothing —
+it splats whatever the system declares. naive_rag deliberately omits
+`dedup_cosine_threshold`: it does not dedup, and reporting a threshold it never
+applies would misdescribe the run.
+
+**The six pre-fix smoke runs were not rewritten.** Back-filled pins are written
+alongside as `pins.backfilled.json`, carrying
+`artifact_schema = mnimi-eval-artifact/2-backfilled` so they can never be
+mistaken for emitted ones, and recording `answer_reserve = 1024` because that is
+what those runs actually used. Overwriting `pins.json` would manufacture
+emitted-looking metadata for runs that never emitted it — the same species of
+false claim this schema bump exists to stop.

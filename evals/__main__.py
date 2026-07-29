@@ -269,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         predict,
         preflight_reader_env,
         reader_prompt_hash,
+        reader_trim_pins,
     )
 
     num_gpu = READER_NUM_GPU if args.num_gpu is None else args.num_gpu
@@ -348,6 +349,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if do_predict:
         dataset_path = resolve_path(args.dataset_file)
+        # Built before the pins so the header describes the system that will
+        # actually run — a retrieving system contributes its own pins below.
+        # It also means a missing [embed] extra fails here, before the header,
+        # rather than after it.
+        system = build_system(args.system)
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
             dataset_sha256=file_sha256(dataset_path),
@@ -370,6 +376,10 @@ def main(argv: list[str] | None = None) -> int:
             judge_model=args.judge_model,
             judge_prompt_version=JUDGE_PROMPT_VERSION,
             judge_prompt_hash=judge_prompt_hash(),
+            **reader_trim_pins(),
+            # A retrieving system declares the knobs that move its score;
+            # everything else returns {} and the fields stay None.
+            **system.retrieval_pins(),
         )
         _print_pins(pins, declared_ctx)
 
@@ -381,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         predictions = predict(
-            build_system(args.system),
+            system,
             reader_model=args.model,
             limit=args.limit,
             num_ctx=args.num_ctx,
