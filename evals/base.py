@@ -17,6 +17,18 @@ class MemorySystem(ABC):
 
     name: str = "base"
 
+    #: Declares that this system reads ONLY the question's annotated evidence
+    #: sessions (``answer_session_ids``) rather than the whole haystack. Exactly
+    #: one system sets it — the oracle ceiling, whose definition *is* "what the
+    #: reader scores when retrieval is perfect".
+    #:
+    #: It is a declared capability rather than an annotation attached to every
+    #: message, and that is the whole point: ``answer_session_ids`` identifies
+    #: which sessions contain the answer, so putting it in the message stream
+    #: would hand that signal to every system being measured. The runner reads
+    #: this flag instead, and therefore never branches on a system's name.
+    evidence_only: bool = False
+
     @abstractmethod
     def reset(self) -> None:
         """Drop all per-question state so the next question starts clean."""

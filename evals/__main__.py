@@ -28,7 +28,16 @@ DEFAULT_NUM_CTX = 32768
 OLLAMA_HOST = "http://localhost:11434"
 
 
+# The five systems of the W3 artifact: floor, truncated-context baseline,
+# ceiling, bar, mnimi. Declared once so `--system` choices and every error
+# message quoting them cannot drift apart — they already had, listing two
+# systems in a message the parser had also enumerated.
+SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
+
+
 def build_system(name: str):
+    """Construct a system by name. Imports are lazy — only mnimi and naive_rag
+    need the embedder, and the other three must stay runnable without it."""
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -37,6 +46,18 @@ def build_system(name: str):
         from .systems.full_history import FullHistorySystem
 
         return FullHistorySystem()
+    if name == "oracle":
+        from .systems.oracle import OracleSystem
+
+        return OracleSystem()
+    if name == "naive_rag":
+        from .systems.naive_rag import NaiveRagSystem
+
+        return NaiveRagSystem()
+    if name == "mnimi":
+        from .systems.mnimi import MnimiSystem
+
+        return MnimiSystem()
     raise SystemExit(f"unknown system: {name}")
 
 
@@ -150,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--system",
-        choices=["no_memory", "full_history"],
+        choices=list(SYSTEMS),
         help="which baseline to evaluate. Required to predict; NOT required to "
         "judge, because predictions.jsonl carries everything the judge reads.",
     )
@@ -266,8 +287,8 @@ def main(argv: list[str] | None = None) -> int:
     do_judge = args.stage in {"all", "judge"} or auditing
     if do_predict and not args.system:
         print(
-            "ERROR: --system is required for the predict stage (choices: "
-            "no_memory, full_history).",
+            f"ERROR: --system is required for the predict stage (choices: "
+            f"{', '.join(SYSTEMS)}).",
             file=sys.stderr,
         )
         return 2

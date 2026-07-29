@@ -378,7 +378,7 @@ def predict(
     predictions: list[Prediction] = []
     for i, q in enumerate(questions):
         system.reset()
-        for session in q.sessions:
+        for session in _sessions_for(system, q):
             system.add(_session_to_messages(session))
         context = system.get_context(q.question)
         out = reader.answer(context, q.question, cache_bust=q.question_id)
@@ -442,6 +442,26 @@ def judge_predictions(
         if progress is not None:
             progress(i + 1, len(predictions), p, correct)
     return results
+
+
+def _sessions_for(system: MemorySystem, q: Question) -> list[Session]:
+    """The sessions one system is fed for one question.
+
+    Every system sees the full haystack except one that declares
+    ``evidence_only`` — the oracle ceiling, which reads only the annotated
+    evidence sessions. The branch is on a declared capability, never on a
+    system's name, so the runner stays system-agnostic.
+
+    The alternative — attaching ``session_id`` or an evidence flag to every
+    message — was rejected: ``answer_session_ids`` marks the sessions that
+    contain the answer, and a signal that identifies the answer has no business
+    in the inputs of the systems being compared against each other. Selecting
+    here keeps it out of every system except the one whose definition needs it.
+    """
+    if not system.evidence_only:
+        return q.sessions
+    evidence = set(q.answer_session_ids)
+    return [s for s in q.sessions if s.session_id in evidence]
 
 
 def _session_to_messages(session: Session) -> list[dict]:
