@@ -1129,6 +1129,19 @@ again.
 
 #### Measured error bar
 
+**Naming, because these get conflated:** this is a **reproducibility** measure —
+do identical inputs give identical outputs across a daemon restart — reported
+as a predictions-changed count and a score delta. It is **not** a confidence
+interval and must never be printed as one on an accuracy number. The Wilson
+intervals in `results.json` answer a different question (how much the number
+would move under a different draw of questions) and cover question-sampling
+error only. See `docs/DECISIONS.md` § "Statistics".
+
+A floor system is also the wrong place to measure it: `no_memory` emits near-
+identical short answers, so 0/20 there is close to guaranteed and says little
+about a system that ingests 500 records per question. The probe belongs on a
+retrieval arm.
+
 Same pins, same `pins_hash`, daemon killed and relaunched between runs, on a
 clean GPU:
 
@@ -1136,6 +1149,13 @@ clean GPU:
 |---|---|---|
 | `no_memory` | **0/20** | 10.0% → 10.0% |
 | `full_history` | **0/20** | 20.0% → 20.0% |
+| `mnimi` (2026-07-29) | **0/20** | 45.0% → 45.0% |
+
+The `mnimi` row is the one that carries weight. It is the first arm with an
+ONNX embedder, a per-question SQLite store and 250-odd retrieval probes inside
+the loop, so it had genuine opportunities to be nondeterministic that a
+context-free floor system does not. `no_memory` re-ran at 0/20 on the same day
+and is retained as a determinism/abstention check, not as an error bar.
 
 Zero. The honest error bar across a daemon restart is 0/20 predictions and 0
 points. **Retired: the earlier "12/20 changed, 5 points" figure must not be

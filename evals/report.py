@@ -7,6 +7,34 @@ from collections.abc import Iterable
 
 from .dataset import CATEGORIES
 from .runner import Result
+from .stats import wilson
+
+
+def summary(results: Iterable[Result], alpha: float = 0.05) -> dict:
+    """Accuracy with a Wilson interval, overall and per category.
+
+    Goes into `results.json` so the artifact never carries a bare percentage.
+    A category cell here sits at n=3-4 on a smoke slice, where the interval is
+    most of the width of the unit interval — which is the point of printing it.
+    """
+    by_cat, overall = aggregate(results)
+
+    def cell(correct: int, total: int) -> dict:
+        ci = wilson(correct, total, alpha)
+        return {
+            "correct": correct,
+            "n": total,
+            "accuracy": ci.point,
+            "ci_low": ci.low,
+            "ci_high": ci.high,
+            "ci_method": "wilson",
+            "ci_alpha": alpha,
+        }
+
+    return {
+        "overall": cell(*overall),
+        "by_category": {c: cell(*counts) for c, counts in sorted(by_cat.items())},
+    }
 
 
 def aggregate(results: Iterable[Result]) -> tuple[dict[str, list[int]], list[int]]:
@@ -23,6 +51,14 @@ def aggregate(results: Iterable[Result]) -> tuple[dict[str, list[int]], list[int
 
 def _acc(correct: int, total: int) -> str:
     return f"{correct / total:6.1%}" if total else "     —"
+
+
+def _ci(correct: int, total: int) -> str:
+    """Wilson 95% interval, printed beside every rate — never a bare percentage."""
+    if not total:
+        return "          —"
+    ci = wilson(correct, total)
+    return f"[{100 * ci.low:5.1f},{100 * ci.high:6.1f}]"
 
 
 def truncation_caveat(results: list[Result]) -> str | None:
@@ -64,14 +100,20 @@ def format_table(system_name: str, results: list[Result]) -> str:
     mark = " *" if caveat else ""
     lines = [
         f"System: {system_name}",
-        f"{'category'.ljust(width)}  {'acc':>7}  {'n':>5}",
-        f"{'-' * width}  {'-' * 7}  {'-' * 5}",
+        f"{'category'.ljust(width)}  {'acc':>7}  {'95% CI':>14}  {'n':>5}",
+        f"{'-' * width}  {'-' * 7}  {'-' * 14}  {'-' * 5}",
     ]
     for c in cats:
         correct, total = by_cat[c]
-        lines.append(f"{c.ljust(width)}  {_acc(correct, total):>7}  {total:>5}{mark}")
-    lines.append(f"{'-' * width}  {'-' * 7}  {'-' * 5}")
-    lines.append(f"{'overall'.ljust(width)}  {_acc(*overall):>7}  {overall[1]:>5}{mark}")
+        lines.append(
+            f"{c.ljust(width)}  {_acc(correct, total):>7}  {_ci(correct, total):>14}  "
+            f"{total:>5}{mark}"
+        )
+    lines.append(f"{'-' * width}  {'-' * 7}  {'-' * 14}  {'-' * 5}")
+    lines.append(
+        f"{'overall'.ljust(width)}  {_acc(*overall):>7}  {_ci(*overall):>14}  "
+        f"{overall[1]:>5}{mark}"
+    )
     lines.append(f"abstention questions in slice: {abstentions}/{len(results)}")
     if caveat:
         lines.append(f"* {caveat}")

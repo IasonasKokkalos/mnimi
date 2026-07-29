@@ -70,18 +70,70 @@ _ABSTENTION = (
 )
 
 
-# The five templates above are the paper's, verbatim, and are LOCKED. The hash
-# below is what makes an accidental edit to them impossible to ship silently.
-JUDGE_PROMPT_VERSION = "longmemeval-paper-v1"
+_TEMPLATES = {
+    "standard": _STANDARD,
+    "temporal-reasoning": _TEMPORAL,
+    "knowledge-update": _KNOWLEDGE_UPDATE,
+    "single-session-preference": _PREFERENCE,
+    "abstention": _ABSTENTION,
+}
+
+# No system message. The reference implementation sends exactly one user
+# message — `messages=[{"role": "user", "content": prompt}]`
+# (src/evaluation/evaluate_qa.py, verified against the source) — and the 97%
+# human agreement was measured on that request, not on ours. This was a
+# harness-invented system message ("You are a strict grader...") until
+# 2026-07-29.
+#
+# It is None rather than deleted so the absence is a recorded value: the hash
+# below covers it, and re-introducing a system message moves the hash instead
+# of slipping past a digest that only ever looked at the templates.
+_JUDGE_SYSTEM: str | None = None
+
+# v2: the message stack now matches the reference (no system message), and the
+# hash covers the whole request shape rather than the templates alone.
+#
+# KNOWN DEVIATION, unfixed pending a ruling: `_STANDARD` and `_TEMPORAL` each
+# differ from the reference by ONE character — the reference has a space before
+# the `\n\nQuestion:` block ("...answer no. \n\n"), ours does not. The other
+# three templates are byte-identical. This version string therefore still
+# slightly overclaims; fixing it is a one-character edit that moves every
+# verdict key, so it waits for an explicit decision.
+JUDGE_PROMPT_VERSION = "longmemeval-paper-v2"
+
+
+def judge_messages(prompt: str) -> list[dict]:
+    """The message stack sent to the judge.
+
+    Single source for what is sent AND what is hashed — the two cannot drift.
+    """
+    messages = []
+    if _JUDGE_SYSTEM is not None:
+        messages.append({"role": "system", "content": _JUDGE_SYSTEM})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def judge_request_shape() -> dict:
+    """The judge request as sent, with per-question text left unrendered.
+
+    Covers roles as well as contents: a verdict depends on the whole message
+    stack, not on the user template alone. Hashing only the five templates was
+    the hole this closes — a system message could be added, edited or removed
+    without moving `judge_prompt_hash`, which is how one got added unnoticed.
+    """
+    return {
+        "system_message": _JUDGE_SYSTEM,  # None = no system message is sent
+        "roles": [m["role"] for m in judge_messages("")],
+        "templates": dict(sorted(_TEMPLATES.items())),
+    }
 
 
 def judge_prompt_hash() -> str:
-    """Digest over all five per-type templates, order-independent."""
-    from .artifacts import fingerprint
+    """Digest over the entire judge request shape."""
+    from .artifacts import canonical, fingerprint
 
-    return fingerprint(
-        "\n".join(sorted([_STANDARD, _TEMPORAL, _KNOWLEDGE_UPDATE, _PREFERENCE, _ABSTENTION]))
-    )
+    return fingerprint(canonical(judge_request_shape()))
 
 
 def build_judge_prompt(
@@ -99,9 +151,6 @@ def build_judge_prompt(
     else:
         template = _STANDARD
     return template.format(question=question, answer=answer, response=response)
-
-
-_JUDGE_SYSTEM = "You are a strict grader. Answer with only 'yes' or 'no'."
 
 
 class Judge:
@@ -133,15 +182,14 @@ class Judge:
             if cached is not None:
                 return cached
         prompt = build_judge_prompt(question_type, question, answer, response, abstention)
-        # max_tokens=10 matches the paper; temperature=0 per the locked judge config.
+        # max_tokens=10 and temperature=0 match the reference implementation.
+        # They are NOT covered by judge_prompt_hash — that hash is about the
+        # message stack. Judge decode config remains unpinned; see the report.
         completion = self.client.chat.completions.create(
             model=self.model,
             max_tokens=10,
             temperature=0,
-            messages=[
-                {"role": "system", "content": _JUDGE_SYSTEM},
-                {"role": "user", "content": prompt},
-            ],
+            messages=judge_messages(prompt),
         )
         text = (completion.choices[0].message.content or "").strip().lower()
         verdict = "yes" in text

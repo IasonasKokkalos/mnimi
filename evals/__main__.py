@@ -254,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     from .judge import JUDGE_PROMPT_VERSION, judge_prompt_hash
     from .judge_cache import JudgeCache
     from .report import print_report
+    from .report import summary as report_summary
     from .runner import (
         READER_CACHE_RAM,
         READER_FLASH_ATTENTION,
@@ -442,7 +443,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    cache = JudgeCache()
+    # The fingerprint scopes cached verdicts to the judge that produced them.
+    # Without it, changing the judge model or prompt replays stale verdicts and
+    # reports "nothing changed" — a false null, not a cheap re-grade.
+    cache = JudgeCache(
+        judge_fingerprint=f"{args.judge_model}:{judge_prompt_hash()}",
+    )
 
     def judge_progress(done: int, total: int, p, correct: bool) -> None:
         mark = "PASS" if correct else "FAIL"
@@ -484,7 +490,9 @@ def main(argv: list[str] | None = None) -> int:
         ),
     }
     provisional = _provisional_reasons(pins)
-    results_path = artifacts.write_results(directory, pins, results, run_meta, provisional)
+    results_path = artifacts.write_results(
+        directory, pins, results, run_meta, provisional, summary=report_summary(results)
+    )
 
     mean_fed = f"{run_meta['reader_mean_prompt_tokens']:,}" if fed else "n/a"
     print(

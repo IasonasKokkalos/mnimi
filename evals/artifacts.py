@@ -551,9 +551,19 @@ def read_published_score(directory: Path) -> tuple[int, int] | None:
 
 
 def write_results(
-    directory: Path, pins: dict, results, run_meta: dict, provisional: list[str]
+    directory: Path,
+    pins: dict,
+    results,
+    run_meta: dict,
+    provisional: list[str],
+    summary: dict | None = None,
 ) -> Path:
-    """Final graded artifact: header, provisionality, run stats, per-question rows."""
+    """Final graded artifact: header, provisionality, run stats, per-question rows.
+
+    ``summary`` carries accuracy with Wilson intervals. It is computed by the
+    caller (``report.summary``) rather than here because this module sits below
+    ``runner`` in the import graph and cannot reach the aggregation code.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "results.json"
     payload = {
@@ -562,6 +572,8 @@ def write_results(
         # Empty list means publishable; anything in it names what is not yet locked.
         "provisional": provisional,
         "run": run_meta,
+        # Every rate here carries its interval: no bare percentage in an artifact.
+        "summary": summary or {},
         "results": [asdict(r) for r in results],
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

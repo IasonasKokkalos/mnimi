@@ -1,7 +1,17 @@
 """Minimal on-disk verdict cache for the LLM judge.
 
-Call-avoidance only: keyed on ``(question_id, sha256(predicted))`` so a re-run
-with an identical prediction skips the API call and returns the same verdict.
+Call-avoidance only: keyed on ``(judge_fingerprint, question_id,
+sha256(predicted))`` so a re-run with an identical prediction, graded by the
+same judge, skips the API call and returns the same verdict.
+
+**The fingerprint is load-bearing, and its absence was a bug.** The key was
+``(question_id, sha256(predicted))`` alone until 2026-07-29, which meant a
+change to the judge model or the judge prompt did not invalidate a single
+cached verdict: re-grading after a prompt change replayed the old verdicts and
+reported "nothing changed", which is indistinguishable from a real null result.
+Reader drift was always caught (it changes ``predicted``, so it changes the
+key); judge drift never was.
+
 This is NOT the Phase B staged-artifact system — no reproducibility header, no
 predictions.jsonl. Just a flat JSON file the judge reads through on every call.
 """
@@ -18,8 +28,9 @@ DEFAULT_PATH = ".cache/judge_verdicts.json"
 class JudgeCache:
     """Flat JSON verdict cache. Counts hits/misses for run reporting."""
 
-    def __init__(self, path: str = DEFAULT_PATH) -> None:
+    def __init__(self, path: str = DEFAULT_PATH, *, judge_fingerprint: str = "") -> None:
         self.path = Path(path)
+        self.judge_fingerprint = judge_fingerprint
         self.hits = 0
         self.misses = 0
         self._data: dict[str, bool] = {}
@@ -31,10 +42,9 @@ class JudgeCache:
                 # start empty and let the run repopulate it.
                 self._data = {}
 
-    @staticmethod
-    def key(question_id: str, predicted: str) -> str:
+    def key(self, question_id: str, predicted: str) -> str:
         digest = hashlib.sha256(predicted.encode("utf-8")).hexdigest()
-        return f"{question_id}:{digest}"
+        return f"{self.judge_fingerprint}:{question_id}:{digest}"
 
     def get(self, question_id: str, predicted: str) -> bool | None:
         """Return the cached verdict, or ``None`` on miss. Records the outcome."""

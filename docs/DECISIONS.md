@@ -451,12 +451,30 @@ same run's results, no extra compute — and it is the number that carries no
 contamination. A reader who wants the clean claim gets it without having to
 trust that 20% did not matter.
 
+**What exactly was selected against the dev slice, stated precisely so the
+claim is neither overstated nor quietly minimised.** The threshold was chosen
+on **evidence-round retention** — what fraction of the annotated evidence
+rounds survived dedup — measured on the n=20 dev slice's haystacks. It was
+**not** chosen on accuracy: no score was consulted, and the 0.85-vs-0.95
+accuracy comparison was run afterwards, as a check on a decision already made.
+That is the weaker form of contamination, and it is still contamination:
+retention was measured on the same questions the evidence run will score, so a
+threshold that happens to suit those particular haystacks cannot be
+distinguished from one that suits the benchmark generally.
+
 **Prohibited: further threshold sweeps against this benchmark.** Fixing a
 default that was destroying 44% of evidence is bug-fixing; scanning 0.90 /
 0.93 / 0.97 for the best score is tuning on the test set, and it is the single
-easiest way to get the whole number dismissed. If the threshold needs revisiting
-it is revisited on a retention or distributional criterion, on a held-out slice,
-and the fact is recorded here.
+easiest way to get the whole number dismissed.
+
+**Rule for any future threshold tuning: the dev source must not be
+LongMemEval questions at all** — not a held-out slice of them, not a different
+seed. A held-out LongMemEval slice still shares the dataset's construction
+(synthetic haystacks, planted evidence, one generator), so tuning against it
+fits the corpus's idiosyncrasies and reports the result on the same
+idiosyncrasies. Tune on a separate conversational corpus, or on a synthetic
+retention fixture built for the purpose, and report the chosen value on
+LongMemEval untouched.
 
 ## Oracle is a ceiling on evidence AVAILABILITY, not on retrieval quality (2026-07-29)
 
@@ -510,3 +528,123 @@ mistaken for emitted ones, and recording `answer_reserve = 1024` because that is
 what those runs actually used. Overwriting `pins.json` would manufacture
 emitted-looking metadata for runs that never emitted it — the same species of
 false claim this schema bump exists to stop.
+
+**Superseded 2026-07-29 (same day):** those six runs predate the
+`answer_reserve` 1024→800 change and the time-ordered `get_context`, so their
+predictions are no longer reproducible from current code. The back-filled pins
+stay as an archival record of the 0.85-vs-0.95 comparison and nothing else.
+
+## The paper is in the repo, and it moved three things (2026-07-29)
+
+`docs/longmemeval-arxiv-2410.10813.pdf` (ICLR 2025 camera-ready, v2, 28pp).
+The reference judge implementation was also read directly from
+`src/evaluation/evaluate_qa.py` in the authors' repo, which is the byte-level
+source the paper's Figure 10 only typesets.
+
+**1. Two judge templates deviate from the reference by one character.**
+`_STANDARD` and `_TEMPORAL` are missing a space before the `\n\nQuestion:`
+block — the reference reads `"...answer no. \n\n"`, ours `"...answer no.\n\n"`.
+The other three are byte-identical. Not fixed: a one-character edit moves every
+verdict key and it needs an explicit decision, not a drive-by.
+
+**2. The judge was being sent a system message the paper never sends.** The
+reference sends exactly one user message. Ours prepended
+`"You are a strict grader. Answer with only 'yes' or 'no'."`, which was not in
+the 97%-human-agreement configuration. Removed; `_JUDGE_SYSTEM = None` rather
+than deleted, so its absence is a value the hash covers.
+
+**3. "JSON" in the paper is the format of the RETRIEVED CONTEXT, not of the
+reader's output.** §5.5: *"we present retrieved items in a structured JSON
+format (Yin et al., 2023), which helps the model clearly recognize memory items
+as the data for reading"*. Figure 13's CoN prompt ends `Answer (step by step):`
+and asks for prose. There is no JSON object to parse, no `answer` field, and
+therefore no parse-failure mode. The planned `json-con-v1` name and the whole
+JSON-output parse/fallback policy were built on a misreading of what the
+JSON+CoN result measured. Presenting *context* as JSON is a `get_context`
+change affecting all five arms, which is a different and larger decision.
+
+## Statistics: pre-specified comparisons and what the intervals mean (2026-07-29)
+
+**Module:** `evals/stats.py`, one code path for n=20 / n=100 / n=500. No
+statistic quoted in any doc is computed anywhere else.
+
+**Pre-specified before any n=100 or n=500 data exists:**
+
+- **Primary:** mnimi vs naive_rag, exact McNemar, reported **uncorrected** and
+  labelled primary.
+- **Secondary:** mnimi vs no_memory, mnimi vs full_history, mnimi vs oracle,
+  **Holm-corrected** as one family.
+- **No other pairwise test is reported.** A comparison chosen after seeing the
+  data is not a test.
+
+**Exact McNemar, not chi-square**, because the approximation needs a decent
+discordant count and we do not have one — the primary pair produced *two*
+discordant pairs at n=20. `b`, `c` and `n` are emitted alongside every p-value,
+so a reader can see whether a result rests on 3 pairs or 300. Question-id sets
+are asserted identical across arms before any test; a mismatch raises rather
+than silently comparing unpaired numbers.
+
+**Wilson score intervals on every headline number.** At 2/20 the normal
+approximation produces a negative lower bound, which is not an interval.
+
+**What the interval covers, stated because it is narrower than it looks.** The
+CI is question-sampling error only: how much the number would move if a
+different sample of LongMemEval questions had been drawn. It does **not**
+cover judge error (the paper's own judge agrees with human experts ~90-97%
+depending on category, so a category cell carries judge noise the interval
+never sees), reader nondeterminism (measured separately as a
+predictions-changed count), or dataset construction error (the haystacks are
+synthetic and the evidence is planted). Two arms whose intervals overlap have
+not been shown equal, and two whose intervals exclude each other have not been
+shown different by the interval alone — that is what the paired test is for.
+
+**The daemon-restart repeat is reproducibility, not a confidence interval.** It
+is reported in its own section as a predictions-changed count and a score
+delta, and is never printed as an error bar on an accuracy number. They measure
+different things: one asks whether the same inputs give the same outputs, the
+other asks how much the answer depends on which questions were drawn.
+
+## Power: n=100 cannot test the primary thesis (2026-07-29)
+
+**Computed from the n=20 dev-slice artifacts, post judge-fix.** mnimi vs
+naive_rag: `b=2, c=0`, **2 discordant pairs out of 20**, observed discordance
+rate 0.10, p=0.50.
+
+Minimum true accuracy gap detectable by exact McNemar at α=0.05, power=0.8
+(`evals.stats.minimum_detectable_gap`, averaging conditional power over the
+random discordant count):
+
+| discordance rate | MDE at n=100 | MDE at n=500 |
+|---|---|---|
+| 0.05 | **unreachable** | 2.9 pts |
+| 0.10 *(observed)* | **8.8 pts** | 4.1 pts |
+| 0.15 | 11.0 pts | 5.0 pts |
+| 0.20 | 12.8 pts | 5.8 pts |
+| 0.30 | 15.9 pts | 7.0 pts |
+
+"Unreachable" at 0.05/n=100 is a floor effect, not a rounding artifact: ~5
+discordant pairs are expected, and the exact test needs **at least 6** all
+falling one way before a two-sided p can reach 0.05 at all.
+
+**The conclusion, and it is a stop.** mnimi-v1 is expected to open ≈0 points
+over naive_rag — that is the project's own prediction, by construction: at
+threshold 0.95 dedup is nearly inert, the two arms differed on 3 of 20
+predictions and 2 of 20 verdicts, and v1 has no other mechanism to separate
+them. **n=100 would need an 8.8-point true gap. n=500 would need 4.1.** Neither
+tests the primary thesis, and the pairing does not rescue it — pairing is
+already what makes these numbers as small as they are.
+
+Recorded as a design fact rather than a run-size recommendation: **no run size
+is recommended here.** The primary comparison is underpowered for v1 at any
+slice of this benchmark, so the decision to make is what mnimi must *do*
+differently before the comparison is worth running, not how many questions to
+spend confirming a null.
+
+The secondary pairs are differently placed — observed discordance on the dev
+slice is 0.35 (no_memory), 0.55 (full_history), 0.40 (oracle) — so those
+comparisons carry far more discordant pairs and are the ones n=100 could speak
+to. mnimi vs no_memory already reaches p=0.0156 (Holm 0.0469) at n=20.
+
+**Caveat that limits all of the above:** the 0.10 discordance rate is estimated
+from two pairs. The table is therefore given across a range rather than at a
+point, and every row of it says the same thing about n=100.
