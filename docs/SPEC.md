@@ -1262,6 +1262,14 @@ way. A re-run under identical pins should report all hits and zero misses; a run
 of misses on unchanged inputs is a drift alarm, and it fires before any score is
 compared.
 
+The verdict cache is load-bearing for the paired statistics, not only for
+cost. Its key includes `sha256(predicted)`, so two arms emitting an identical
+prediction for a question receive an identical verdict by construction.
+Discordant pairs in McNemar can therefore arise only from differing
+predictions, never from judge nondeterminism. The cache must not be cleared
+or partitioned between arms within a comparison set; doing so would admit
+judge instrument error into the paired test as false discordance.
+
 **SEE TIER 3 IN FUTURE.md** — a containerized reference environment, queued
 rather than forced.
 

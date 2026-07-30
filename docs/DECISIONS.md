@@ -663,17 +663,34 @@ invalidate the cache when it changes. Re-grade under judge_prompt_version
 `longmemeval-paper-v3`: 1 verdict flip across 193 gradings; per-run deltas in
 the commit report.
 
-## Mixed-configuration pairing (correction) (2026-07-30)
+## Superseded power analysis (correction) (2026-07-30)
 
-The n=20 five-system table paired arms produced under different harness
-configurations (`answer_reserve` 1024 vs 800, pre- vs post-time-ordering). The
-derived power analysis (b=2, c=0, discordance 0.10) is therefore an estimate
-across configurations, not within one, and is superseded by whatever the
-renderer-parity re-run measures. `stats.py` now hard-fails on such pairings
-via `HARNESS_PARITY_FIELDS`.
+The n=20 five-system table was internally consistent — all six arms share one
+harness configuration (`harness_git_sha` 4415b8aa, `answer_reserve` 1024,
+pre-time-ordering) — so the derived power analysis (b=2, c=0, discordance
+0.10) was computed within one configuration, not across two. It is superseded
+regardless: that configuration no longer exists, and the change to it was
+measured to alter 16/20 of mnimi's predictions at an unchanged score, so the
+discordance estimate does not transfer to the current harness. The mixing is
+between eras, and it appears in SPEC's error-bar table, whose rows pair those
+six arms against the post-Phase-D artifacts (`answer_reserve` 800,
+post-time-ordering). `stats.py` hard-fails such pairings via
+`HARNESS_PARITY_FIELDS`.
 
 ## embedder_revision (header) (2026-07-30)
 
 Retrieval arms now declare the pinned HF commit of the embedder in pins. This
 closes the last identified input that could change every number without
 changing the header.
+
+## Judge instrument error (measured) (2026-07-30)
+
+Question eace081b changed verdict between the v2 and v3 judge on a request
+verified byte-identical. Re-graded 20 times under the v3 configuration with
+the verdict cache bypassed: 9 yes / 11 no. Together with the 0 flips across
+120 gradings at the v1->v2 re-judge, the observed spontaneous flip rate is 9
+in 140 gradings. gpt-4o at temperature=0 is therefore not deterministic on
+borderline rows, and absolute scores carry judge instrument error in addition
+to question-sampling error. No absolute score difference smaller than this
+rate is interpretable. This does not affect paired comparisons — see the
+verdict-cache note in SPEC.
