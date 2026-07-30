@@ -59,10 +59,12 @@ class NaiveRagSystem(MemorySystem):
 
     def retrieval_pins(self) -> dict:
         # No dedup_cosine_threshold: this system does not dedup, and reporting a
-        # threshold it never applies would misdescribe the run.
+        # threshold it never applies would misdescribe the run. `revision` is
+        # the embedder's static pinned constant, never a network resolution.
         return {
             "embedder_name": self._embedder.name,
             "embedder_dim": self._embedder.dim,
+            "embedder_revision": self._embedder.revision,
             "k": self._config.top_k,
         }
 

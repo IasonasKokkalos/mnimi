@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 from evals.stats import (
+    HARNESS_PARITY_FIELDS,
+    analyse,
     discordance,
     exact_binomial_two_sided,
+    harness_identity,
     holm,
     mcnemar_exact,
     mcnemar_power,
@@ -95,3 +98,51 @@ def test_minimum_detectable_gap_is_none_when_unreachable():
     """A tiny discordance rate caps the achievable gap: even winning every
     disagreement is not enough to reach 80% power."""
     assert minimum_detectable_gap(20, 0.02) is None
+
+
+def _payload(system: str, **pin_overrides) -> dict:
+    """A results.json-shaped payload with every harness field held constant."""
+    pins = {field: f"shared-{field}" for field in HARNESS_PARITY_FIELDS}
+    pins["system"] = system
+    pins.update(pin_overrides)
+    # Judge identity travels in its own block at schema /3.
+    judge = {
+        "judge_model": pins.pop("judge_model"),
+        "judge_prompt_hash": pins.pop("judge_prompt_hash"),
+        "judge_temperature": pins.pop("judge_temperature"),
+        "judge_max_tokens": pins.pop("judge_max_tokens"),
+    }
+    return {"pins": pins, "judge": judge}
+
+
+def test_pairing_refuses_across_arms_from_different_harness_configurations():
+    """The n=20 table mixed answer_reserve 1024 with 800; the paired statistics
+    it produced compared configurations, not systems. That must now be a hard
+    error naming the field and both values, not a silent number."""
+    arms = {"mnimi": {"q1": True}, "naive_rag": {"q1": False}}
+    identities = {
+        "mnimi": harness_identity(_payload("mnimi", reader_answer_reserve=800)),
+        "naive_rag": harness_identity(_payload("naive_rag", reader_answer_reserve=1024)),
+    }
+    with pytest.raises(ValueError, match="reader_answer_reserve") as excinfo:
+        analyse(arms, identities=identities)
+    assert "800" in str(excinfo.value) and "1024" in str(excinfo.value)
+
+
+def test_pairing_proceeds_across_arms_differing_only_in_retrieval_pins():
+    """embedder/k/threshold differ across arms BY DESIGN — that difference is
+    the experiment, so it must never trip the parity guard."""
+    arms = {"mnimi": {"q1": True, "q2": False}, "naive_rag": {"q1": True, "q2": True}}
+    identities = {
+        "mnimi": harness_identity(
+            _payload("mnimi", embedder_name="BAAI/bge-small-en-v1.5",
+                     embedder_revision="5c38ec7c", k=10, dedup_cosine_threshold=0.95)
+        ),
+        "naive_rag": harness_identity(
+            _payload("naive_rag", embedder_name="BAAI/bge-small-en-v1.5",
+                     embedder_revision="5c38ec7c", k=10)
+        ),
+    }
+    report = analyse(arms, identities=identities)
+    assert report["primary"] is not None
+    assert report["primary"]["result"].n_pairs == 2

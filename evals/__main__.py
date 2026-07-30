@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
 
     from .dataset import file_sha256, resolve_path
-    from .judge import JUDGE_PROMPT_VERSION, judge_prompt_hash
+    from .judge import judge_block
     from .judge_cache import JudgeCache
     from .report import print_report
     from .report import summary as report_summary
@@ -374,9 +374,6 @@ def main(argv: list[str] | None = None) -> int:
             reader_cache_ram=READER_CACHE_RAM,
             reader_prompt_version=READER_PROMPT_VERSION,
             reader_prompt_hash=reader_prompt_hash(),
-            judge_model=args.judge_model,
-            judge_prompt_version=JUDGE_PROMPT_VERSION,
-            judge_prompt_hash=judge_prompt_hash(),
             **reader_trim_pins(),
             # A retrieving system declares the knobs that move its score;
             # everything else returns {} and the fields stay None.
@@ -425,13 +422,17 @@ def main(argv: list[str] | None = None) -> int:
                 "file: grading rows without provenance.\n------------",
                 file=sys.stderr,
             )
-        if pins.get("judge_model") != args.judge_model:
+        # Schema /2 artifacts pinned a judge at predict time; /3 pins carry no
+        # judge fields at all. Either way pins are never rewritten here — the
+        # judge that actually grades is recorded in the results.json judge
+        # block, refreshed below from the judge about to run.
+        pinned_judge = pins.get("judge_model")
+        if pinned_judge is not None and pinned_judge != args.judge_model:
             print(
-                f"WARNING: judging with {args.judge_model} but predictions were "
-                f"pinned to {pins.get('judge_model')}; recording the judge actually used.",
+                f"WARNING: judging with {args.judge_model} but this /2-era header "
+                f"named {pinned_judge}; the judge block records the one used.",
                 file=sys.stderr,
             )
-            pins = {**pins, "judge_model": args.judge_model}
 
     if not do_judge:
         elapsed = time.perf_counter() - started
@@ -443,11 +444,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    # Judge identity, built once from the judge about to run. It feeds both the
+    # verdict-cache fingerprint and the results.json judge block, so what
+    # invalidates the cache and what is recorded beside the verdicts cannot
+    # drift apart.
+    judge_info = judge_block(args.judge_model)
+    _print_judge(judge_info)
+
     # The fingerprint scopes cached verdicts to the judge that produced them.
-    # Without it, changing the judge model or prompt replays stale verdicts and
-    # reports "nothing changed" — a false null, not a cheap re-grade.
+    # Without it, changing the judge model, prompt or decode config replays
+    # stale verdicts and reports "nothing changed" — a false null, not a cheap
+    # re-grade.
     cache = JudgeCache(
-        judge_fingerprint=f"{args.judge_model}:{judge_prompt_hash()}",
+        judge_fingerprint=f"{judge_info['judge_model']}:{judge_info['judge_prompt_hash']}",
     )
 
     def judge_progress(done: int, total: int, p, correct: bool) -> None:
@@ -491,7 +500,13 @@ def main(argv: list[str] | None = None) -> int:
     }
     provisional = _provisional_reasons(pins)
     results_path = artifacts.write_results(
-        directory, pins, results, run_meta, provisional, summary=report_summary(results)
+        directory,
+        pins,
+        results,
+        run_meta,
+        provisional,
+        summary=report_summary(results),
+        judge=judge_info,
     )
 
     mean_fed = f"{run_meta['reader_mean_prompt_tokens']:,}" if fed else "n/a"
@@ -585,18 +600,26 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
         f"cache_ram={pins.get('reader_cache_ram')} (verified resolved at preflight)",
         file=sys.stderr,
     )
+    print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
+    print("------------", file=sys.stderr)
+
+
+def _print_judge(judge: dict) -> None:
+    """Echo the judge block — grading provenance, separate from predict pins."""
+    print("--- judge ---", file=sys.stderr)
     print(
-        f"judge (literal):  {pins.get('judge_model')}  prompts="
-        f"{pins.get('judge_prompt_version')} ({str(pins.get('judge_prompt_hash'))[:12]}...)",
+        f"{judge.get('judge_model')}  prompts={judge.get('judge_prompt_version')} "
+        f"({str(judge.get('judge_prompt_hash'))[:12]}...)  "
+        f"temperature={judge.get('judge_temperature')} "
+        f"max_tokens={judge.get('judge_max_tokens')}",
         file=sys.stderr,
     )
-    if pins.get("judge_model") in {"gpt-4o", "gpt-4o-mini"}:
+    if judge.get("judge_model") in {"gpt-4o", "gpt-4o-mini"}:
         print(
             "WARNING: judge model looks like a rolling alias, not a pinned snapshot.",
             file=sys.stderr,
         )
-    print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
-    print("------------", file=sys.stderr)
+    print("-------------", file=sys.stderr)
 
 
 def _provisional_reasons(pins: dict) -> list[str]:

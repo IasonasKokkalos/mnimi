@@ -68,6 +68,73 @@ class McNemar:
 PRIMARY = ("mnimi", "naive_rag")
 SECONDARY = (("mnimi", "no_memory"), ("mnimi", "full_history"), ("mnimi", "oracle"))
 
+# Fields that must MATCH across arms before pairing them means anything: the
+# harness configuration, which is supposed to be held constant while the
+# system varies. The n=20 five-system table taught the lesson — its arms mixed
+# answer_reserve 1024 with 800 and pre- with post-time-ordered get_context, so
+# the paired statistics computed from it compared configurations, not systems.
+#
+# System-declared retrieval pins (embedder_name, embedder_dim,
+# embedder_revision, k, dedup_cosine_threshold) are EXEMPT: they differ across
+# arms by design — that difference is the experiment. Raw pins_hash is
+# deliberately NOT compared: it digests the exempt fields and `system` too, so
+# it differs across arms by construction and would refuse every legitimate
+# pairing. The field list is the guard; the hash is the wrong altitude.
+HARNESS_PARITY_FIELDS = (
+    "artifact_schema",
+    "harness_git_sha",
+    "reader_model",
+    "reader_num_ctx",
+    "reader_answer_reserve",
+    "reader_scaffold_tokens",
+    "reader_chars_per_token",
+    "reader_prompt_version",
+    "reader_prompt_hash",
+    "dataset_sha256",
+    "sample_strategy",
+    "judge_model",
+    "judge_prompt_hash",
+    "judge_temperature",
+    "judge_max_tokens",
+)
+
+
+def harness_identity(payload: dict) -> dict:
+    """The parity-checked slice of one run's ``results.json`` payload.
+
+    Judge fields come from the ``judge`` block (grading provenance, schema /3);
+    for a /2-era artifact they fall back to the copies inside ``pins``, so old
+    artifacts are still guarded rather than waved through on absent keys.
+    """
+    merged = {**payload.get("pins", {}), **(payload.get("judge") or {})}
+    return {field: merged.get(field) for field in HARNESS_PARITY_FIELDS}
+
+
+def assert_harness_parity(identities: dict[str, dict]) -> None:
+    """Refuse to pair arms produced under different harness configurations.
+
+    The question-id assertion in :func:`discordance` catches arms that answered
+    different questions; this catches arms that answered the same questions
+    under a different harness. Both make the pairing fiction, and both fail
+    loudly, naming what differs, instead of stapling a p-value onto it.
+    """
+    names = sorted(identities)
+    if len(names) < 2:
+        return
+    reference_name, *rest = names
+    reference = identities[reference_name]
+    for name in rest:
+        for field in HARNESS_PARITY_FIELDS:
+            ours, theirs = reference.get(field), identities[name].get(field)
+            if ours != theirs:
+                raise ValueError(
+                    "arms were produced under different harness configurations "
+                    f"and cannot be paired: {field!r} is {ours!r} in "
+                    f"{reference_name} but {theirs!r} in {name}. Re-run the "
+                    "arms under one configuration; a paired test across "
+                    "configurations measures the configuration, not the system."
+                )
+
 
 def wilson(successes: int, n: int, alpha: float = 0.05) -> Interval:
     """Wilson score interval for a binomial proportion."""
@@ -234,13 +301,24 @@ def load_correctness(run_dir: str | Path) -> dict[str, bool]:
     return {row["question_id"]: bool(row["correct"]) for row in rows}
 
 
-def analyse(arms: dict[str, dict[str, bool]], alpha: float = 0.05) -> dict:
+def analyse(
+    arms: dict[str, dict[str, bool]],
+    alpha: float = 0.05,
+    identities: dict[str, dict] | None = None,
+) -> dict:
     """Wilson intervals per arm plus the pre-specified comparisons only.
 
     The primary comparison is reported uncorrected and labelled as such; the
     secondary family is Holm-corrected together. No other pair is tested,
     because a test chosen after seeing the data is not a test.
+
+    ``identities`` maps arm name to :func:`harness_identity`; when present,
+    every arm in the call must share one harness configuration or the analysis
+    refuses outright. ``main`` always passes it — the identity-free form
+    exists for synthetic verdict dicts in tests, not for artifacts.
     """
+    if identities is not None:
+        assert_harness_parity({name: identities[name] for name in arms})
     report: dict = {"arms": {}, "primary": None, "secondary": {}}
     for name, verdicts in sorted(arms.items()):
         report["arms"][name] = wilson(sum(verdicts.values()), len(verdicts), alpha)
@@ -308,11 +386,13 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         print("usage: python -m evals.stats <run_dir> [<run_dir> ...]", file=sys.stderr)
         return 2
-    arms = {}
+    arms, identities = {}, {}
     for directory in argv:
-        pins = json.loads((Path(directory) / "results.json").read_text(encoding="utf-8"))
-        arms[pins["pins"]["system"]] = load_correctness(directory)
-    print(_format(analyse(arms)))
+        payload = json.loads((Path(directory) / "results.json").read_text(encoding="utf-8"))
+        name = payload["pins"]["system"]
+        arms[name] = {row["question_id"]: bool(row["correct"]) for row in payload["results"]}
+        identities[name] = harness_identity(payload)
+    print(_format(analyse(arms, identities=identities)))
     return 0
 
 

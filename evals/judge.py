@@ -8,8 +8,10 @@ abstention checks the model correctly refused to answer.
 
 Transport runs on the OpenAI API (``gpt-4o-2024-08-06``, key from
 ``OPENAI_API_KEY``): the paper's 97% human agreement is validated for that
-snapshot with these exact prompts. The five per-type templates and the
-``build_judge_prompt`` dispatch are transport-independent and unchanged.
+snapshot with these exact prompts. The five templates are byte-identical to the
+reference (locked by tests/test_judge.py against verbatim copies), the dispatch
+mirrors its structure including the ``NotImplementedError`` on unknown types,
+and the decode config matches its request kwargs.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ _STANDARD = (
     "answer no. If the response is equivalent to the correct answer or contains all "
     "the intermediate steps to get the correct answer, you should also answer yes. "
     "If the response only contains a subset of the information required by the "
-    "answer, answer no.\n\n"
+    "answer, answer no. \n\n"
     "Question: {question}\n\nCorrect Answer: {answer}\n\nModel Response: {response}\n\n"
     "Is the model response correct? Answer yes or no only."
 )
@@ -34,7 +36,7 @@ _TEMPORAL = (
     "answer, answer no. In addition, do not penalize off-by-one errors for the "
     "number of days. If the question asks for the number of days/weeks/months, etc., "
     "and the model makes off-by-one errors (e.g., predicting 19 days when the answer "
-    "is 18), the model's response is still correct.\n\n"
+    "is 18), the model's response is still correct. \n\n"
     "Question: {question}\n\nCorrect Answer: {answer}\n\nModel Response: {response}\n\n"
     "Is the model response correct? Answer yes or no only."
 )
@@ -90,16 +92,22 @@ _TEMPLATES = {
 # of slipping past a digest that only ever looked at the templates.
 _JUDGE_SYSTEM: str | None = None
 
-# v2: the message stack now matches the reference (no system message), and the
-# hash covers the whole request shape rather than the templates alone.
-#
-# KNOWN DEVIATION, unfixed pending a ruling: `_STANDARD` and `_TEMPORAL` each
-# differ from the reference by ONE character — the reference has a space before
-# the `\n\nQuestion:` block ("...answer no. \n\n"), ours does not. The other
-# three templates are byte-identical. This version string therefore still
-# slightly overclaims; fixing it is a one-character edit that moves every
-# verdict key, so it waits for an explicit decision.
-JUDGE_PROMPT_VERSION = "longmemeval-paper-v2"
+# Decode config, pinned. The reference sends `temperature=0, max_tokens=10`
+# (evaluate_qa.py kwargs), so these are part of the instrument, not transport
+# detail: max_tokens=10 is what truncates the verdict to a bare yes/no, and a
+# different budget invites a hedged sentence the `'yes' in output` check then
+# misreads. Digested in `judge_prompt_hash` below — every configuration input
+# to a verdict must invalidate the cache when it changes.
+JUDGE_TEMPERATURE = 0
+JUDGE_MAX_TOKENS = 10
+
+# v3: the five templates are now BYTE-IDENTICAL to the reference (v2 carried a
+# known one-character deviation in `_STANDARD` and `_TEMPORAL` — the missing
+# space before `\n\nQuestion:` — fixed under an explicit ruling, 2026-07-30),
+# unknown question types raise like the reference instead of falling through to
+# `_STANDARD`, and the request hash covers decode config alongside the message
+# stack. The name stops overclaiming with this version.
+JUDGE_PROMPT_VERSION = "longmemeval-paper-v3"
 
 
 def judge_messages(prompt: str) -> list[dict]:
@@ -126,22 +134,56 @@ def judge_request_shape() -> dict:
         "system_message": _JUDGE_SYSTEM,  # None = no system message is sent
         "roles": [m["role"] for m in judge_messages("")],
         "templates": dict(sorted(_TEMPLATES.items())),
+        # Decode config is part of the request the verdicts came from: a wider
+        # max_tokens or a nonzero temperature is a different judge.
+        "decode": {"temperature": JUDGE_TEMPERATURE, "max_tokens": JUDGE_MAX_TOKENS},
     }
 
 
 def judge_prompt_hash() -> str:
-    """Digest over the entire judge request shape."""
+    """Digest over the entire judge request shape, decode config included."""
     from .artifacts import canonical, fingerprint
 
     return fingerprint(canonical(judge_request_shape()))
 
 
+def judge_block(judge_model: str) -> dict:
+    """Judge identity, written into ``results.json`` beside the verdicts.
+
+    Refreshed at judge time from the judge about to run — never copied from
+    pins, which describe the predict stage and are not rewritten by a judge
+    replay. Every verdict set on disk sits beside the exact judge that produced
+    it: model, prompt version, prompt hash, decode config.
+    """
+    return {
+        "judge_model": judge_model,
+        "judge_prompt_version": JUDGE_PROMPT_VERSION,
+        "judge_prompt_hash": judge_prompt_hash(),
+        "judge_temperature": JUDGE_TEMPERATURE,
+        "judge_max_tokens": JUDGE_MAX_TOKENS,
+    }
+
+
+# The reference's standard-template dispatch list (evaluate_qa.py line 26).
+_STANDARD_TYPES = frozenset(
+    {"single-session-user", "single-session-assistant", "multi-session"}
+)
+
+
 def build_judge_prompt(
     question_type: str, question: str, answer: str, response: str, abstention: bool
 ) -> str:
-    """Select and fill the per-type judge template."""
+    """Select and fill the per-type judge template.
+
+    Mirrors the reference dispatch exactly, including its strictness: an
+    unknown question type raises rather than borrowing ``_STANDARD``. A silent
+    fallback would grade a new category with a template never validated for it
+    and report the number as if it meant the same thing.
+    """
     if abstention:
         template = _ABSTENTION
+    elif question_type in _STANDARD_TYPES:
+        template = _STANDARD
     elif question_type == "temporal-reasoning":
         template = _TEMPORAL
     elif question_type == "knowledge-update":
@@ -149,7 +191,11 @@ def build_judge_prompt(
     elif question_type == "single-session-preference":
         template = _PREFERENCE
     else:
-        template = _STANDARD
+        raise NotImplementedError(
+            f"no judge template for question type {question_type!r} — the "
+            "reference implementation raises here too, and grading it with "
+            "_STANDARD would be a silent template substitution"
+        )
     return template.format(question=question, answer=answer, response=response)
 
 
@@ -182,13 +228,10 @@ class Judge:
             if cached is not None:
                 return cached
         prompt = build_judge_prompt(question_type, question, answer, response, abstention)
-        # max_tokens=10 and temperature=0 match the reference implementation.
-        # They are NOT covered by judge_prompt_hash — that hash is about the
-        # message stack. Judge decode config remains unpinned; see the report.
         completion = self.client.chat.completions.create(
             model=self.model,
-            max_tokens=10,
-            temperature=0,
+            max_tokens=JUDGE_MAX_TOKENS,
+            temperature=JUDGE_TEMPERATURE,
             messages=judge_messages(prompt),
         )
         text = (completion.choices[0].message.content or "").strip().lower()

@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/2"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/3"
 
 
 def fingerprint(text: str) -> str:
@@ -372,16 +372,14 @@ def build_pins(
     reader_answer_reserve: int,
     reader_scaffold_tokens: int,
     reader_chars_per_token: int,
-    judge_model: str,
-    judge_prompt_version: str,
-    judge_prompt_hash: str,
     embedder_name: str | None = None,
     embedder_dim: int | None = None,
+    embedder_revision: str | None = None,
     extractor_model: str | None = None,
     k: int | None = None,
     dedup_cosine_threshold: float | None = None,
 ) -> dict:
-    """Everything that determines the number, and nothing that does not.
+    """Everything that determines the *predictions*, and nothing that does not.
 
     Wall-clock, elapsed time and counts are deliberately excluded: they belong
     to run metadata. Two runs are comparable exactly when their pins match, so
@@ -403,6 +401,16 @@ def build_pins(
     ``num_ctx - answer_reserve - scaffold_tokens``, compared against a
     ``chars_per_token`` estimate. All three move the fed-token count, and
     full_history truncates on every question, so all three move its score.
+
+    Schema /3 (2026-07-30) moved the judge OUT of pins and added
+    ``embedder_revision``. Judge identity (model, prompt version, prompt hash,
+    decode config) lives in the ``judge`` block of ``results.json``, refreshed
+    at judge time from the judge that actually grades — a judge replay must
+    never rewrite predict-stage provenance, and under /2 the judge fields here
+    described the judge *requested* at predict time, which a later re-grade
+    silently falsified. ``embedder_revision`` pins the HF commit of the
+    embedding model; a bare model name is mutable and can move every vector
+    without moving any header field.
     """
     return {
         "artifact_schema": ARTIFACT_SCHEMA,
@@ -437,11 +445,9 @@ def build_pins(
         "reader_answer_reserve": reader_answer_reserve,
         "reader_scaffold_tokens": reader_scaffold_tokens,
         "reader_chars_per_token": reader_chars_per_token,
-        "judge_model": judge_model,
-        "judge_prompt_version": judge_prompt_version,
-        "judge_prompt_hash": judge_prompt_hash,
         "embedder_name": embedder_name,
         "embedder_dim": embedder_dim,
+        "embedder_revision": embedder_revision,
         "extractor_model": extractor_model,
         "k": k,
         "dedup_cosine_threshold": dedup_cosine_threshold,
@@ -557,18 +563,28 @@ def write_results(
     run_meta: dict,
     provisional: list[str],
     summary: dict | None = None,
+    judge: dict | None = None,
 ) -> Path:
-    """Final graded artifact: header, provisionality, run stats, per-question rows.
+    """Final graded artifact: header, judge block, run stats, per-question rows.
 
     ``summary`` carries accuracy with Wilson intervals. It is computed by the
     caller (``report.summary``) rather than here because this module sits below
     ``runner`` in the import graph and cannot reach the aggregation code.
+
+    ``judge`` is the identity of the judge that produced these verdicts
+    (``evals.judge.judge_block``), passed in for the same layering reason. It
+    is refreshed on every judge pass and hashed separately from ``pins_hash``:
+    pins describe the predict stage, this block describes the grading, and a
+    re-grade must be able to update one without touching the other.
     """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "results.json"
     payload = {
         "pins": pins,
         "pins_hash": pins_hash(pins),
+        # The judge that graded THESE verdicts — not the one pins requested.
+        "judge": judge or {},
+        "judge_hash": fingerprint(canonical(judge)) if judge else None,
         # Empty list means publishable; anything in it names what is not yet locked.
         "provisional": provisional,
         "run": run_meta,

@@ -49,9 +49,13 @@ class MnimiSystem(MemorySystem):
         self.reset()
 
     def retrieval_pins(self) -> dict:
+        # `revision` is a static constant on the embedder class (the pinned HF
+        # commit for BGE) — read, never resolved: a network lookup here could
+        # pin whatever the hub currently serves instead of what ran.
         return {
             "embedder_name": self._embedder.name,
             "embedder_dim": self._embedder.dim,
+            "embedder_revision": self._embedder.revision,
             "k": self._config.top_k,
             "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
         }

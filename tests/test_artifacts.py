@@ -36,9 +36,6 @@ def _pins(**overrides) -> dict:
         reader_cache_ram=0,
         reader_prompt_version="plain-prose-v2",
         reader_prompt_hash="rp",
-        judge_model="gpt-4o-2024-08-06",
-        judge_prompt_version="longmemeval-paper-v1",
-        judge_prompt_hash="jp",
         # Real values, so the test moves with the trim gate rather than a copy.
         **runner.reader_trim_pins(),
     )
@@ -57,7 +54,6 @@ def test_pins_hash_changes_when_any_pin_changes():
     assert artifacts.pins_hash(_pins()) == baseline
     assert artifacts.pins_hash(_pins(dataset_sha256="different")) != baseline
     assert artifacts.pins_hash(_pins(reader_num_ctx=4096)) != baseline
-    assert artifacts.pins_hash(_pins(judge_model="gpt-4o")) != baseline
     # Decode config determines the output text, so it must move the pins hash.
     assert artifacts.pins_hash(_pins(reader_seed=1)) != baseline
     assert artifacts.pins_hash(_pins(reader_top_k=40)) != baseline
@@ -78,7 +74,41 @@ def test_retrieval_pins_move_the_pins_hash():
     baseline = artifacts.pins_hash(_pins())
     assert artifacts.pins_hash(_pins(embedder_name="BAAI/bge-small-en-v1.5")) != baseline
     assert artifacts.pins_hash(_pins(embedder_dim=384)) != baseline
+    assert artifacts.pins_hash(_pins(embedder_revision="5c38ec7c405e")) != baseline
     assert artifacts.pins_hash(_pins(k=10)) != baseline
+
+
+def test_schema_3_declares_revision_for_retrieval_arms_only():
+    """A bare model name is mutable and can move every vector without moving
+    any header field; the HF commit is the immutable identity."""
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/3"
+    assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
+    retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
+                       embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
+    assert retrieving["embedder_revision"].startswith("5c38ec7c")
+
+
+def test_judge_identity_never_moves_pins_hash(tmp_path):
+    """Schema /3: pins describe the predict stage only. Judge identity lives in
+    the results.json judge block with its own hash, refreshed at judge time, so
+    a judge replay updates grading provenance without touching predict
+    provenance."""
+    pins = _pins()
+    assert not any(key.startswith("judge_") for key in pins), (
+        "judge fields inside pins would let a re-grade rewrite predict provenance"
+    )
+
+    judge_a = {"judge_model": "gpt-4o-2024-08-06", "judge_prompt_hash": "aaa",
+               "judge_temperature": 0, "judge_max_tokens": 10}
+    judge_b = {**judge_a, "judge_max_tokens": 500}
+    artifacts.write_results(tmp_path, pins, [], {"stage": "judge", "n": 0}, [], judge=judge_a)
+    first = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    artifacts.write_results(tmp_path, pins, [], {"stage": "judge", "n": 0}, [], judge=judge_b)
+    second = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+
+    assert first["pins_hash"] == second["pins_hash"], "judge change must not move pins_hash"
+    assert first["judge_hash"] != second["judge_hash"], "judge change must move judge_hash"
+    assert second["judge"]["judge_max_tokens"] == 500
 
 
 def test_reader_prompt_and_trim_gate_move_the_pins_hash():

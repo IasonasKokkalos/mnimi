@@ -648,3 +648,32 @@ to. mnimi vs no_memory already reaches p=0.0156 (Holm 0.0469) at n=20.
 **Caveat that limits all of the above:** the 0.10 discordance rate is estimated
 from two pairs. The table is therefore given across a range rather than at a
 point, and every row of it says the same thing about n=100.
+
+## Judge fidelity (ruling) (2026-07-30)
+
+`_STANDARD` and `_TEMPORAL` corrected to byte-match the reference
+implementation (one missing space each before the question block); unknown
+`question_type` now raises `NotImplementedError`, matching the reference's
+strictness; judge decode configuration (`temperature=0`, `max_tokens=10`)
+promoted to pinned constants, digested in `judge_prompt_hash`, and recorded in
+the artifact judge block. Rationale: the 97% human-agreement figure was
+measured on the reference judge; a judge that deviates by any byte is a
+different instrument, and every configuration input to a verdict must
+invalidate the cache when it changes. Re-grade under judge_prompt_version
+`longmemeval-paper-v3`: 1 verdict flip across 193 gradings; per-run deltas in
+the commit report.
+
+## Mixed-configuration pairing (correction) (2026-07-30)
+
+The n=20 five-system table paired arms produced under different harness
+configurations (`answer_reserve` 1024 vs 800, pre- vs post-time-ordering). The
+derived power analysis (b=2, c=0, discordance 0.10) is therefore an estimate
+across configurations, not within one, and is superseded by whatever the
+renderer-parity re-run measures. `stats.py` now hard-fails on such pairings
+via `HARNESS_PARITY_FIELDS`.
+
+## embedder_revision (header) (2026-07-30)
+
+Retrieval arms now declare the pinned HF commit of the embedder in pins. This
+closes the last identified input that could change every number without
+changing the header.

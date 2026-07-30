@@ -149,12 +149,33 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
         assert cls().retrieval_pins() == {}, cls
 
     naive = _naive().retrieval_pins()
-    assert naive == {"embedder_name": "hashing", "embedder_dim": 256, "k": 10}
+    assert naive == {
+        "embedder_name": "hashing",
+        "embedder_dim": 256,
+        "embedder_revision": "v1",
+        "k": 10,
+    }
 
     mnimi = _mnimi(config=MemoryConfig(top_k=4, dedup_cosine_threshold=0.9)).retrieval_pins()
     assert mnimi["k"] == 4
     assert mnimi["dedup_cosine_threshold"] == 0.9
     assert mnimi["embedder_name"] == "hashing"
+
+
+def test_retrieval_pins_carry_the_embedder_revision_constant():
+    """The declared revision must be the pinned constant on the embedder class,
+    read without construction and without network — a resolver could pin
+    whatever the hub currently serves instead of what actually ran."""
+    from mnimi.embeddings import BgeSmallEmbedder
+
+    for system in (_naive(), _mnimi()):
+        assert system.retrieval_pins()["embedder_revision"] == HashingEmbedder.revision
+
+    # The run path hardcodes BGE; its revision is a static class attribute (a
+    # full 40-hex HF commit sha), so reading it can never trigger a download.
+    assert isinstance(BgeSmallEmbedder.__dict__["revision"], str)
+    assert len(BgeSmallEmbedder.revision) == 40
+    assert set(BgeSmallEmbedder.revision) <= set("0123456789abcdef")
 
 
 def test_retrieved_context_is_time_ordered_oldest_first():
