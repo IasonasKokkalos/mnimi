@@ -20,7 +20,6 @@ services. The library must import and run with only its two core deps.
   `ollama` (reader transport), `openai` (judge), `python-dotenv`. Never imported
   by the library. The Anthropic client is gone — reader is local, judge is
   OpenAI (`docs/DECISIONS.md`).
-- **Build:** hatchling. **Lint:** ruff (line-length 100). **Test:** pytest.
 
 ## API contract (locked — keep these signatures)
 
@@ -168,18 +167,6 @@ python -m evals --system <name> --limit 10                  # predict + judge
 python -m evals --system <name> --limit 10 --stage predict  # needs Ollama, no key
 python -m evals --system <name> --limit 10 --stage judge    # needs OPENAI_API_KEY
 ```
-
-## Layout
-
-- `src/mnimi/` — the library. `models.py` (MemoryRecord), `store.py` (the
-  sqlite-vec store), `embeddings.py` (Embedder protocol + default), `memory.py`
-  (the Memory facade).
-- `evals/` — the benchmark harness, separate from the library. `base.py`
-  (`MemorySystem` ABC — `reset` / `add` / `get_context`), `runner.py` (predict +
-  judge loops, reader pins), `judge.py` + `judge_cache.py`, `dataset.py`
-  (download, sha256, stratified sampling), `artifacts.py` (pins header, staged
-  artifacts, environment capture), `report.py`, `systems/`.
-- `tests/` — pytest. `docs/` — SPEC / ARCH / DECISIONS / FUTURE.
 
 ## Current state vs SPEC (as of v0.3.2)
 

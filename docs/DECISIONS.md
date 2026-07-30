@@ -725,6 +725,42 @@ on single-session-assistant questions (11% of the benchmark), which ask about
 assistant turns mnimi did not attribute. All five arms now share one
 renderer.
 
+## Pre-registered interpretation of the n=100 evidence run (2026-07-30)
+
+Pre-registered interpretation of the n=100 evidence run (recorded before
+the run, from the n=20 dev slice and the power analysis):
+
+- mnimi vs no_memory is the W3 criterion. The floor is beaten if the exact
+  McNemar test is Holm-significant at alpha=0.05 within the secondary
+  family. At n=20 this pair was b=7, c=0, p_holm=0.0469; it is expected to
+  hold and strengthen.
+- mnimi vs naive_rag is the pre-registered PRIMARY and a pre-registered
+  NULL. mnimi-v1 stores verbatim rounds and retrieves top-k, which is
+  functionally naive RAG on a benchmark constructed without conflicting
+  facts; dedup earns nothing here by construction. The power analysis
+  states n=100 requires an 8.8-point true gap at the observed 0.10
+  discordance. A non-significant result is the expected outcome and is not
+  a negative finding. A SIGNIFICANT result on this pair is to be treated
+  first as evidence of a harness asymmetry between the two arms, and
+  investigated as such, before being reported as a capability difference.
+- mnimi vs full_history is confounded by truncation: full_history is a
+  truncated-context baseline, not a ceiling. Its truncation rate is
+  reported beside its score and any comparison is read through it.
+- mnimi vs oracle: oracle bounds evidence AVAILABILITY, not retrieval
+  quality. It supplies whole evidence sessions including irrelevant turns;
+  a focused retriever handing the reader fewer, cleaner tokens can exceed
+  it. mnimi above oracle is not a defect and is not to be reported as one.
+- Per-category scores are reported for completeness only. At n=100 across
+  seven question types the cells are too small to support any per-category
+  claim, and none will be made.
+- Absolute scores carry judge instrument error in addition to
+  question-sampling error; no absolute difference smaller than the measured
+  flip rate is interpretable.
+- The n=100 headline includes the 20-question dev slice on which the 0.95
+  dedup threshold was selected (on evidence-round retention, not accuracy).
+  The 80 held-out questions are reported as a separate line and carry no
+  contamination.
+
 ## Embed/render separation (2026-07-30)
 
 The text embedded and used as the dedup key is now built separately from the
