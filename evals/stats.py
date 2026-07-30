@@ -90,6 +90,7 @@ HARNESS_PARITY_FIELDS = (
     "reader_chars_per_token",
     "reader_prompt_version",
     "reader_prompt_hash",
+    "render_template_hash",
     "dataset_sha256",
     "sample_strategy",
     "judge_model",

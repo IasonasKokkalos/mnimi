@@ -123,14 +123,14 @@ wires against this section, not against the target sections.**
 | `MemoryConfig` | **2 of 9 fields**: `dedup_cosine_threshold=0.95`, `top_k=10`. A field no code reads is not present | `config.py` |
 | `MemoryRecord` | `id, user_id, content, embedding, created_at, salience, source, supersedes`. No `raw`, no triple, no `valid_time`; `created_at` carries `ts` (there is no separate `system_time`); no `last_accessed` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
-| `memory_meta` guard | **3 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py:46-98` |
+| `memory_meta` guard | **4 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`, `embed_template_hash`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py` |
 | `embed_template_hash` | **not written — the one guard hole in v1.** Changing v1's content template (e.g. the session-date fold) does *not* fail loudly | — |
 | Extraction | not built. No LLM anywhere in the library | — |
 | Dedup | **steps 1-2 only**: exact-normalize collapse, then ONE cosine probe (`k=1`) against the store at `dedup_cosine_threshold`. No negation screen, no value-substitution screen, no entropy gate | `memory.py:51-72` |
 | Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
 | Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
 | Retriever extras | no active-record filter, no `recall_min_relevance`, no `last_accessed` update | — |
-| `get_context` locked block format | partly built. v1 joins record `content` with `"\n"`, **time-ordered oldest-first** as the locked format requires; still no token budget and no per-record block | `memory.py` |
+| `get_context` locked block format | partly built. v1 renders each record's verbatim `turns` — full-timestamp header + `user:`/`assistant:` labels, **time-ordered oldest-first**, one shared renderer across all eval arms; still no token budget and no `raw` in the block | `memory.py` |
 | Normalize at the boundary | shipped — both embedders unit-normalize inside `embed()` | `embeddings.py:73-76, 132-134` |
 | `distance_metric=L2` spelled out in the DDL | shipped, asserted by a test | `store.py:120-126` |
 | L2 → cosine conversion | shipped at **exactly one site**: `store.search` returns `(record, cos)`, `cos = 1 − d²/2` | `store.py:193` |
@@ -501,11 +501,18 @@ CREATE TABLE memory_meta (
 - The reader is deliberately NOT here — it is pinned in the benchmark
   contract (below), because it is a harness property, not a store property.
 
-**v1 as built — three of these eleven rows are written:** `embedder_name`,
-`embedder_revision`, `embedder_dim`. They are inserted once in `_write_meta()`
-at DB creation and compared in `_validate_meta()` on **every** open; any
-mismatch raises `MemoryMetaError` naming the offending keys, before a single
-query runs. It **raises — it does not log or repair.** Two behaviours worth
+**v1 as built — four of these eleven rows are written:** `embedder_name`,
+`embedder_revision`, `embedder_dim`, and (since 2026-07-30)
+`embed_template_hash` — at v1 the embed text is bare `content` built from
+`memory.EMBED_TEMPLATE` rather than the extraction-era `raw`+`content` form,
+and the hash pins that template. The embedded text and the rendered text are
+distinct artifacts with distinct hashes. An edit to the render template
+changes reader context and no vectors; an edit to the embed template changes
+every vector, every retrieval and the dedup key, and invalidates any
+threshold selected under the previous form. The rows are inserted once in
+`_write_meta()` at DB creation and compared in `_validate_meta()` on
+**every** open; any mismatch raises `MemoryMetaError` naming the offending
+keys, before a single query runs. It **raises — it does not log or repair.** Two behaviours worth
 knowing beyond the spec text:
 
 - A database that has a `memories` table but **no** `memory_meta` is refused,
@@ -721,16 +728,22 @@ Assembles top-ranked records into a context string within
 - The block template is fixed and hashed with the embed template family —
   a silent format change is a silent number change.
 
-**v1 as built: the ordering rule is built, the block format is not.**
-`get_context` joins record `content` with `"\n"` after sorting oldest-first on
-`created_at` (ties broken by insertion order) — the ordering this section
-locks. Not built: the token budget, the per-record block, and the salience-0
-exclusion (nothing sets salience to 0 yet). Timestamps reach the reader because
-the session date is folded into `content` at **write** time
-(`[Session date: YYYY-MM-DD] …`) rather than rendered at read time; the two
-approaches are not interchangeable, and the fold is inside both the embedded
-string and the dedup key, so it cannot be swapped for read-time rendering
-without changing every vector.
+**v1 as built: the canonical context format (2026-07-30).** `get_context`
+renders each retrieved record's verbatim `turns` after sorting oldest-first
+on `created_at` (ties broken by insertion order): one `[Session date: <ts>]`
+header whenever the timestamp changes — the dataset's **full timestamp
+verbatim, weekday and clock time included** — then one `user:`/`assistant:`
+speaker-labelled line per turn. Every context-bearing eval arm renders
+through this one code path (`render_turns` / `render_records` in
+`memory.py`); per-arm item granularity is unchanged — mnimi renders rounds,
+full_history renders sessions. Not built: the token budget, `raw` in the
+block, and the salience-0 exclusion (nothing sets salience to 0 yet).
+
+The session DATE fold (`[Session date: YYYY-MM-DD] …`) remains in the
+embedded string and the dedup key at **write** time — that is the frozen
+embed text (`EMBED_TEMPLATE`, hashed into `memory_meta`), split from this
+render format (`RENDER_TEMPLATE`, hashed into the harness pins) so the
+rendered format can evolve without moving a single vector.
 
 The sort is lexicographic on the timestamp string. Session timestamps are
 zero-padded and date-first (`2023-05-20`, `2023/05/20`), so string order is
@@ -875,17 +888,33 @@ identically for every system so results are comparable.
   load-bearing: ~15-pt spread across readers on identical retrieval
   (LongMemEval Table 3); a 10.6-pt swing from a reader swap alone in Mastra
   OM (84.23 → 94.87, mastra.ai/research/observational-memory).
-- `reader_prompt_hash` — the reader prompt uses Chain-of-Note + JSON-formatted
-  records: worth up to 10 points even at oracle retrieval (Fig 6, §5.5). The
-  prompt is part of the number; it is hashed like everything else.
+- `reader_prompt_hash` — the pinned reader prompt is **`mnimi-con-v1`**:
+  LongMemEval's Figure 13 Chain-of-Note prompt, byte-grounded in the reference
+  implementation (`run_generation.py`, the byte authority the figure
+  typesets), sent as a single user message like the reference. Exactly **two
+  deviations** from Figure 13: (1) one abstention sentence after the
+  step-by-step instruction — 30 dataset questions are abstention questions
+  and Figure 13 has no abstention route; (2) the `${cache_bust}` determinism
+  prefix. It is therefore NOT the paper's prompt and is not named as one;
+  `json-con-paper-v1` stays reserved for a byte-exact reproduction. The
+  provisional gate targets `mnimi-con-v1`: an artifact under any other prompt
+  self-marks provisional. The hash covers the unsubstituted template plus the
+  message roles and the (absent) system slot.
+- `render_template_hash` — the canonical context format every arm renders
+  through (`mnimi.memory.RENDER_TEMPLATE`). The embedded text and the
+  rendered text are distinct artifacts with distinct hashes. An edit to the
+  render template changes reader context and no vectors; an edit to the embed
+  template changes every vector, every retrieval and the dedup key, and
+  invalidates any threshold selected under the previous form.
 - **One reader prompt for all question types (CHANGELOG #13).** Per-category
   answer-prompt tuning is prohibited for every system under test, including
   mnimi. Category-tuned prompts are a disclosed practice behind at least one
   competitor headline (OMEGA 95.4%, vendor-stated) and a documented
   comparability leak (score swings of 5–15 points on prompt/model config,
   CompetitorTeardowns Appendix B). One prompt, one hash, all 500 questions.
-- Question date is passed to the reader ("Today's date is {question_date}") —
-  temporal questions are unanswerable without it.
+- Question date is passed to the reader (`mnimi-con-v1`'s
+  "Current Date: ${question_date}" line) — temporal questions are
+  unanswerable without it.
 
 **Locked baselines — the full set, roles marked (CHANGELOG #14):**
 - No-memory (question only) — the floor.
@@ -1046,8 +1075,8 @@ daemon precondition.
 judge reproduce it from these predictions?*. A provisional artifact is fully
 auditable; it is published for the second question and fails the first. The two
 currently published runs are provisional on both `reader_prompt_version`
-(`plain-prose-v2`, pending the Phase D `json-con-v1` prompt) and a `-dirty`
-`harness_git_sha`.
+(`plain-prose-v2`; the gate targets the pinned Phase D `mnimi-con-v1`) and a
+`-dirty` `harness_git_sha`.
 
 ### Tier 2 — Reproducible given the pins AND the daemon precondition
 
@@ -1066,8 +1095,9 @@ Daemon-level, resolved when the daemon starts and impossible to set per request:
 `pins_hash`, which means a `pins_hash` can describe a configuration the serving
 daemon does not implement — hence the preflight below.
 
-Harness-level: the per-question cache-bust prefix (`plain-prose-v2`) and
-`_force_model_load`, which are pins in everything but name.
+Harness-level: the per-question cache-bust prefix (introduced by
+`plain-prose-v2`, carried by `mnimi-con-v1`) and `_force_model_load`, which
+are pins in everything but name.
 
 System-level, declared by the retrieving system via `retrieval_pins()` and
 mandatory for every retrieval arm: `embedder_name`, `embedder_dim`,
@@ -1127,7 +1157,7 @@ Three further variables were isolated and closed in the same pass:
 
 | variable | effect | fix |
 |---|---|---|
-| Slot prefix reuse | the 64-token shared system prompt is reused, so question *i*'s prefill boundary depends on question *i−1* | per-question cache-bust prefix (`plain-prose-v2`); prefill goes to the full token count every time |
+| Slot prefix reuse | the 64-token shared prompt prefix is reused, so question *i*'s prefill boundary depends on question *i−1* | per-question cache-bust prefix (since `plain-prose-v2`, carried by `mnimi-con-v1`); prefill goes to the full token count every time |
 | Flash attention | changes attention tiling and therefore reduction order: with cache state held constant, FA=0 vs FA=1 changed 2/2 probe predictions (byte 0 of a 1,924-char answer; byte 255 of a 383-char one). Unset, the daemon resolves `flash_attn = auto`, and what `auto` picks is a property of the host GPU | pinned to `1`, asserted at preflight |
 | CUDA graph warmup | the first inference after a model load runs against a cold graph cache (555 graphs reused vs 1,608 once warm) and answers differently | `_force_model_load` before question 1 |
 

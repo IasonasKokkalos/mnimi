@@ -34,7 +34,8 @@ class MemorySystem(ABC):
 
         Empty for systems that do not retrieve. A retrieving system returns the
         subset of ``build_pins``' retrieval keys it actually uses —
-        ``embedder_name``, ``embedder_dim``, ``k``, ``dedup_cosine_threshold``.
+        ``embedder_name``, ``embedder_dim``, ``embedder_revision``,
+        ``embed_template_hash``, ``k``, ``dedup_cosine_threshold``.
 
         This exists because leaving them unset was not a cosmetic gap: two mnimi
         runs whose only difference was the dedup threshold produced identical

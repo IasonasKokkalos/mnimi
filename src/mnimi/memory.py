@@ -8,7 +8,10 @@ public surface stays at four methods regardless.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from string import Template
+from typing import NamedTuple
 
 from .config import MemoryConfig
 from .embeddings import Embedder
@@ -18,6 +21,87 @@ from .store import Store
 _PUNCT_RE = re.compile(r"[^\w\s]")
 
 _DEFAULT_CONFIG = MemoryConfig()
+
+# ---------------------------------------------------------------------------
+# The embed/render split.
+#
+# EMBED_TEMPLATE builds the text that gets embedded and keys the dedup screens.
+# It is FROZEN: an edit here changes every vector, every retrieval and the
+# dedup key, and invalidates any threshold selected under the previous form —
+# the 0.95 threshold's selection evidence cannot be regenerated (further
+# threshold selection against LongMemEval is prohibited). Its hash is pinned
+# into ``memory_meta`` at DB creation and checked on every open.
+#
+# RENDER_TEMPLATE builds the text a reader sees. It may evolve — an edit here
+# changes reader context and not a single vector — and its hash is pinned in
+# the harness artifact header so a format change is loud there instead.
+# ---------------------------------------------------------------------------
+
+EMBED_TEMPLATE = "[Session date: ${date}] ${text}"
+_EMBED_T = Template(EMBED_TEMPLATE)
+
+# One header per timestamp change, then one role-labelled line per turn — the
+# canonical context format shared by every arm of the eval (the harness's
+# full_history baseline calls :func:`render_turns` directly).
+RENDER_TEMPLATE = "[Session date: ${ts}]\n${role}: ${content}"
+_RENDER_HEADER_T, _RENDER_TURN_T = (Template(part) for part in RENDER_TEMPLATE.split("\n"))
+
+
+def embed_template_hash() -> str:
+    """Digest of the embed-text template, pinned in ``memory_meta``."""
+    return hashlib.sha256(EMBED_TEMPLATE.encode("utf-8")).hexdigest()
+
+
+def render_template_hash() -> str:
+    """Digest of the render template, pinned in the harness artifact header."""
+    return hashlib.sha256(RENDER_TEMPLATE.encode("utf-8")).hexdigest()
+
+
+def render_turns(turns: list[dict]) -> str:
+    """Render ``{"role", "content", "ts"}`` turns into reader context.
+
+    A dated header is emitted whenever ``ts`` changes, so the session boundary
+    and its full timestamp stay reader-visible (temporal questions are
+    unanswerable without them) at one header per block rather than one
+    timestamp per turn. Every turn carries its speaker label — the dataset's
+    single-session-assistant questions ask about assistant turns, which are
+    unattributable without one.
+    """
+    lines: list[str] = []
+    current_ts = None
+    for turn in turns:
+        ts = turn.get("ts")
+        if ts and ts != current_ts:
+            lines.append(_RENDER_HEADER_T.substitute(ts=ts))
+            current_ts = ts
+        lines.append(
+            _RENDER_TURN_T.substitute(
+                role=turn.get("role", ""), content=turn.get("content", "")
+            )
+        )
+    return "\n".join(lines)
+
+
+def render_records(records: list[MemoryRecord]) -> str:
+    """Render stored records (already ordered) through :func:`render_turns`.
+
+    Flattens each record's verbatim turns, stamping the record's ``created_at``
+    onto every turn so the header logic sees the same shape ``full_history``
+    feeds it. A legacy record without ``turns`` falls back to its ``content``
+    string — degraded (no speaker attribution) but never silently dropped.
+    """
+    turns: list[dict] = []
+    for record in records:
+        source_turns = record.turns or [{"role": record.source, "content": record.content}]
+        for turn in source_turns:
+            turns.append(
+                {
+                    "role": turn.get("role", ""),
+                    "content": turn.get("content", ""),
+                    "ts": record.created_at,
+                }
+            )
+    return render_turns(turns)
 
 
 class Memory:
@@ -33,6 +117,7 @@ class Memory:
             dim=embedder.dim,
             embedder_name=embedder.name,
             embedder_revision=embedder.revision,
+            embed_template_hash=embed_template_hash(),
         )
 
     def add(self, messages, user_id: str) -> None:
@@ -52,9 +137,9 @@ class Memory:
         if not rounds:
             return
         seen = {_normalize(content) for content in self.store.contents(user_id)}
-        embeddings = self.embedder.embed([content for content, _, _ in rounds])
-        for (content, roles, ts), embedding in zip(rounds, embeddings, strict=True):
-            normalized = _normalize(content)
+        embeddings = self.embedder.embed([r.content for r in rounds])
+        for round_, embedding in zip(rounds, embeddings, strict=True):
+            normalized = _normalize(round_.content)
             if normalized in seen:
                 continue
             hits = self.store.search(embedding, user_id=user_id, k=1)
@@ -63,10 +148,11 @@ class Memory:
             self.store.insert(
                 MemoryRecord(
                     user_id=user_id,
-                    content=content,
+                    content=round_.content,
                     embedding=embedding,
-                    created_at=ts,
-                    source=roles,
+                    created_at=round_.ts,
+                    source=round_.roles,
+                    turns=round_.turns,
                 )
             )
             seen.add(normalized)
@@ -85,9 +171,13 @@ class Memory:
         reconstruct a chronology from a shuffle, and temporal questions are 27%
         of the benchmark. The paper's own pipeline sorts retrieved items by
         timestamp before reading (§5.1).
+
+        Rendered from each record's verbatim ``turns`` — full timestamp header,
+        ``user:``/``assistant:`` speaker labels — never from ``content``, which
+        is the embed text and stays frozen when this format evolves.
         """
         records = _time_ordered(self.recall(query, user_id))
-        return "\n".join(record.content for record in records)
+        return render_records(records)
 
     def consolidate(self, user_id: str) -> None:
         """Merge duplicates, resolve conflicts, decay stale memories.
@@ -115,15 +205,25 @@ def _normalize(text: str) -> str:
     return " ".join(_PUNCT_RE.sub("", text.lower()).split())
 
 
-def _messages_to_rounds(messages) -> list[tuple[str, str, str | None]]:
+class Round(NamedTuple):
+    """One ingestion unit: the embed text plus everything rendering needs."""
+
+    content: str  # the EMBED text — frozen form, keys dedup, becomes the vector
+    roles: str  # provenance summary, e.g. "user+assistant"
+    ts: str | None  # the round's session timestamp, verbatim
+    turns: list[dict]  # verbatim {"role", "content"} turns, for rendering only
+
+
+def _messages_to_rounds(messages) -> list[Round]:
     """Group ``{"role", "content", "ts"}`` dicts into per-round records.
 
-    Returns ``(content, roles, ts)`` per round: a user turn paired with the
-    assistant reply that follows it, or a solo turn when no pairing exists.
-    Content carries the folded session date (reader-visible; temporal questions
-    die without it) and NO role labels — role is metadata, the embedded string
-    is bare content (SPEC CHANGELOG #15). ``ts`` comes from the round's first
-    turn and is the record's only clock.
+    Each :class:`Round` pairs a user turn with the assistant reply that follows
+    it, or stands a solo turn alone. ``content`` is the embed text: it carries
+    the folded session DATE (not the full timestamp) and NO role labels — role
+    is metadata, the embedded string is bare content (SPEC CHANGELOG #15) —
+    and its byte form is frozen (see ``EMBED_TEMPLATE``). ``turns`` carries the
+    verbatim turn texts for the render path. ``ts`` comes from the round's
+    first turn and is the record's only clock.
     """
     if not isinstance(messages, list):
         raise TypeError(
@@ -139,7 +239,7 @@ def _messages_to_rounds(messages) -> list[tuple[str, str, str | None]]:
         if str(message.get("content", "")).strip():
             turns.append(message)
 
-    rounds: list[tuple[str, str, str | None]] = []
+    rounds: list[Round] = []
     index = 0
     while index < len(turns):
         turn = turns[index]
@@ -156,9 +256,15 @@ def _messages_to_rounds(messages) -> list[tuple[str, str, str | None]]:
 
         ts = batch[0].get("ts")
         text = "\n".join(str(t["content"]).strip() for t in batch)
-        content = f"[Session date: {_date_of(ts)}] {text}" if ts else text
+        # Template.substitute never rescans substituted values, so `$` inside
+        # message content is safe; the template itself is the hashed constant.
+        content = _EMBED_T.substitute(date=_date_of(ts), text=text) if ts else text
         roles = "+".join(str(t.get("role")) for t in batch)
-        rounds.append((content, roles, ts))
+        round_turns = [
+            {"role": str(t.get("role", "")), "content": str(t.get("content", ""))}
+            for t in batch
+        ]
+        rounds.append(Round(content, roles, ts, round_turns))
     return rounds
 
 

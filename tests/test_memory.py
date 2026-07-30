@@ -179,6 +179,158 @@ def test_recall_reads_top_k_from_config(tmp_path):
     assert len(memory.recall("tell me about my life", "u1")) == 2
 
 
+class TestEmbedTextFreeze:
+    """THE SAFETY PROPERTY of the embed/render split, locked byte-for-byte.
+
+    Every expected string below was captured by running the fixture through
+    the PRE-SPLIT code (v1.2.1, before `turns`/`render_records` existed), not
+    written by hand. If any of these assertions fails, the embed text has
+    moved: every vector moves with it, the dedup key moves with it, and the
+    0.95 threshold's selection evidence — which cannot be regenerated, since
+    further threshold selection against LongMemEval is prohibited — is void.
+    That is a hard stop, not a formatting nit.
+    """
+
+    FIXTURE = [
+        {"role": "user", "content": "I moved to Athens last spring.",
+         "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "assistant", "content": "Noted - Athens is lovely in spring.",
+         "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "user",
+         "content": "Two things:\n1. I adopted a dog.\n2. Named him Ari.",
+         "ts": "2023-07-01T09:30:00"},
+        {"role": "assistant", "content": "Congratulations!\nAri is a great name.",
+         "ts": "2023-07-01T09:30:00"},
+        {"role": "user", "content": "Remind me about the dentist.", "ts": "2023-08-15"},
+        {"role": "assistant", "content": "Your appointment is on Monday.",
+         "ts": "2023-08-15"},
+        {"role": "user", "content": "No timestamp on this one."},
+        {"role": "assistant", "content": "Understood, no date recorded."},
+        {"role": "user", "content": "Budget: $1,200.50 -- (approx.) for the trip?!",
+         "ts": "2024/01/02 (Tue) 18:05"},
+        {"role": "assistant", "content": "Got it: $1,200.50, noted.",
+         "ts": "2024/01/02 (Tue) 18:05"},
+    ]
+
+    # Captured from pre-change code. Do not regenerate these from current code:
+    # a lock recomputed from the thing it locks locks nothing.
+    EXPECTED = [
+        ("[Session date: 2023/05/20] I moved to Athens last spring.\n"
+         "Noted - Athens is lovely in spring.",
+         "user+assistant", "2023/05/20 (Sat) 02:21"),
+        ("[Session date: 2023-07-01] Two things:\n1. I adopted a dog.\n"
+         "2. Named him Ari.\nCongratulations!\nAri is a great name.",
+         "user+assistant", "2023-07-01T09:30:00"),
+        ("[Session date: 2023-08-15] Remind me about the dentist.\n"
+         "Your appointment is on Monday.",
+         "user+assistant", "2023-08-15"),
+        ("No timestamp on this one.\nUnderstood, no date recorded.",
+         "user+assistant", None),
+        ("[Session date: 2024/01/02] Budget: $1,200.50 -- (approx.) for the trip?!\n"
+         "Got it: $1,200.50, noted.",
+         "user+assistant", "2024/01/02 (Tue) 18:05"),
+    ]
+
+    SOLO_FIXTURE = [
+        {"role": "assistant", "content": "Welcome back! How can I help?",
+         "ts": "2023/03/03 (Fri) 11:11"},
+        {"role": "user", "content": "First question about tickets.",
+         "ts": "2023/03/03 (Fri) 11:11"},
+        {"role": "user", "content": "Actually, second question about hotels.",
+         "ts": "2023/03/03 (Fri) 11:11"},
+        {"role": "user", "content": "   ", "ts": "2023/03/03 (Fri) 11:11"},
+    ]
+
+    SOLO_EXPECTED = [
+        ("[Session date: 2023/03/03] Welcome back! How can I help?",
+         "assistant", "2023/03/03 (Fri) 11:11"),
+        ("[Session date: 2023/03/03] First question about tickets.",
+         "user", "2023/03/03 (Fri) 11:11"),
+        ("[Session date: 2023/03/03] Actually, second question about hotels.",
+         "user", "2023/03/03 (Fri) 11:11"),
+    ]
+
+    def test_embed_text_is_byte_identical_to_pre_split_capture(self):
+        from mnimi.memory import _messages_to_rounds
+
+        rounds = _messages_to_rounds(self.FIXTURE)
+        assert [(r.content, r.roles, r.ts) for r in rounds] == self.EXPECTED
+
+    def test_solo_turn_embed_text_is_byte_identical_to_pre_split_capture(self):
+        from mnimi.memory import _messages_to_rounds
+
+        rounds = _messages_to_rounds(self.SOLO_FIXTURE)
+        assert [(r.content, r.roles, r.ts) for r in rounds] == self.SOLO_EXPECTED
+
+    def test_dedup_key_is_computed_from_the_frozen_embed_text(self):
+        """The exact-dup key derives from `content` — frozen text in, frozen
+        key out. Guards against the key quietly moving to the render text."""
+        from mnimi.memory import _messages_to_rounds, _normalize
+
+        rounds = _messages_to_rounds(self.FIXTURE)
+        assert [_normalize(r.content) for r in rounds[:2]] == [
+            "session date 20230520 i moved to athens last spring "
+            "noted athens is lovely in spring",
+            "session date 20230701 two things 1 i adopted a dog 2 named him ari "
+            "congratulations ari is a great name",
+        ]
+
+
+def test_stored_record_carries_verbatim_turns_for_rendering(tmp_path):
+    """`content` stays the frozen embed text; `turns` carries what rendering
+    needs. The two travel together but never mix."""
+    memory = _memory(tmp_path)
+    memory.add(
+        [
+            _message("what should I cook for the dinner party?"),
+            _message("a mushroom risotto pairs well", role="assistant"),
+        ],
+        user_id="u1",
+    )
+    [record] = memory.recall("dinner", "u1")
+    assert record.turns == [
+        {"role": "user", "content": "what should I cook for the dinner party?"},
+        {"role": "assistant", "content": "a mushroom risotto pairs well"},
+    ]
+    assert "user:" not in record.content, "embed text must stay role-free"
+
+
+def test_get_context_renders_roles_and_full_timestamp_not_embed_text(tmp_path):
+    """The reader sees speaker labels and the verbatim timestamp; the embed
+    text (date-only fold, no roles) never reaches the reader anymore."""
+    memory = _memory(tmp_path)
+    memory.add(
+        [
+            _message("what should I cook?", ts="2023/05/20 (Sat) 02:21"),
+            _message("a mushroom risotto", role="assistant", ts="2023/05/20 (Sat) 02:21"),
+        ],
+        user_id="u1",
+    )
+    context = memory.get_context("dinner", "u1")
+    assert context == (
+        "[Session date: 2023/05/20 (Sat) 02:21]\n"
+        "user: what should I cook?\n"
+        "assistant: a mushroom risotto"
+    )
+
+
+def test_embed_and_render_template_hashes_are_pinned_and_distinct():
+    from mnimi.memory import (
+        EMBED_TEMPLATE,
+        RENDER_TEMPLATE,
+        embed_template_hash,
+        render_template_hash,
+    )
+
+    assert len(embed_template_hash()) == 64
+    assert len(render_template_hash()) == 64
+    assert embed_template_hash() != render_template_hash()
+    # The hashed constants are the ones the code paths actually run — locked
+    # here so the hash can never describe a parallel claim.
+    assert EMBED_TEMPLATE == "[Session date: ${date}] ${text}"
+    assert RENDER_TEMPLATE == "[Session date: ${ts}]\n${role}: ${content}"
+
+
 def test_dedup_threshold_is_read_from_config_not_hardcoded(tmp_path):
     near_pair = [
         "every saturday morning I hike the coastal trail with my dog before work",

@@ -25,10 +25,19 @@ class MemoryRecord:
     """Owner of the memory. All retrieval is scoped to a user."""
 
     content: str
-    """The memory text itself."""
+    """The memory text itself — the EMBED text. This exact string is what gets
+    embedded and what the dedup screens key on; rendering for a reader happens
+    from ``turns``, never from here. Changing how this string is built moves
+    every vector (see ``memory.EMBED_TEMPLATE``)."""
 
     embedding: list[float] | None = None
     """Dense vector for similarity search. Not re-hydrated on read."""
+
+    turns: list[dict] | None = None
+    """The verbatim ``{"role", "content"}`` turns of the source round, kept for
+    RENDERING reader context with speaker attribution. Never embedded, never
+    part of the dedup key — the embed/render split is the safety property that
+    lets the rendered format change without moving a single vector."""
 
     created_at: str | None = None
     """The session timestamp (``ts``) of the source message, ISO-8601. The

@@ -34,8 +34,9 @@ def _pins(**overrides) -> dict:
         reader_num_batch=512,
         reader_flash_attention=1,
         reader_cache_ram=0,
-        reader_prompt_version="plain-prose-v2",
+        reader_prompt_version="mnimi-con-v1",
         reader_prompt_hash="rp",
+        render_template_hash="rt",
         # Real values, so the test moves with the trim gate rather than a copy.
         **runner.reader_trim_pins(),
     )
@@ -78,10 +79,10 @@ def test_retrieval_pins_move_the_pins_hash():
     assert artifacts.pins_hash(_pins(k=10)) != baseline
 
 
-def test_schema_3_declares_revision_for_retrieval_arms_only():
+def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/3"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/4"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -114,13 +115,26 @@ def test_judge_identity_never_moves_pins_hash(tmp_path):
 def test_reader_prompt_and_trim_gate_move_the_pins_hash():
     """Phase D swaps the reader prompt; the swap has to be loud in the header."""
     baseline = artifacts.pins_hash(_pins())
-    assert artifacts.pins_hash(_pins(reader_prompt_version="json-con-v1")) != baseline
+    assert artifacts.pins_hash(_pins(reader_prompt_version="plain-prose-v2")) != baseline
     assert artifacts.pins_hash(_pins(reader_prompt_hash="different")) != baseline
     # num_ctx alone does not decide what the reader sees: the trim budget is
     # num_ctx - answer_reserve - scaffold, estimated at chars_per_token.
     assert artifacts.pins_hash(_pins(reader_answer_reserve=1024)) != baseline
     assert artifacts.pins_hash(_pins(reader_scaffold_tokens=512)) != baseline
     assert artifacts.pins_hash(_pins(reader_chars_per_token=5)) != baseline
+
+
+def test_template_split_hashes_move_the_pins_hash():
+    """The embed/render split: two distinct hashes, both loud in the header.
+    A render edit changes reader context and no vectors; an embed edit changes
+    every vector — the header must be able to tell the two apart."""
+    baseline = artifacts.pins_hash(_pins())
+    assert artifacts.pins_hash(_pins(render_template_hash="different")) != baseline
+    assert artifacts.pins_hash(_pins(embed_template_hash="e1")) != baseline
+    # Non-embedding arms leave the embed hash unset; the render hash is
+    # harness-wide and always present.
+    assert _pins()["embed_template_hash"] is None
+    assert _pins()["render_template_hash"] == "rt"
 
 
 def test_reader_sends_pinned_decode_options():
@@ -311,19 +325,80 @@ class TestPreflightReaderEnv:
             runner.preflight_reader_env("")
 
 
-def test_cache_bust_prefix_makes_the_system_prompt_unique_per_question():
+# The reference CoN template, VERBATIM from src/generation/run_generation.py
+# line 55 (github.com/xiaowu0162/LongMemEval) — the byte authority Figure 13
+# typesets. One uninterrupted literal, same locking discipline as the judge
+# templates in test_judge.py.
+REFERENCE_CON_TEMPLATE = "I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer the question step by step: first extract all the relevant information, and then reason over the information to get the answer.\n\n\nHistory Chats:\n\n{}\n\nCurrent Date: {}\nQuestion: {}\nAnswer (step by step):"  # noqa: E501
+
+ABSTENTION_SENTENCE = (
+    " If the chat history does not contain enough information to answer the "
+    "question, say that you do not know rather than guessing."
+)
+
+
+def test_reader_template_is_the_reference_plus_exactly_two_deviations():
+    """mnimi-con-v1 = the reference CoN bytes + the abstention sentence + the
+    cache_bust prefix. Anything else appearing in this template is a third,
+    un-ruled deviation and must fail here."""
+    expected = "${cache_bust}\n\n" + (
+        REFERENCE_CON_TEMPLATE
+        .replace("to get the answer.", "to get the answer." + ABSTENTION_SENTENCE, 1)
+        .replace("{}", "${context}", 1)
+        .replace("{}", "${question_date}", 1)
+        .replace("{}", "${question}", 1)
+    )
+    assert runner.READER_TEMPLATE == expected
+
+
+def test_cache_bust_prefix_makes_the_prompt_unique_per_question():
     """Zero-length shared prefix is the whole point: it forces every prefill to
     start at n_past=0 instead of resuming at the previous question's offset."""
-    a = runner.READER_SYSTEM_TEMPLATE.format(cache_bust="q_alpha")
-    b = runner.READER_SYSTEM_TEMPLATE.format(cache_bust="q_beta")
+    from string import Template
+
+    a = Template(runner.READER_TEMPLATE).substitute(
+        cache_bust="q_alpha", context="c", question_date="d", question="q")
+    b = Template(runner.READER_TEMPLATE).substitute(
+        cache_bust="q_beta", context="c", question_date="d", question="q")
     assert a != b
     assert a.startswith("q_alpha"), "must lead the message, or the prefix is shared"
     assert b.startswith("q_beta")
-    # The hash pins the template, not a rendered instance — otherwise every
-    # question would look like a different prompt configuration.
+    # The hash pins the unsubstituted request shape, not a rendered instance —
+    # otherwise every question would look like a different configuration. It
+    # covers the roles and the (absent) system slot as recorded values, so
+    # restructuring the message stack is as loud as editing the template.
+    shape = runner.reader_request_shape()
+    assert shape["system_message"] is None
+    assert shape["roles"] == ["user"]
+    assert "${cache_bust}" in shape["template"], "slot presence is in the hashed text"
     assert runner.reader_prompt_hash() == artifacts.fingerprint(
-        runner.READER_SYSTEM_TEMPLATE
+        artifacts.canonical(shape)
     )
+
+
+def test_reader_sends_one_user_message_and_consumes_question_date():
+    """The reference sends a single user message; question_date reaches the
+    prompt through the Current Date line and the context lands in History
+    Chats — no harness-invented system message rides along."""
+    from evals.runner import Reader
+
+    captured = {}
+
+    class FakeOllama:
+        def chat(self, **kwargs):
+            captured.update(kwargs)
+            return {"message": {"content": "ok"}, "prompt_eval_count": 10}
+
+    Reader("m", num_ctx=32768, client=FakeOllama()).answer(
+        "user: I moved to Athens", "where do I live?",
+        cache_bust="qid_7", question_date="2023/06/01 (Thu) 09:00",
+    )
+    assert [m["role"] for m in captured["messages"]] == ["user"]
+    prompt = captured["messages"][0]["content"]
+    assert prompt.startswith("qid_7")
+    assert "History Chats:\n\nuser: I moved to Athens" in prompt
+    assert "Current Date: 2023/06/01 (Thu) 09:00" in prompt
+    assert prompt.endswith("Answer (step by step):")
 
 
 def test_client_and_daemon_env_mismatch_is_surfaced(tmp_path, monkeypatch):

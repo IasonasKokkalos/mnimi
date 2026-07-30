@@ -694,3 +694,44 @@ borderline rows, and absolute scores carry judge instrument error in addition
 to question-sampling error. No absolute score difference smaller than this
 rate is interpretable. This does not affect paired comparisons — see the
 verdict-cache note in SPEC.
+
+## Reader prompt (ruling) (2026-07-30)
+
+mnimi-con-v1 is LongMemEval Figure 13 verbatim plus one abstention sentence
+and the cache_bust determinism prefix. It is not the paper's prompt and is
+not named as one; json-con-paper-v1 is reserved for a byte-exact
+reproduction. The abstention sentence is required because 30 dataset
+questions are abstention questions and abstention is the no_memory arm's only
+route to a correct answer; Figure 13 has no such instruction. The retired
+json-con-v1 rested on reading §5.5's "structured JSON format" as the reader's
+output format; it is the context format. No JSON parser was built and none is
+needed.
+
+## JSON context presentation (deferred) (2026-07-30)
+
+Presenting retrieved items as structured JSON per §5.5 is a get_context
+change across all five arms and forces a full re-run. It is a fidelity
+improvement, not a precondition for a defensible number, and it is deferred
+rather than bundled. Recorded in FUTURE.md.
+
+## Context format parity (correctness, not cosmetics) (2026-07-30)
+
+mnimi and naive_rag previously rendered reader context with date-only
+timestamps and no speaker attribution, while full_history and oracle carried
+the dataset's full timestamp and user:/assistant: labels. This was a confound
+in every cross-arm comparison — the mnimi-oracle gap mixed retrieval quality
+with date granularity and role labelling — and a correctness defect for mnimi
+on single-session-assistant questions (11% of the benchmark), which ask about
+assistant turns mnimi did not attribute. All five arms now share one
+renderer.
+
+## Embed/render separation (2026-07-30)
+
+The text embedded and used as the dedup key is now built separately from the
+text rendered into reader context, and the two are hashed separately
+(embed_template_hash, render_template_hash). The embed text is frozen
+byte-identical across this change set, verified by test. Without this, the
+format-parity change would have moved every vector and voided the evidence
+the 0.95 dedup threshold was selected on — evidence that cannot be
+regenerated, since further threshold selection against LongMemEval is
+prohibited.

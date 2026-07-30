@@ -215,6 +215,23 @@ current position, not a lock — reopening either needs a reason, not a vote.
   · related SPEC context: §Logical time, lines 326-334; §Reproducibility guard,
   lines 463-524; decay-on/off ablation at §Benchmark contract, lines 895-900.
 
+## Context presentation
+
+* **JSON context presentation (§5.5).** Presenting retrieved items as
+  structured JSON per §5.5 is a get_context change across all five arms and
+  forces a full re-run. It is a fidelity improvement, not a precondition for
+  a defensible number, and it is deferred rather than bundled. The paper
+  reports it "helps the model clearly recognize memory items as the data for
+  reading"; the current canonical format (full-timestamp header +
+  role-labelled lines, one shared renderer, `render_template_hash`-pinned) is
+  the measured baseline any JSON presentation would have to beat. Deferred
+  2026-07-30 alongside the mnimi-con-v1 prompt ruling — see
+  `docs/DECISIONS.md` § "JSON context presentation (deferred)".
+  **[DECISIONS-deferred]** · **[trigger]** a planned full re-run of all five
+  arms where a render-format change can ride along without costing an extra
+  run — never mid-phase, since it moves `render_template_hash` and every
+  cross-arm comparison with prior artifacts.
+
 ## Pattern recognition
 
 * **`memory.recognition` — pattern-recognition memory.** Detect recurring

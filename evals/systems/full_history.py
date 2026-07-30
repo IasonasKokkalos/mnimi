@@ -1,6 +1,12 @@
-"""Ceiling baseline: stuff the entire history into context."""
+"""Truncated-context baseline: stuff the entire history into context."""
 
 from __future__ import annotations
+
+# The canonical context renderer. Imported, not reimplemented: this format is
+# shared by every context-bearing arm (full_history, oracle via inheritance,
+# mnimi and naive_rag through their record render path), and the only way
+# format parity survives edits is for all of them to run the same code.
+from mnimi.memory import render_turns
 
 from ..base import MemorySystem
 
@@ -8,9 +14,8 @@ from ..base import MemorySystem
 class FullHistorySystem(MemorySystem):
     """Concatenates every turn of every session into the context string.
 
-    The accuracy ceiling — the reader sees everything — at the token cost a real
-    memory system has to beat. mnimi's whole bet is approaching this number
-    on a fraction of the tokens.
+    The truncated-context baseline — the reader sees the most recent window's
+    worth of everything — at the token cost a real memory system has to beat.
     """
 
     name = "full_history"
@@ -25,16 +30,4 @@ class FullHistorySystem(MemorySystem):
         self._turns.extend(messages)
 
     def get_context(self, query: str) -> str:
-        # A dated header is emitted whenever ``ts`` changes, so the session
-        # boundary and its date stay reader-visible (temporal questions are
-        # unanswerable without them) at one line per session rather than one
-        # timestamp per turn.
-        lines: list[str] = []
-        current_ts = None
-        for turn in self._turns:
-            ts = turn.get("ts")
-            if ts and ts != current_ts:
-                lines.append(f"[Session date: {ts}]")
-                current_ts = ts
-            lines.append(f"{turn.get('role', '')}: {turn.get('content', '')}")
-        return "\n".join(lines)
+        return render_turns(self._turns)

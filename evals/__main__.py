@@ -250,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()
 
+    # Library import, core deps only (no [embed] extra): the render template
+    # is library-owned and its hash is a mandatory harness pin.
+    from mnimi.memory import render_template_hash
+
     from .dataset import file_sha256, resolve_path
     from .judge import judge_block
     from .judge_cache import JudgeCache
@@ -374,6 +378,9 @@ def main(argv: list[str] | None = None) -> int:
             reader_cache_ram=READER_CACHE_RAM,
             reader_prompt_version=READER_PROMPT_VERSION,
             reader_prompt_hash=reader_prompt_hash(),
+            # The canonical context format every arm renders through. Pinned
+            # from the library constant so a format edit is loud in the header.
+            render_template_hash=render_template_hash(),
             **reader_trim_pins(),
             # A retrieving system declares the knobs that move its score;
             # everything else returns {} and the fields stay None.
@@ -633,10 +640,13 @@ def _provisional_reasons(pins: dict) -> list[str]:
             f"({READER_CACHE_RAM}) — a live prompt cache makes a prediction "
             "depend on which request preceded it"
         )
-    if pins.get("reader_prompt_version") != "json-con-v1":
+    # mnimi-con-v1 is the pinned Phase D prompt. "json-con-paper-v1" stays
+    # RESERVED for a future byte-exact reproduction of the paper's prompt with
+    # zero deviations; it is not this gate's target and must not be reused.
+    if pins.get("reader_prompt_version") != "mnimi-con-v1":
         reasons.append(
             f"reader prompt is {pins.get('reader_prompt_version')} "
-            "(JSON + Chain-of-Note pending Phase D)"
+            "(the pinned Phase D prompt is mnimi-con-v1)"
         )
     if str(pins.get("harness_git_sha", "")).endswith("-dirty"):
         reasons.append("harness tree was dirty at run time")

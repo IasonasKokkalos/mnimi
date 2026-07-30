@@ -52,10 +52,13 @@ class MnimiSystem(MemorySystem):
         # `revision` is a static constant on the embedder class (the pinned HF
         # commit for BGE) — read, never resolved: a network lookup here could
         # pin whatever the hub currently serves instead of what ran.
+        from mnimi.memory import embed_template_hash
+
         return {
             "embedder_name": self._embedder.name,
             "embedder_dim": self._embedder.dim,
             "embedder_revision": self._embedder.revision,
+            "embed_template_hash": embed_template_hash(),
             "k": self._config.top_k,
             "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
         }

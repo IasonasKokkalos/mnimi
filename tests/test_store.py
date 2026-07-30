@@ -11,8 +11,14 @@ from mnimi.models import MemoryRecord
 from mnimi.store import MemoryMetaError, Store
 
 
-def _open(path, dim=256, name="hashing", revision="v1") -> Store:
-    return Store(str(path), dim=dim, embedder_name=name, embedder_revision=revision)
+def _open(path, dim=256, name="hashing", revision="v1", template_hash="tmpl-a") -> Store:
+    return Store(
+        str(path),
+        dim=dim,
+        embedder_name=name,
+        embedder_revision=revision,
+        embed_template_hash=template_hash,
+    )
 
 
 def test_meta_guard_accepts_matching_reopen(tmp_path):
@@ -49,6 +55,33 @@ def test_meta_guard_rejects_revision_mismatch(tmp_path):
 
     with pytest.raises(MemoryMetaError, match="embedder_revision"):
         _open(db, revision="v2")
+
+
+def test_meta_guard_rejects_embed_template_mismatch(tmp_path):
+    """An embed-template edit moves every vector while leaving the embedder
+    pins untouched — the guard must refuse the reopen, closing what was a
+    documented invariant with no enforcement."""
+    db = tmp_path / "mem.db"
+    _open(db, template_hash="tmpl-a").close()
+
+    with pytest.raises(MemoryMetaError, match="embed_template_hash"):
+        _open(db, template_hash="tmpl-b")
+
+
+def test_record_turns_roundtrip_through_the_store(tmp_path):
+    store = _open(tmp_path / "mem.db")
+    turns = [
+        {"role": "user", "content": "line one\nline two"},
+        {"role": "assistant", "content": "reply with $pecial {chars}"},
+    ]
+    store.insert(
+        MemoryRecord(
+            user_id="u1", content="embed text", embedding=[0.0] * 256,
+            created_at="2023-05-20", turns=turns,
+        )
+    )
+    [(record, _cos)] = store.search([0.0] * 256, user_id="u1", k=1)
+    assert record.turns == turns
 
 
 def test_unguarded_database_is_refused(tmp_path):

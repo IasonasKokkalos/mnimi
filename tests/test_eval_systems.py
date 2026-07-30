@@ -126,7 +126,13 @@ def test_both_retrieval_systems_read_top_k_from_config():
     for system in (_naive(config=config), _mnimi(config=config)):
         system.reset()
         for i in range(5):
-            system.add(_round(f"distinct fact number {i} about topic {i}", f"reply {i}"))
+            # Distinct ts per round: the shared renderer emits one header per
+            # timestamp CHANGE, so same-ts blocks would merge under one header
+            # and the count would measure the renderer, not top_k.
+            system.add(
+                _round(f"distinct fact number {i} about topic {i}", f"reply {i}",
+                       ts=f"2023-05-{10 + i}")
+            )
         assert system.get_context("tell me about my life").count("[Session date:") == 2
 
 
@@ -148,11 +154,14 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
     for cls in (NoMemorySystem, FullHistorySystem, OracleSystem):
         assert cls().retrieval_pins() == {}, cls
 
+    from mnimi.memory import embed_template_hash
+
     naive = _naive().retrieval_pins()
     assert naive == {
         "embedder_name": "hashing",
         "embedder_dim": 256,
         "embedder_revision": "v1",
+        "embed_template_hash": embed_template_hash(),
         "k": 10,
     }
 
@@ -199,3 +208,38 @@ def test_session_dates_reach_the_reader_for_every_context_bearing_system():
         system.reset()
         system.add(_round("I moved to Thessaloniki", "noted", ts="2023-07-01"))
         assert "2023-07-01" in system.get_context("when did I move?"), system.name
+
+
+def test_context_format_parity_across_all_context_bearing_arms():
+    """One renderer, one code path: the same turns fed to full_history, oracle,
+    naive_rag and mnimi must render BYTE-IDENTICAL reader context — speaker
+    labels and the dataset's full timestamp everywhere. Divergent formats were
+    a confound in every cross-arm comparison: the mnimi-oracle gap mixed
+    retrieval quality with date granularity and role labelling."""
+    ts_a = "2023/05/20 (Sat) 02:21"
+    ts_b = "2023/07/01 (Sat) 14:05"
+    session_a = _round("I moved to Athens", "noted, sounds lovely", ts=ts_a)
+    session_b = _round("I adopted a dog", "congratulations", ts=ts_b)
+
+    # top_k above the record count so retrieval returns everything and the
+    # comparison isolates rendering, not ranking.
+    config = MemoryConfig(top_k=10)
+    systems = [FullHistorySystem(), OracleSystem(), _naive(config=config), _mnimi(config=config)]
+    contexts = []
+    for system in systems:
+        system.reset()
+        system.add(session_a)
+        system.add(session_b)
+        contexts.append(system.get_context("what happened?"))
+
+    assert contexts[0] == (
+        f"[Session date: {ts_a}]\n"
+        "user: I moved to Athens\n"
+        "assistant: noted, sounds lovely\n"
+        f"[Session date: {ts_b}]\n"
+        "user: I adopted a dog\n"
+        "assistant: congratulations"
+    )
+    assert len(set(contexts)) == 1, {
+        s.name: c for s, c in zip(systems, contexts, strict=True)
+    }

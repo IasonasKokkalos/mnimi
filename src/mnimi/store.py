@@ -8,6 +8,7 @@ user. Everything is one file on disk — that is the whole zero-infra pitch.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import sqlite_vec
@@ -28,11 +29,18 @@ class Store:
     """Owns the SQLite connection and the mnimi schema."""
 
     def __init__(
-        self, db_path: str, dim: int, *, embedder_name: str, embedder_revision: str
+        self,
+        db_path: str,
+        dim: int,
+        *,
+        embedder_name: str,
+        embedder_revision: str,
+        embed_template_hash: str,
     ) -> None:
         self.dim = dim
         self.embedder_name = embedder_name
         self.embedder_revision = embedder_revision
+        self.embed_template_hash = embed_template_hash
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
         self._load_extension()
@@ -71,6 +79,10 @@ class Store:
                 ("embedder_name", self.embedder_name),
                 ("embedder_revision", self.embedder_revision),
                 ("embedder_dim", str(self.dim)),
+                # The embed-text template form. An edit to it moves every
+                # vector while leaving the embedder pins untouched, which is
+                # exactly the silent mismatch this guard exists to refuse.
+                ("embed_template_hash", self.embed_template_hash),
             ],
         )
         self.db.commit()
@@ -84,6 +96,7 @@ class Store:
             "embedder_name": self.embedder_name,
             "embedder_revision": self.embedder_revision,
             "embedder_dim": str(self.dim),
+            "embed_template_hash": self.embed_template_hash,
         }
         mismatches = [
             f"{key}: store has {stored.get(key)!r}, caller provided {value!r}"
@@ -107,7 +120,8 @@ class Store:
                 created_at TEXT    NOT NULL,
                 salience   REAL    NOT NULL DEFAULT 1.0,
                 source     TEXT    NOT NULL DEFAULT 'message',
-                supersedes INTEGER
+                supersedes INTEGER,
+                turns      TEXT
             )
             """
         )
@@ -141,8 +155,8 @@ class Store:
         cur = self.db.execute(
             """
             INSERT INTO memories
-                (user_id, content, created_at, salience, source, supersedes)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, content, created_at, salience, source, supersedes, turns)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.user_id,
@@ -151,6 +165,7 @@ class Store:
                 record.salience,
                 record.source,
                 record.supersedes,
+                json.dumps(record.turns) if record.turns is not None else None,
             ),
         )
         record.id = int(cur.lastrowid)
@@ -181,7 +196,7 @@ class Store:
                 WHERE embedding MATCH ? AND k = ?
             )
             SELECT m.id, m.user_id, m.content, m.created_at, m.salience,
-                   m.source, m.supersedes, knn.distance
+                   m.source, m.supersedes, m.turns, knn.distance
             FROM knn
             JOIN memories m ON m.id = knn.memory_id
             WHERE m.user_id = ?
@@ -225,4 +240,5 @@ class Store:
             salience=row["salience"],
             source=row["source"],
             supersedes=row["supersedes"],
+            turns=json.loads(row["turns"]) if row["turns"] else None,
         )

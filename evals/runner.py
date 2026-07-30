@@ -12,33 +12,57 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from string import Template
 
-from .artifacts import fingerprint
+from .artifacts import canonical, fingerprint
 from .base import MemorySystem
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_STRATIFIED, Question, Session, load
 from .judge import Judge
 
-# The reader is intentionally plain — no extended thinking — so the variable
-# under test is the quality of the memory context, not the reader's reasoning.
-READER_SYSTEM = (
-    "You are a helpful assistant with access to memory from your prior "
-    "conversations with the user. Use the memory context to answer the user's "
-    "question as accurately as possible. If the memory does not contain enough "
-    "information to answer, say you don't know rather than guessing."
+# mnimi-con-v1: LongMemEval's Chain-of-Note reading prompt, byte-grounded in
+# the reference implementation (src/generation/run_generation.py line 55 in
+# github.com/xiaowu0162/LongMemEval — Figure 13 typesets this template; the
+# code is the byte authority, same precedent as the judge templates), with
+# exactly two deviations:
+#
+#   1. The abstention sentence ("If the chat history does not contain
+#      enough..."), inserted immediately after the step-by-step instruction.
+#      30 dataset questions are abstention questions and Figure 13 has no
+#      abstention route.
+#   2. The ${cache_bust} prefix — determinism plumbing, not instruction: it
+#      forces the shared prefill prefix against any other question to zero
+#      length so every prefill starts at n_past=0. See CACHE STATE below.
+#
+# Slot mapping against the reference: {chat history} -> ${context},
+# {question date} -> ${question_date}, {question} -> ${question}. Explicit
+# substitution (string.Template), never str.format: the reference's rendered
+# values are chat text that can contain any brace or dollar character, and
+# Template.substitute never rescans substituted values.
+#
+# The reference sends this as a SINGLE USER MESSAGE
+# (run_generation.py: messages=[{"role": "user", "content": prompt}]) and so
+# does this harness — the old harness-invented system message is gone, and its
+# absence is a recorded value in reader_request_shape() below.
+READER_TEMPLATE = (
+    "${cache_bust}\n\n"
+    "I will give you several history chats between you and a user. Please answer "
+    "the question based on the relevant chat history. Answer the question step by "
+    "step: first extract all the relevant information, and then reason over the "
+    "information to get the answer. If the chat history does not contain enough "
+    "information to answer the question, say that you do not know rather than "
+    "guessing."
+    "\n\n\nHistory Chats:\n\n${context}\n\nCurrent Date: ${question_date}\n"
+    "Question: ${question}\nAnswer (step by step):"
 )
+_READER_T = Template(READER_TEMPLATE)
 
-# The system message is prefixed with the question id, as the very first text,
-# purely to make the prompt unique per question. This is cache-busting, not
-# instruction: it forces the shared prefix against any other question to zero
-# length so every prefill starts at n_past=0 rather than resuming at whatever
-# offset the previous request left in the slot. See CACHE STATE below.
-READER_SYSTEM_TEMPLATE = "{cache_bust}\n\n" + READER_SYSTEM
-
-# Bumped whenever the reader prompt changes shape. Phase D replaces this with a
-# JSON + Chain-of-Note prompt carrying the question date; the version string and
-# the hash below both move then, which is what makes that swap loud in the header.
-# v2: added the per-question cache-bust prefix (see CACHE STATE).
-READER_PROMPT_VERSION = "plain-prose-v2"
+# Bumped whenever the reader prompt changes shape.
+# v2 (plain-prose-v2): added the per-question cache-bust prefix.
+# mnimi-con-v1: Figure 13 CoN body, single user message, question_date
+# consumed ("Current Date:"), abstention sentence added. json-con-paper-v1
+# stays RESERVED for a byte-exact reproduction of the paper's prompt with no
+# deviations at all; this is not it and is not named as it.
+READER_PROMPT_VERSION = "mnimi-con-v1"
 
 # Decode config, pinned. temperature=0 alone does NOT give greedy decoding — it
 # leaves the sampler free to break ties differently between runs, which was
@@ -124,14 +148,30 @@ REQUIRED_OLLAMA_ENV = {
 }
 
 
-def reader_prompt_hash() -> str:
-    """Digest of the exact reader prompt text that produced a run.
+def reader_request_shape() -> dict:
+    """The reader request as sent, with per-question values left unrendered.
 
-    Hashes the template, not a rendered instance: the cache-bust prefix varies
-    per question by design, so hashing a rendered system message would make
-    every question look like a different prompt configuration.
+    Mirrors ``judge_request_shape``: roles and the (absent) system slot are
+    recorded values, so restructuring the message stack moves the hash the
+    same way editing the template does. ``${cache_bust}`` and
+    ``${question_date}`` appear literally in the template text — per-question
+    values stay out of the hash, the presence of their slots does not.
     """
-    return fingerprint(READER_SYSTEM_TEMPLATE)
+    return {
+        "system_message": None,  # None = no system message is sent
+        "roles": ["user"],
+        "template": READER_TEMPLATE,
+    }
+
+
+def reader_prompt_hash() -> str:
+    """Digest of the exact reader request shape that produced a run.
+
+    Hashes the unsubstituted template, not a rendered instance: the cache-bust
+    prefix varies per question by design, so hashing a rendered prompt would
+    make every question look like a different prompt configuration.
+    """
+    return fingerprint(canonical(reader_request_shape()))
 
 # LongMemEval-S is ~115k tokens/question and this reader's window is ~32k, so
 # full_history overflows. Rather than let Ollama silently drop tokens, the reader
@@ -152,7 +192,7 @@ def reader_prompt_hash() -> str:
 # measured ratio would recover it — but it changes every truncated number, so
 # it is left alone here and flagged rather than tuned mid-phase.
 _CHARS_PER_TOKEN = 4
-_SCAFFOLD_TOKENS = 256  # headroom for the system prompt + question framing
+_SCAFFOLD_TOKENS = 256  # headroom for the prompt template + question framing
 
 # Generation budget, 800 to match the paper's max generation length (greedy).
 #
@@ -277,32 +317,27 @@ class Reader:
     ) -> ReaderOutput:
         """Answer one question.
 
-        ``question_date`` is the dataset's "asked on" date. It is threaded here
-        and deliberately unused by ``plain-prose-v2``: temporal questions are
-        unanswerable without knowing when "now" is, and the JSON + Chain-of-Note
-        prompt consumes it. Wiring it in without changing the live template
-        keeps the plumbing and the prompt swap as separate, reviewable steps —
-        the current template's hash, and therefore every current prediction,
-        is untouched by this parameter existing.
+        ``question_date`` is the dataset's "asked on" date, consumed by
+        ``mnimi-con-v1``'s ``Current Date:`` line — temporal questions are
+        unanswerable without knowing when "now" is.
         """
         context, truncated, dropped = self._fit(context)
-        user = (
-            f"# Memory context\n{context}\n\n# Question\n{question}"
-            if context.strip()
-            else question
+        # cache_bust leads the (single) user message so the shared prefix
+        # against the previous request is zero-length. Measured: with the
+        # prompt cache off, this takes prefill from "27,191 of 27,255 tokens"
+        # (64 reused from a shared prefix, i.e. the boundary depends on the
+        # PREVIOUS question) to the full token count every time.
+        prompt = _READER_T.substitute(
+            cache_bust=cache_bust,
+            context=context,
+            question_date=question_date,
+            question=question,
         )
-        # cache_bust leads the system message so the shared prefix against the
-        # previous request is zero-length. Measured: with the prompt cache off,
-        # this takes prefill from "27,191 of 27,255 tokens" (64 reused from the
-        # shared system prompt, i.e. the boundary depends on the PREVIOUS
-        # question) to the full token count every time.
-        system = READER_SYSTEM_TEMPLATE.format(cache_bust=cache_bust)
+        # One user message, matching the reference implementation's request
+        # (run_generation.py: messages=[{"role": "user", "content": prompt}]).
         response = self.client.chat(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=[{"role": "user", "content": prompt}],
             # num_ctx pinned so Ollama does not silently fall back to its
             # 2048/4096 default and truncate for us; temperature/top_k/seed
             # pinned so the same input yields the same answer across runs.

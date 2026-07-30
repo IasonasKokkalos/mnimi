@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/3"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/4"
 
 
 def fingerprint(text: str) -> str:
@@ -372,9 +372,11 @@ def build_pins(
     reader_answer_reserve: int,
     reader_scaffold_tokens: int,
     reader_chars_per_token: int,
+    render_template_hash: str,
     embedder_name: str | None = None,
     embedder_dim: int | None = None,
     embedder_revision: str | None = None,
+    embed_template_hash: str | None = None,
     extractor_model: str | None = None,
     k: int | None = None,
     dedup_cosine_threshold: float | None = None,
@@ -411,6 +413,14 @@ def build_pins(
     silently falsified. ``embedder_revision`` pins the HF commit of the
     embedding model; a bare model name is mutable and can move every vector
     without moving any header field.
+
+    Schema /4 (2026-07-30) added the embed/render split hashes. The embedded
+    text and the rendered text are distinct artifacts with distinct hashes:
+    an edit to the render template changes reader context and no vectors; an
+    edit to the embed template changes every vector, every retrieval and the
+    dedup key, and invalidates any threshold selected under the previous form.
+    ``render_template_hash`` is harness-wide (every arm renders through one
+    code path); ``embed_template_hash`` is declared by the arms that embed.
     """
     return {
         "artifact_schema": ARTIFACT_SCHEMA,
@@ -445,9 +455,11 @@ def build_pins(
         "reader_answer_reserve": reader_answer_reserve,
         "reader_scaffold_tokens": reader_scaffold_tokens,
         "reader_chars_per_token": reader_chars_per_token,
+        "render_template_hash": render_template_hash,
         "embedder_name": embedder_name,
         "embedder_dim": embedder_dim,
         "embedder_revision": embedder_revision,
+        "embed_template_hash": embed_template_hash,
         "extractor_model": extractor_model,
         "k": k,
         "dedup_cosine_threshold": dedup_cosine_threshold,
