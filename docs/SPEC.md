@@ -4,7 +4,7 @@ The contract. Signatures here are locked; changing them is a breaking change.
 Storage backend: SQLite + sqlite-vec for v1.
 
 Most of this document is the **target**. For what the library actually does
-today, read **§v1 as built (v0.3.2)** first — it is the shipped state, with
+today, read **§v1 as built (v1.3.0)** first — it is the shipped state, with
 per-section `**v1 as built:**` notes throughout marking where code and target
 diverge. Never assume a spec'd field exists; check that section, then the code.
 
@@ -12,12 +12,12 @@ diverge. Never assume a spec'd field exists; check that section, then the code.
 
 ## CHANGELOG (locked decisions changed, with evidence — newest first)
 
-14. **Oracle retrieval added as the ceiling; full-history demoted to a
-    truncated-context baseline.** The paper's own ceiling is oracle retrieval
-    (§5.5); full-history at the pinned 32K reader context truncated 20/20
-    smoke-slice questions, feeding ~27,210 tokens and dropping ~91,844 — the
-    reader sees ~23% of each history, and the floor-to-"ceiling" band it
-    anchors (10% → 20% at n=20) is too narrow to rank anything inside.
+14. **Oracle retrieval added as the evidence-availability bound; full-history
+    demoted to a truncated-context baseline.** The paper's own reference point
+    is oracle retrieval (§5.5); full-history at the pinned 32K reader context
+    truncated 20/20 smoke-slice questions, feeding ~27,210 tokens and dropping
+    ~91,844 — the reader sees ~23% of each history, and the floor-to-bound
+    band it anchors (10% → 20% at n=20) is too narrow to rank anything inside.
     `systems/oracle.py` returns only the annotated evidence sessions
     (`answer_session_ids`, already loaded by `dataset.py`), same reader, same
     prompt. The W3 artifact is five systems, not four.
@@ -30,8 +30,9 @@ diverge. Never assume a spec'd field exists; check that section, then the code.
     lands the embedded string becomes the extracted fact, not a raw turn — a
     different input, so the role-in-vector question reopens on its merits at
     that migration instead of being silently superseded. See §Embedding config
-    for what v1's `embed_template_hash` covers — and §v1 as built for the fact
-    that, as shipped, that hash row is not actually written.
+    for what v1's `embed_template_hash` covers — the row is written once at DB
+    creation and validated on every open as of v1.3.0 (2026-07-30,
+    `store.py:85, 99`).
 11. **Decay floor added.** Salience decays toward `decay_floor` (default 0.15),
     never to zero; salience 0 is reserved exclusively for superseded records.
     Decay can now only down-rank old evidence, never exclude it — closing the
@@ -108,10 +109,10 @@ diverge. Never assume a spec'd field exists; check that section, then the code.
 
 ---
 
-## v1 as built (v0.3.2, 2026-07-29)
+## v1 as built (v1.3.0, 2026-07-30, HEAD 658f516)
 
 Everything else in this document is the **target** contract. This section is
-what the library actually does today, read off the code at v0.3.2. Where the
+what the library actually does today, read off the code at v1.3.0. Where the
 two disagree the code is described here, and each divergence is logged
 individually in `docs/DECISIONS.md` → "v1 build: PLANNED vs ACTUAL". **Phase C
 wires against this section, not against the target sections.**
@@ -124,7 +125,7 @@ wires against this section, not against the target sections.**
 | `MemoryRecord` | `id, user_id, content, embedding, created_at, salience, source, supersedes`. No `raw`, no triple, no `valid_time`; `created_at` carries `ts` (there is no separate `system_time`); no `last_accessed` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
 | `memory_meta` guard | **4 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`, `embed_template_hash`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py` |
-| `embed_template_hash` | **not written — the one guard hole in v1.** Changing v1's content template (e.g. the session-date fold) does *not* fail loudly | — |
+| `embed_template_hash` | **written and validated** (since v1.3.0, 2026-07-30). An edit to v1's content template (the session-date fold, the `"\n"` join) fails loudly at open with `MemoryMetaError` | `store.py:85, 99` |
 | Extraction | not built. No LLM anywhere in the library | — |
 | Dedup | **steps 1-2 only**: exact-normalize collapse, then ONE cosine probe (`k=1`) against the store at `dedup_cosine_threshold`. No negation screen, no value-substitution screen, no entropy gate | `memory.py:51-72` |
 | Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
@@ -512,8 +513,8 @@ every vector, every retrieval and the dedup key, and invalidates any
 threshold selected under the previous form. The rows are inserted once in
 `_write_meta()` at DB creation and compared in `_validate_meta()` on
 **every** open; any mismatch raises `MemoryMetaError` naming the offending
-keys, before a single query runs. It **raises — it does not log or repair.** Two behaviours worth
-knowing beyond the spec text:
+keys, before a single query runs. It **raises — it does not log or repair.**
+Two behaviours worth knowing beyond the spec text:
 
 - A database that has a `memories` table but **no** `memory_meta` is refused,
   not silently upgraded: it predates the guard, so its vectors cannot be
@@ -525,13 +526,10 @@ knowing beyond the spec text:
   DB fails at open on all three keys rather than at insert on a dimension
   error.
 
-**Gap, stated so it is not mistaken for coverage:** `embed_template_hash` is
-**not written in v1**. The eight extraction-era rows are unwritable (nothing
-exists to hash), but the template hash is writable today and is not there —
-so a change to v1's content template (the `[Session date: …]` fold, the `"\n"`
-join) silently changes every vector without failing any guard. It is the one
-place where the invariant is documented and unenforced; close it before any
-published mnimi number, or the number's corpus is not pinned.
+**Closed (v1.3.0, 2026-07-30):** `embed_template_hash` is written at creation
+and checked on every open. The eight extraction-era rows remain unwritable
+(nothing exists to hash); every writable row is now written. No guard holes
+remain in v1.
 
 **Rationale:** reproducibility requires every artifact that determines the
 corpus or the vectors to be fixed for the life of a benchmark run. Quant tag
@@ -822,13 +820,12 @@ every vector drags all pairwise similarities toward each other, which
 directly degrades the single cosine threshold (`dedup_cosine_threshold`)
 that v1 dedup depends on.
 
-- v1's `embed_template_hash` is *specified* to pin the bare-`content` v1
-  template — there is no `raw` to cover — and the extraction-era migration to
-  `f"{raw}\n{content}"` would change the hash and invalidate existing DBs for
+- v1's `embed_template_hash` pins the bare-`content` v1 template — there is
+  no `raw` to cover. **As built the row is written and validated**
+  (v1.3.0): the guard enforces this — the extraction-era migration to
+  `f"{raw}\n{content}"` changes the hash and invalidates existing DBs for
   comparability: the guard working as designed, versioned migration plus
-  re-ingest, never an in-place edit. **As built the row is not written**
-  (see the guard section): the intent above holds, the enforcement does not
-  exist yet.
+  re-ingest, never an in-place edit.
 - When extraction lands, the embedded string is the **extracted fact**, not
   a raw turn — a different input distribution. The role-in-vector question
   therefore reopens on its merits at that migration (the schema above, with
@@ -919,19 +916,25 @@ identically for every system so results are comparable.
 **Locked baselines — the full set, roles marked (CHANGELOG #14):**
 - No-memory (question only) — the floor.
 - Full-history — the entire history stuffed into the reader context. A
-  truncated-context baseline, **not** the ceiling: at the pinned 32K context
+  truncated-context baseline, **not** a ceiling: at the pinned 32K context
   it truncates every smoke-slice question (20/20) and the reader sees ~23%
   of each history. It measures what naive context-stuffing buys, not what
   is achievable.
-- Oracle retrieval — **the ceiling**, the paper's own choice (§5.5). Context
-  = only the annotated evidence sessions (`answer_session_ids`), same
-  reader, same prompt: the score a perfect retriever would get under this
-  reader.
+- Oracle retrieval — **the evidence-availability bound** (the paper's §5.5
+  oracle). Context = only the annotated evidence sessions
+  (`answer_session_ids`), same reader, same prompt. It bounds what evidence
+  reaches the reader, not how well it is presented — a system at or above it
+  is not prima facie a bug (DECISIONS). Not called a ceiling: mnimi matched
+  it at n=100 (43/100 vs 43/100, b=11, c=11) with focused rounds at ~4.7k
+  fed tokens vs oracle's whole-session ~5.2k.
 - Naive round-RAG: rounds stored verbatim, K=V, same retriever, same k, same
-  reader, same prompt, ingestion granularity identical to mnimi's. This is
-  the paper's strong baseline (Table 3, K=V rows) and the W3 kill-gate bar:
-  mnimi's write-side policy must beat it by a repeatable margin or the
-  thesis fails.
+  reader, same prompt, ingestion granularity identical to mnimi's — the
+  paper's strong baseline (Table 3, K=V rows). **Pre-registered expectation
+  at v1: parity.** v1's only write-side delta is a near-inert dedup screen on
+  a benchmark constructed non-conflicting (DECISIONS § pre-registration); the
+  beat-by-a-margin criterion attaches to the extraction era. The v1 W3
+  criterion — Holm-significant separation from no_memory — was met
+  2026-07-30 (p=7.46e-11 at n=100; b=32, c=0 on the held-out 80 alone).
 - Competitor runs (OMEGA first — the only other in-scope system) go through
   this same harness, same reader, same prompt. Note in methodology: OMEGA has
   no raw-chat ingestion path, so the comparison requires an ingestion
@@ -1180,42 +1183,26 @@ would move under a different draw of questions) and cover question-sampling
 error only. See `docs/DECISIONS.md` § "Statistics".
 
 A floor system is also the wrong place to measure it: `no_memory` emits near-
-identical short answers, so 0/20 there is close to guaranteed and says little
-about a system that ingests 500 records per question. The probe belongs on a
-retrieval arm.
+identical short answers, so a clean count there is close to guaranteed and says
+little about a system that ingests 500 records per question. The probe belongs
+on a retrieval arm.
 
-CAVEAT — mixed configurations. The arms in this table were produced under
-different harness configurations (`answer_reserve` 1024 vs 800, pre- vs
-post-time-ordered `get_context`; the change was measured to alter 16/20 mnimi
-predictions at an unchanged score). Cross-arm comparisons and the paired
-statistics derived from this table are provisional until the renderer-parity
-re-run replaces it. `evals/stats.py` now refuses such pairings.
+Current figure, measured under `mnimi-con-v1` at HEAD-adjacent state
+(2026-07-30, the n=100 evidence run): the n=20 prefix questions replayed
+**byte-identical predictions across a daemon restart and a commit on four
+independent arms** — observed as uniform 20-per-arm verdict-cache hits in the
+n=100 judge stage (100RUN.md, judge-stage table). Predictions changed: 0.
+Score delta: 0. The four arms include both retrieval arms (mnimi, naive_rag),
+so the figure carries weight beyond a context-free floor system.
 
-Same pins, same `pins_hash`, daemon killed and relaunched between runs, on a
-clean GPU:
-
-| system | predictions changed | score |
-|---|---|---|
-| `no_memory` | **0/20** | 10.0% → 10.0% |
-| `full_history` | **0/20** | 20.0% → 20.0% |
-| `mnimi` (2026-07-29) | **0/20** | 45.0% → 45.0% |
-
-The `mnimi` row is the one that carries weight. It is the first arm with an
-ONNX embedder, a per-question SQLite store and 250-odd retrieval probes inside
-the loop, so it had genuine opportunities to be nondeterministic that a
-context-free floor system does not. `no_memory` re-ran at 0/20 on the same day
-and is retained as a determinism/abstention check, not as an error bar.
-
-Zero. The honest error bar across a daemon restart is 0/20 predictions and 0
-points. **Retired: the earlier "12/20 changed, 5 points" figure must not be
-cited.** It was a cache-state artifact, and it was weaker evidence than it
-looked: both artifacts it came from record `stage='judge'` — judge-stage replays
-over a stored `predictions.jsonl` — so `full_history`'s
-`judge_cache_hits=8 / misses=12` *was* the "12/20 changed" number. That is
-verdict-cache bookkeeping over predictions of unknown provenance, not a
-controlled comparison. **Before quoting any reproducibility number, check
-`run.stage`:** only `stage='all'` or a fresh `predict` re-runs the reader, and
-only those can measure reader drift.
+**Retired figures — do not cite:** (a) the earlier "12/20 changed, 5 points"
+number was a cache-state artifact from judge-stage bookkeeping over predictions
+of unknown provenance — **before quoting any reproducibility number, check
+`run.stage`:** only `stage='all'` or a fresh `predict` re-runs the reader;
+(b) the plain-prose-v2-era mixed-configuration restart table (0/20 across three
+arms) was produced under a retired prompt and renderer — `evals/stats.py`
+refuses pairings across that boundary, and the current figure above supersedes
+it on strictly stronger evidence.
 
 #### The daemon precondition, and why it is part of the claim
 
@@ -1235,6 +1222,15 @@ disabled: the daemon announces the two states in different sentences and emits
 no `cache state` line at all when the cache is off, so keying off the limit alone
 treated absent evidence as a pass. A preflight that passes on no evidence is
 worse than no preflight.
+
+**Known limitation (measured 2026-07-30, unfixed by design mid-run):**
+preflight reads the **last 400,000 bytes** of the serve log for the resolved
+`flash_attn` line, but that line is written once at first model load and never
+re-emitted while the model stays warm. At n=100 the log grew to ~1.2 MB and
+preflight refused three arms whose daemon was verifiably in the pinned
+configuration (100RUN.md, integrity event 1). Workaround: `ollama stop` before
+each arm forces a fresh load block into the log tail. Fix the tail-window
+logic before any n=500 sitting; the log volume scales with n.
 
 Killing the daemon is not enough — `llama-server.exe` child runners outlive
 `Stop-Process -Name ollama` and keep holding VRAM. Six accumulated unnoticed
