@@ -8,6 +8,14 @@ today, read **§v1 as built (v1.3.0)** first — it is the shipped state, with
 per-section `**v1 as built:**` notes throughout marking where code and target
 diverge. Never assume a spec'd field exists; check that section, then the code.
 
+**No benchmark results live in this document.** Accuracy scores, truncation
+rates, token counts and paired statistics belong to the run artifacts (`runs/`,
+`results/published/`) and the run write-ups. This is architecture and decisions
+only — a spec that quotes a score goes stale the next time the harness runs.
+One deliberate exception: the **measured error bar** under Tier 2. A
+predictions-changed count is part of what a tier is allowed to claim, not a
+score.
+
 ---
 
 ## CHANGELOG (locked decisions changed, with evidence — newest first)
@@ -15,12 +23,11 @@ diverge. Never assume a spec'd field exists; check that section, then the code.
 14. **Oracle retrieval added as the evidence-availability bound; full-history
     demoted to a truncated-context baseline.** The paper's own reference point
     is oracle retrieval (§5.5); full-history at the pinned 32K reader context
-    truncated 20/20 smoke-slice questions, feeding ~27,210 tokens and dropping
-    ~91,844 — the reader sees ~23% of each history, and the floor-to-bound
-    band it anchors (10% → 20% at n=20) is too narrow to rank anything inside.
-    `systems/oracle.py` returns only the annotated evidence sessions
-    (`answer_session_ids`, already loaded by `dataset.py`), same reader, same
-    prompt. The W3 artifact is five systems, not four.
+    truncates every measured question, so most of each history never reaches
+    the reader and the floor-to-bound band it anchors is too narrow to rank
+    anything inside. `systems/oracle.py` returns only the annotated evidence
+    sessions (`answer_session_ids`, already loaded by `dataset.py`), same
+    reader, same prompt. The W3 artifact is five systems, not four.
 15. **Embedding-input lock scoped by era: `f"{raw}\n{content}"` is the
     extraction-era template; v1 (pre-extraction) embeds bare `content`, role
     as metadata only.** v1 has no `raw` field — nothing is extracted; the
@@ -916,25 +923,26 @@ identically for every system so results are comparable.
 **Locked baselines — the full set, roles marked (CHANGELOG #14):**
 - No-memory (question only) — the floor.
 - Full-history — the entire history stuffed into the reader context. A
-  truncated-context baseline, **not** a ceiling: at the pinned 32K context
-  it truncates every smoke-slice question (20/20) and the reader sees ~23%
-  of each history. It measures what naive context-stuffing buys, not what
-  is achievable.
+  truncated-context baseline, **not** a ceiling: at the pinned 32K context it
+  truncates, and the reader sees only a fraction of each history. It measures
+  what naive context-stuffing buys, not what is achievable. The truncation
+  rate is reported per run beside the score.
 - Oracle retrieval — **the evidence-availability bound** (the paper's §5.5
   oracle). Context = only the annotated evidence sessions
   (`answer_session_ids`), same reader, same prompt. It bounds what evidence
   reaches the reader, not how well it is presented — a system at or above it
-  is not prima facie a bug (DECISIONS). Not called a ceiling: mnimi matched
-  it at n=100 (43/100 vs 43/100, b=11, c=11) with focused rounds at ~4.7k
-  fed tokens vs oracle's whole-session ~5.2k.
+  is not prima facie a bug (DECISIONS). Deliberately not called a ceiling: it
+  supplies whole evidence sessions including irrelevant turns, so a focused
+  retriever handing the reader fewer, cleaner tokens can match or exceed it.
 - Naive round-RAG: rounds stored verbatim, K=V, same retriever, same k, same
   reader, same prompt, ingestion granularity identical to mnimi's — the
   paper's strong baseline (Table 3, K=V rows). **Pre-registered expectation
   at v1: parity.** v1's only write-side delta is a near-inert dedup screen on
   a benchmark constructed non-conflicting (DECISIONS § pre-registration); the
   beat-by-a-margin criterion attaches to the extraction era. The v1 W3
-  criterion — Holm-significant separation from no_memory — was met
-  2026-07-30 (p=7.46e-11 at n=100; b=32, c=0 on the held-out 80 alone).
+  criterion is Holm-significant separation from no_memory; whether a given run
+  meets it is a property of that run's artifacts, not a claim this document
+  makes.
 - Competitor runs (OMEGA first — the only other in-scope system) go through
   this same harness, same reader, same prompt. Note in methodology: OMEGA has
   no raw-chat ingestion path, so the comparison requires an ingestion
@@ -1191,9 +1199,9 @@ Current figure, measured under `mnimi-con-v1` at HEAD-adjacent state
 (2026-07-30, the n=100 evidence run): the n=20 prefix questions replayed
 **byte-identical predictions across a daemon restart and a commit on four
 independent arms** — observed as uniform 20-per-arm verdict-cache hits in the
-n=100 judge stage (100RUN.md, judge-stage table). Predictions changed: 0.
-Score delta: 0. The four arms include both retrieval arms (mnimi, naive_rag),
-so the figure carries weight beyond a context-free floor system.
+n=100 judge stage. Predictions changed: 0. Score delta: 0. The four arms
+include both retrieval arms (mnimi, naive_rag), so the figure carries weight
+beyond a context-free floor system.
 
 **Retired figures — do not cite:** (a) the earlier "12/20 changed, 5 points"
 number was a cache-state artifact from judge-stage bookkeeping over predictions
@@ -1226,11 +1234,11 @@ worse than no preflight.
 **Known limitation (measured 2026-07-30, unfixed by design mid-run):**
 preflight reads the **last 400,000 bytes** of the serve log for the resolved
 `flash_attn` line, but that line is written once at first model load and never
-re-emitted while the model stays warm. At n=100 the log grew to ~1.2 MB and
-preflight refused three arms whose daemon was verifiably in the pinned
-configuration (100RUN.md, integrity event 1). Workaround: `ollama stop` before
-each arm forces a fresh load block into the log tail. Fix the tail-window
-logic before any n=500 sitting; the log volume scales with n.
+re-emitted while the model stays warm. At n=100 the log grew past the window
+and preflight refused arms whose daemon was verifiably in the pinned
+configuration. Workaround: `ollama stop` before each arm forces a fresh load
+block into the log tail. Fix the tail-window logic before any n=500 sitting;
+the log volume scales with n.
 
 Killing the daemon is not enough — `llama-server.exe` child runners outlive
 `Stop-Process -Name ollama` and keep holding VRAM. Six accumulated unnoticed

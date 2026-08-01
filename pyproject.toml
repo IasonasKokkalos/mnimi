@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnimi"
-version = "0.3.2"
+version = "1.3.0"
 description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,7 +51,6 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/mnimi/mnimi"
-Changelog = "https://github.com/mnimi/mnimi/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnimi"]

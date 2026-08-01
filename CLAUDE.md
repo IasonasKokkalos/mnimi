@@ -79,11 +79,12 @@ resolution. Both roles are in extraction scope.
   `evals/` is the source of truth.
 - **Baselines — five systems, roles marked.** `no_memory` (the floor);
   `full_history` (a truncated-context baseline, **not** a ceiling — at the
-  pinned 32K it truncated 100/100 at n=100 and dropped ~9.2M tokens, so it
-  measures what naive context-stuffing buys, not what is achievable); `oracle`
-  (the **evidence-availability bound**, the paper's §5.5 choice — it bounds what
-  evidence reaches the reader, not how well it is presented, so a focused
-  retriever at or above it is not prima facie a bug); `naive_rag` (the paper's
+  pinned 32K it truncates and the reader sees only a fraction of each history,
+  so it measures what naive context-stuffing buys, not what is achievable);
+  `oracle` (the **evidence-availability bound**, the paper's §5.5 choice — it
+  bounds what evidence reaches the reader, not how well it is presented, so a
+  focused retriever handing fewer, cleaner tokens can match or exceed it and
+  being at or above oracle is not prima facie a bug); `naive_rag` (the paper's
   strong K=V baseline, ingestion granularity identical to mnimi's — and
   **pre-registered as a NULL at v1**: v1's only write-side delta is a near-inert
   dedup screen on a benchmark constructed without conflicting facts, so the
@@ -183,26 +184,18 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 
 ## Kill gates
 
-- **W3 — met 2026-07-30** (gate date was Jul 17, 2026). All five systems on one
-  stratified slice at n=100, same reader, same prompt, one sitting:
-
-  | system | score | mean prompt tokens | truncated |
-  |---|---|---|---|
-  | `no_memory` | 5% | 166 | 0 |
-  | `full_history` | 12% | 27,464 | 100/100 |
-  | `naive_rag` | 41% | 4,710 | 0 |
-  | `mnimi` | 43% | 4,708 | 0 |
-  | `oracle` | 43% | 5,153 | 0 |
-
-  The v1 criterion was Holm-significant separation from `no_memory`: b=39, c=1,
-  p=7.46e-11 (b=32, c=0 on the held-out 80 alone — the n=20 dev slice the 0.95
-  dedup threshold was selected on is inside the headline and reported
-  separately). `mnimi` vs `naive_rag`, the pre-specified PRIMARY and the
-  pre-registered null, came back b=3, c=1, p=0.625 — the expected outcome, not a
-  negative finding. `mnimi` vs `oracle` is b=11, c=11, p=1.0: parity at ~450
-  fewer fed tokens. Artifacts live in `runs/<system>__100q/`, all five marked
-  provisional (dirty harness tree at run time). n=20 remains a smoke test only —
-  categories sit at n=3-4 there, one question is 5 points.
+- **W3 — met 2026-07-30** (gate date was Jul 17, 2026). The artifact is all five
+  systems on one stratified slice at n=100, same reader, same prompt, one
+  sitting. The v1 criterion was Holm-significant separation from `no_memory`,
+  and it cleared on the held-out 80 alone (the n=20 dev slice the 0.95 dedup
+  threshold was selected on sits inside the headline and is reported
+  separately). `mnimi` vs `naive_rag` — the pre-specified PRIMARY and a
+  pre-registered null — came back non-significant, which is the expected outcome
+  at v1 and not a negative finding. **Scores, paired statistics and token counts
+  live in `runs/<system>__100q/` and the run write-up, never in this file or in
+  SPEC**; all five artifacts are provisional (dirty harness tree at run time).
+  n=20 remains a smoke test only — categories sit at n=3-4 there, one question
+  is 5 points.
 - **W6 (Aug 7, 2026):** either a competitive LongMemEval number, or reframe the
   project as a zero-infra usability play (the "one file, no server" pitch) rather
   than a state-of-the-art accuracy play.
@@ -225,11 +218,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 Every change is validated by whether it moves the benchmark number. New code that
 does not change a baseline, a system, or the score is suspect.
 
-Versions live in commit messages and in SPEC's §"v1 as built" header: Phase A =
-v0.1, Phase B = v0.2, the v1 library build = v0.3.x, Phase C = v0.4.0, pins
-schema/2 = v0.5.0, then the v1 milestone reset the counter — Phase D closes at
-v1.3.0. `pyproject.toml` (still 0.3.2) and `CHANGELOG.md` (an empty stub) are
-both stale; do not read a version from either.
+Phase A = v0.1, Phase B = v0.2, the v1 library build = v0.3.x, Phase C = v0.4.0,
+pins schema/2 = v0.5.0; the v1 milestone then reset the counter, and Phase D
+closes at v1.3.0. `pyproject.toml` is the version of record and SPEC's §"v1 as
+built" header tracks it — bump both in the phase-closing commit. There is no
+`CHANGELOG.md`; the commit log and `docs/DECISIONS.md` carry that history.
 
 ```bash
 python -m evals --system <name> --limit 100                  # predict + judge

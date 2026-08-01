@@ -169,9 +169,8 @@ specified but not implemented, and the default embedder is a numpy hashing
 placeholder. `docs/SPEC.md` describes the target, not the current code.
 
 See [docs/SPEC.md](docs/SPEC.md) for the contract,
-[docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions,
-[docs/FUTURE.md](docs/FUTURE.md) for what is deliberately deferred, and
-[CHANGELOG.md](CHANGELOG.md).
+[docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions, and
+[docs/FUTURE.md](docs/FUTURE.md) for what is deliberately deferred.
 
 ## License
 
