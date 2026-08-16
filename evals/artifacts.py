@@ -147,6 +147,9 @@ def recent_model_load_block(log_text: str) -> str:
     Returns "" when no marker is present: without one there is nothing to
     attribute the settings below it to, and unattributable evidence is not
     evidence. The caller fails closed on the empty string.
+
+    NOTE: ``_tail_model_load`` below selects by a different rule (one marker
+    earlier, never refuses) — it records a diagnostic; this feeds a gate.
     """
     starts = [m.start() for m in _RUNNER_START.finditer(log_text)]
     return log_text[starts[-1] :] if starts else ""
@@ -157,6 +160,10 @@ def _tail_model_load(log_text: str) -> str:
 
     Bounded to the last load so the artifact records what produced *this* run
     rather than the whole file's history.
+
+    Deliberately a different selection rule than ``recent_model_load_block``:
+    this one starts a marker early and never refuses, because it captures a
+    best-effort diagnostic record — preflight's selector must fail closed.
     """
     starts = [m.start() for m in re.finditer(r"starting llama server|load_tensors:", log_text)]
     if not starts:
