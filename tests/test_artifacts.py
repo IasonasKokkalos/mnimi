@@ -341,6 +341,23 @@ PINNED_LOAD_BLOCK = (
 ) + CACHE_DISABLED
 
 
+# Condensed verbatim from a real 0.32.13 daemon launched with the pinned env
+# (OLLAMA_FLASH_ATTENTION=1, LLAMA_ARG_CACHE_RAM=0), 2026-08-16. The spawn line
+# is hyphenated and names llama-server.exe directly — no "ollama runner".
+OLLAMA_032_13_LOAD_BLOCK = (
+    'time=2026-08-16T15:29:06.842+03:00 level=INFO source=llama_server.go:431 '
+    'msg="starting llama-server" cmd="C:\\\\...\\\\lib\\\\ollama\\\\llama-server.exe '
+    "--model D:\\\\ollama-models\\\\blobs\\\\sha256-a3b7d8df --port 5025 "
+    '--flash-attn on -b 512 -ub 512 -ngl 99 -t 8"\n'
+    "load_tensors: loading model tensors, this can take a while... (load_mode = none)\n"
+    "load_tensors: offloaded 29/29 layers to GPU\n"
+    "llama_context: flash_attn            = enabled\n"
+    "srv    load_model: prompt cache is disabled - use `--cache-ram N` to enable it\n"
+    'time=2026-08-16T15:29:15.885+03:00 level=INFO source=llama_server.go:1360 '
+    'msg="llama-server started in 9.04 seconds"\n'
+)
+
+
 def _request_traffic(nbytes: int) -> str:
     """Serve-log noise carrying no load block — what a warm model writes.
 
@@ -430,6 +447,42 @@ class TestModelLoadLogSelection:
 
         with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
             runner.preflight_reader_env(evals_main._recent_model_load_log())
+
+    def test_finds_the_load_block_in_the_0_32_13_log_format(self, tmp_path, monkeypatch):
+        """Regression, measured 2026-08-16: Ollama 0.32.13 renamed the spawn line.
+
+        0.32.5 wrote ``msg="starting llama server" cmd="ollama runner ..."``;
+        0.32.13 writes ``msg="starting llama-server" cmd=".../llama-server.exe ..."``
+        (hyphen, direct binary). A marker anchored on the old spelling returns ""
+        on the new format and preflight refuses a daemon that is verifiably in
+        the pinned configuration — a false refusal, same class as the 400KB tail.
+        """
+        log = tmp_path / "serve.log"
+        log.write_text(OLLAMA_032_13_LOAD_BLOCK, encoding="utf-8")
+        monkeypatch.setenv("OLLAMA_SERVE_LOG", str(log))
+
+        runner.preflight_reader_env(evals_main._recent_model_load_log())
+
+    def test_warmup_probe_timeout_covers_a_model_load(self, monkeypatch):
+        """Regression, measured 2026-08-16 on Ollama 0.32.13: the daemon ABORTS
+        a model load when the requesting client disconnects ("client connection
+        closed before llama-server finished loading, aborting load"), and the
+        warmup probe's 5s transport timeout disconnected mid-load (measured
+        9.04s warm). The probe must ask for a timeout that a load fits inside —
+        otherwise the load-bearing warmup can never complete on 0.32.13."""
+        seen = {}
+
+        def fake_post(path, payload, timeout=5):
+            seen["timeout"] = timeout
+            return {}
+
+        monkeypatch.setattr(evals_main, "_ollama_post", fake_post)
+        evals_main._force_model_load("m", num_ctx=32768, num_gpu=99)
+
+        assert seen["timeout"] >= 60, (
+            f"warmup probe asked for a {seen.get('timeout')}s timeout; a model "
+            "load takes ~9s warm and much longer cold"
+        )
 
 
 # The reference CoN template, VERBATIM from src/generation/run_generation.py

@@ -121,7 +121,11 @@ def _norm_env_value(value: str) -> str:
 # Ollama writes this once per runner spawn, immediately before the runner prints
 # the settings it resolved. It is the only line that delimits one runner's output
 # from the next one's — which is exactly what "the daemon serving this run" means.
-_RUNNER_START = re.compile(r"starting llama server")
+# Two spellings, both real: 0.32.5 logs `starting llama server` (spawning
+# "ollama runner"); 0.32.13 logs `starting llama-server` (spawning
+# llama-server.exe directly). Matching only one refuses correct daemons on the
+# other build — measured 2026-08-16, when the tray auto-update landed 0.32.13.
+_RUNNER_START = re.compile(r"starting llama[ -]server")
 
 
 def recent_model_load_block(log_text: str) -> str:
@@ -165,7 +169,9 @@ def _tail_model_load(log_text: str) -> str:
     this one starts a marker early and never refuses, because it captures a
     best-effort diagnostic record — preflight's selector must fail closed.
     """
-    starts = [m.start() for m in re.finditer(r"starting llama server|load_tensors:", log_text)]
+    starts = [
+        m.start() for m in re.finditer(r"starting llama[ -]server|load_tensors:", log_text)
+    ]
     if not starts:
         return ""
     block = log_text[starts[-1] if len(starts) < 2 else starts[-2] :]

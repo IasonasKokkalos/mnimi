@@ -66,13 +66,23 @@ def _ollama_get(path: str):
         return json.load(resp)
 
 
-def _ollama_post(path: str, payload: dict):
+def _ollama_post(path: str, payload: dict, timeout: float = 5):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         f"{OLLAMA_HOST}{path}", data=data, headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.load(resp)
+
+
+# The warmup probe must outlive a model load. Ollama 0.32.13 ABORTS a load when
+# the requesting client disconnects ("client connection closed before
+# llama-server finished loading, aborting load" — measured 2026-08-16), so the
+# old behaviour of firing the probe on a 5s timeout and letting the daemon
+# finish loading anyway (which 0.32.5 did) now cancels the load outright and the
+# load-bearing warmup never happens. 9.04s measured warm; cold loads and slower
+# disks need real headroom.
+_MODEL_LOAD_TIMEOUT_S = 300
 
 
 def ollama_preflight(model: str) -> tuple[str | None, str | None]:
@@ -136,6 +146,7 @@ def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
                     "num_thread": READER_NUM_THREAD,
                 },
             },
+            timeout=_MODEL_LOAD_TIMEOUT_S,
         )
     except (urllib.error.URLError, OSError, ValueError):
         pass  # preflight_reader_env reports the missing log far more usefully
