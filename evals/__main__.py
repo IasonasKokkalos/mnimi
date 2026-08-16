@@ -29,7 +29,7 @@ OLLAMA_HOST = "http://localhost:11434"
 
 
 # The five systems of the W3 artifact: floor, truncated-context baseline,
-# ceiling, bar, mnimi. Declared once so `--system` choices and every error
+# evidence-availability bound, bar, mnimi. Declared once so `--system` choices and every error
 # message quoting them cannot drift apart — they already had, listing two
 # systems in a message the parser had also enumerated.
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")

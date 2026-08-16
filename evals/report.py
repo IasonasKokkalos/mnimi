@@ -65,9 +65,9 @@ def truncation_caveat(results: list[Result]) -> str | None:
     """Describe how much history the reader never saw, or ``None`` if it saw all.
 
     A system whose context is cut to fit the reader's window is not the baseline
-    its name claims. ``full_history`` in particular stops being a ceiling and
-    becomes "the most recent N tokens" — reporting it unqualified overstates the
-    ceiling every other system is measured against.
+    its name claims. ``full_history`` in particular is not "the entire history"
+    but "the most recent N tokens" — reporting it unqualified overstates what
+    the naive context-stuffing baseline was actually fed.
     """
     truncated = [r for r in results if r.truncated]
     if not truncated:

@@ -10,9 +10,10 @@ judged by whether it moves the table below.
 Reader model, reader prompt, retrieval `k`, and ingestion granularity are held
 identical across every row — the only variable is the context each system
 assembles. `no_memory` is the floor (answer with no history); `full_history` is
-the ceiling (stuff the entire conversation history into context); `naive_rag`
-(rounds stored verbatim) is the bar mnimi has to clear while using a fraction of
-the tokens. That is the entire bet.
+a truncated-context baseline (stuff as much history as fits the pinned 32K
+window — it truncates, so it measures what naive context-stuffing buys, not
+what is achievable); `naive_rag` (rounds stored verbatim) is the bar mnimi has
+to clear while using a fraction of the tokens. That is the entire bet.
 
 | System         | Overall | single-session-user | single-session-assistant | single-session-preference | temporal-reasoning | knowledge-update | multi-session |
 | -------------- | ------: | ------------------: | -----------------------: | ------------------------: | -----------------: | ---------------: | ------------: |

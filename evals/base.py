@@ -9,7 +9,8 @@ class MemorySystem(ABC):
     """Adapter interface for the eval harness.
 
     Deliberately separate from ``mnimi.Memory``: this is the rig's plug, so
-    every system — no-memory floor, full-history ceiling, naive-RAG, mnimi —
+    every system — no-memory floor, full-history truncated-context baseline,
+    oracle evidence-availability bound, naive-RAG, mnimi —
     is driven identically and the numbers are comparable. Per question the runner
     calls :meth:`reset` once, feeds each session via :meth:`add`, then asks for
     the assembled context with :meth:`get_context`.
@@ -19,8 +20,9 @@ class MemorySystem(ABC):
 
     #: Declares that this system reads ONLY the question's annotated evidence
     #: sessions (``answer_session_ids``) rather than the whole haystack. Exactly
-    #: one system sets it — the oracle ceiling, whose definition *is* "what the
-    #: reader scores when retrieval is perfect".
+    #: one system sets it — the oracle evidence-availability bound, whose
+    #: definition *is* "what the reader scores when exactly the annotated
+    #: evidence reaches it".
     #:
     #: It is a declared capability rather than an annotation attached to every
     #: message, and that is the whole point: ``answer_session_ids`` identifies

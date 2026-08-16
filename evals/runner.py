@@ -527,7 +527,7 @@ def _sessions_for(system: MemorySystem, q: Question) -> list[Session]:
     """The sessions one system is fed for one question.
 
     Every system sees the full haystack except one that declares
-    ``evidence_only`` — the oracle ceiling, which reads only the annotated
+    ``evidence_only`` — the oracle evidence-availability bound, which reads only the annotated
     evidence sessions. The branch is on a declared capability, never on a
     system's name, so the runner stays system-agnostic.
 

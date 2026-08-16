@@ -1,4 +1,4 @@
-"""The three Phase C systems: oracle (ceiling), naive_rag (bar), mnimi.
+"""The three Phase C systems: oracle (evidence-availability bound), naive_rag (bar), mnimi.
 
 Runs under the ``[dev]`` extra alone: every test injects ``HashingEmbedder``,
 so nothing here downloads a model. ``build_system`` is what hardcodes the real
@@ -82,7 +82,7 @@ def test_every_other_system_is_fed_the_whole_haystack():
 
 def test_oracle_formats_identically_to_full_history():
     """Formatting is worth up to 10 points at oracle retrieval (Fig 6) — so the
-    ceiling must not differ from the baseline by its renderer."""
+    oracle must not differ from the baseline by its renderer."""
     assert OracleSystem.get_context is FullHistorySystem.get_context
 
     oracle, full = OracleSystem(), FullHistorySystem()
