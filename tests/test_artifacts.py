@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from evals import __main__ as evals_main
 from evals import artifacts, runner
 from evals.dataset import file_sha256
 from evals.judge import judge_prompt_hash
@@ -323,6 +324,112 @@ class TestPreflightReaderEnv:
         """Absence of evidence is not evidence the daemon is right."""
         with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
             runner.preflight_reader_env("")
+
+
+# A correctly launched daemon's load block — OLLAMA_FLASH_ATTENTION resolved to
+# `enabled`, prompt cache off. Distinct from FAKE_SERVE_LOG, which carries the
+# tray app's unresolved `auto`.
+PINNED_LOAD_BLOCK = (
+    'time=2026-07-30T09:00:00Z level=INFO source=routes.go:2054 msg="server config" '
+    'env="map[OLLAMA_FLASH_ATTENTION:1 OLLAMA_NUM_PARALLEL:1]"\n'
+    'time=2026-07-30T09:00:02Z level=INFO msg="starting llama server" '
+    f'cmd="ollama runner --model {MODELS_DIR}/blobs/sha256-635e70c8 '
+    '--ctx-size 32768 --batch-size 512"\n'
+    "load_tensors: loading model tensors, this can take a while...\n"
+    "llama_context: flash_attn    = enabled\n"
+    "load_tensors: offloaded 29/29 layers to GPU\n"
+) + CACHE_DISABLED
+
+
+def _request_traffic(nbytes: int) -> str:
+    """Serve-log noise carrying no load block — what a warm model writes.
+
+    This is the whole mechanism of the bug: the daemon keeps appending request
+    lines for the length of a run, and never restates the settings it resolved
+    when the runner spawned.
+    """
+    line = (
+        "time=2026-07-30T09:14:22Z level=INFO source=server.go:100 "
+        'msg="request" method=POST path=/api/chat status=200\n'
+    )
+    return line * (nbytes // len(line) + 1)
+
+
+class TestModelLoadLogSelection:
+    """Which bytes of the serve log preflight is shown.
+
+    `preflight_reader_env` is only as good as the text handed to it, and
+    choosing that text is a separate job with its own failure mode — one that
+    cost three arms of the n=100 sitting.
+    """
+
+    def test_finds_the_load_block_however_far_from_the_end_it_sits(
+        self, tmp_path, monkeypatch
+    ):
+        """Regression, measured 2026-07-30 during the n=100 run.
+
+        The resolved `flash_attn` line is emitted once per runner spawn and is
+        never restated while the model stays warm, but request logging keeps
+        appending. A fixed-size tail therefore stops covering the load block
+        once a run is long enough: the log passed ~1.2 MB, the line sat at byte
+        16,862, and preflight refused three arms whose daemon was verifiably in
+        the pinned configuration.
+        """
+        log = tmp_path / "serve.log"
+        log.write_text(
+            PINNED_LOAD_BLOCK + _request_traffic(1_200_000), encoding="utf-8"
+        )
+        monkeypatch.setenv("OLLAMA_SERVE_LOG", str(log))
+
+        # The two conditions that together produced the failure.
+        assert log.stat().st_size > 1_000_000
+        assert log.read_text(encoding="utf-8").index("flash_attn") < 2_000
+
+        runner.preflight_reader_env(evals_main._recent_model_load_log())
+
+    def test_a_stale_good_block_does_not_excuse_the_current_bad_one(
+        self, tmp_path, monkeypatch
+    ):
+        """Why the fix is not "read the whole log".
+
+        `preflight_reader_env` takes the FIRST resolution it finds. Handed the
+        entire file, it would grade the oldest runner in it — so a daemon
+        restarted without OLLAMA_FLASH_ATTENTION would be waved through on the
+        strength of a correct block written hours earlier. That turns a false
+        refusal into a false pass, which is the one outcome a preflight must
+        never return.
+        """
+        log = tmp_path / "serve.log"
+        log.write_text(
+            PINNED_LOAD_BLOCK + _request_traffic(50_000) + FAKE_SERVE_LOG,
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("OLLAMA_SERVE_LOG", str(log))
+
+        with pytest.raises(runner.ReaderEnvError, match="auto"):
+            runner.preflight_reader_env(evals_main._recent_model_load_log())
+
+    def test_a_log_with_no_runner_start_marker_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        """Fail closed. Without a runner-start marker there is no way to say
+        which daemon wrote the settings below it, and unattributable evidence
+        is not evidence."""
+        log = tmp_path / "serve.log"
+        log.write_text(
+            "llama_context: flash_attn    = enabled\n" + CACHE_DISABLED,
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("OLLAMA_SERVE_LOG", str(log))
+
+        with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
+            runner.preflight_reader_env(evals_main._recent_model_load_log())
+
+    def test_a_missing_log_is_refused_rather_than_passed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OLLAMA_SERVE_LOG", str(tmp_path / "absent.log"))
+
+        with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
+            runner.preflight_reader_env(evals_main._recent_model_load_log())
 
 
 # The reference CoN template, VERBATIM from src/generation/run_generation.py

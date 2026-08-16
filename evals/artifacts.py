@@ -118,6 +118,40 @@ def _norm_env_value(value: str) -> str:
     return value.replace("\\\\", "\\").replace("/", "\\").rstrip("\\").casefold()
 
 
+# Ollama writes this once per runner spawn, immediately before the runner prints
+# the settings it resolved. It is the only line that delimits one runner's output
+# from the next one's — which is exactly what "the daemon serving this run" means.
+_RUNNER_START = re.compile(r"starting llama server")
+
+
+def recent_model_load_block(log_text: str) -> str:
+    """Everything the CURRENT runner wrote, anchored at its start marker.
+
+    The settings preflight validates — resolved `flash_attn`, prompt-cache state
+    — are stated once, when a runner spawns, and are never restated while the
+    model stays warm. Request logging meanwhile appends for the whole length of
+    a run, so the load block's distance from the end of the file grows without
+    bound. Selecting it by byte offset therefore fails on exactly the long runs
+    that matter: measured 2026-07-30, a ~1.2 MB log with the resolved line at
+    byte 16,862 fell outside a 400,000-byte tail and preflight refused three
+    arms whose daemon was verifiably in the pinned configuration. Anchoring on
+    the marker makes the result independent of both log size and model warmth.
+
+    Deliberately NOT the whole file. `preflight_reader_env` takes the FIRST
+    resolution it finds, so handing it every block would grade the oldest runner
+    in the log — waving a restarted, mis-launched daemon through on the strength
+    of a correct block written hours earlier. That converts a false refusal into
+    a false pass, and a false pass is the one outcome a preflight must never
+    return.
+
+    Returns "" when no marker is present: without one there is nothing to
+    attribute the settings below it to, and unattributable evidence is not
+    evidence. The caller fails closed on the empty string.
+    """
+    starts = [m.start() for m in _RUNNER_START.finditer(log_text)]
+    return log_text[starts[-1] :] if starts else ""
+
+
 def _tail_model_load(log_text: str) -> str:
     """The most recent model-load block, verbatim.
 

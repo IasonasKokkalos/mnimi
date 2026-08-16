@@ -142,14 +142,22 @@ def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
 
 
 def _recent_model_load_log() -> str:
-    """Tail of the daemon's serve log covering the most recent model load."""
+    """The current runner's output from the daemon's serve log.
+
+    Anchored at the runner-start marker, NOT sliced from the end of the file.
+    The settings preflight checks are written once per spawn and never restated
+    while the model stays warm, so a fixed-size tail silently stops covering
+    them as a run gets longer — see ``artifacts.recent_model_load_block`` for
+    the measured failure and for why reading the whole file is not the fix.
+    """
     path = artifacts.default_serve_log()
     if not path:
         return ""
     try:
-        return Path(path).read_text(encoding="utf-8", errors="replace")[-400_000:]
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+    return artifacts.recent_model_load_block(text)
 
 
 def ollama_context_length(model: str) -> int | None:
