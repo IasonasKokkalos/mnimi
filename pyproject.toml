@@ -31,8 +31,17 @@ dependencies = [
 [project.optional-dependencies]
 # The real embedder (BAAI/bge-small-en-v1.5 via ONNX). Optional so the core
 # stays sqlite-vec + numpy; CI and the default import path use HashingEmbedder.
+#
+# onnxruntime is pinned EXACTLY, unlike every other entry in this file. It is the
+# float kernel that produces the vectors: a different build can reorder
+# reductions or select a different fused op, which moves an embedding, which
+# moves a cosine, which moves what the 0.95 dedup screen accepts — and the
+# evidence that threshold was selected on cannot be regenerated (CLAUDE.md).
+# 1.28.0 is the version installed when every recorded run was produced, so it is
+# the version those artifacts describe. Bumping it is a re-ingest decision, not a
+# dependency refresh.
 embed = [
-    "onnxruntime>=1.20",
+    "onnxruntime==1.28.0",
     "tokenizers>=0.20",
     "huggingface-hub>=0.25",
 ]
