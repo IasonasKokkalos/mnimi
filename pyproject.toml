@@ -23,9 +23,18 @@ classifiers = [
 
 # Core dependencies are deliberately minimal. Every entry here is a liability;
 # the library must import and run with ONLY these two. See docs/DECISIONS.md.
+#
+# Both are pinned EXACTLY because both sit on the embed path: numpy does the
+# unit-normalization arithmetic on every vector, and sqlite-vec computes every
+# L2 distance behind search and the dedup probe. Same reasoning as onnxruntime
+# below — a numeric change moves a cosine, which moves what the 0.95 dedup
+# screen accepts, and that threshold's selection evidence cannot be regenerated.
+# Versions are the RUN environment's (system-Python user site: numpy 2.4.6 in
+# place since 2026-05-29, sqlite-vec 0.1.9 since 2026-07-21), not the dev
+# venv's — the venv never held the eval stack and produced no run.
 dependencies = [
-    "sqlite-vec>=0.1.6",
-    "numpy>=1.24",
+    "sqlite-vec==0.1.9",
+    "numpy==2.4.6",
 ]
 
 [project.optional-dependencies]
@@ -40,9 +49,13 @@ dependencies = [
 # 1.28.0 is the version installed when every recorded run was produced, so it is
 # the version those artifacts describe. Bumping it is a re-ingest decision, not a
 # dependency refresh.
+# tokenizers is pinned for the same reason: it decides the token IDs the ONNX
+# kernel sees, so a tokenization change moves every vector as surely as a kernel
+# change does. huggingface-hub stays ranged on purpose — it only downloads the
+# revision-pinned model bytes and touches no numeric path.
 embed = [
     "onnxruntime==1.28.0",
-    "tokenizers>=0.20",
+    "tokenizers==0.23.1",
     "huggingface-hub>=0.25",
 ]
 # The eval harness (python -m evals) is NOT part of the library. These deps are
