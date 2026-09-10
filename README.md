@@ -12,42 +12,55 @@ identical across every row — the only variable is the context each system
 assembles. `no_memory` is the floor (answer with no history); `full_history` is
 a truncated-context baseline (stuff as much history as fits the pinned 32K
 window — it truncates, so it measures what naive context-stuffing buys, not
-what is achievable); `naive_rag` (rounds stored verbatim) is the bar mnimi has
-to clear while using a fraction of the tokens. That is the entire bet.
+what is achievable); `oracle` is the evidence-availability bound (the reader is
+handed exactly the evidence sessions); `naive_rag` (rounds stored verbatim) is
+the bar mnimi has to clear while using a fraction of the tokens. That is the
+entire bet.
 
-| System         | Overall | single-session-user | single-session-assistant | single-session-preference | temporal-reasoning | knowledge-update | multi-session |
-| -------------- | ------: | ------------------: | -----------------------: | ------------------------: | -----------------: | ---------------: | ------------: |
-| no_memory      |     TBD |                 TBD |                      TBD |                       TBD |                TBD |              TBD |           TBD |
-| full_history   |     TBD |                 TBD |                      TBD |                       TBD |                TBD |              TBD |           TBD |
-| naive_rag      |       — |                   — |                        — |                         — |                  — |                — |             — |
-| **mnimi**      |       — |                   — |                        — |                         — |                  — |                — |             — |
+### The published number — five arms, n=100, one sitting
 
-`—` = not built yet. `naive_rag` and `mnimi` ship in the same batch, because the
-two numbers are only interpretable side by side.
+| System         | Score         | 95% CI (Wilson) | mean fed tokens | truncated |
+| -------------- | ------------: | --------------: | --------------: | --------: |
+| no_memory      |  4/100 (4%)   |     [1.6, 9.8]  |             166 |     0/100 |
+| full_history   | 17/100 (17%)  |    [10.9, 25.5] |          27,464 |   100/100 |
+| oracle         | 50/100 (50%)  |    [40.4, 59.6] |           5,153 |     0/100 |
+| naive_rag      | 41/100 (41%)  |    [31.9, 50.8] |           4,710 |     0/100 |
+| **mnimi**      | 35/100 (35%)  |    [26.4, 44.7] |           4,708 |     0/100 |
 
-### Provisional smoke run — not a published number
+**Provenance:** sitting of 2026-08-16 · reader transport **Ollama 0.32.13** ·
+harness commit `ae5da2b` (clean tree) · reader `qwen2.5:1.5b-instruct-q4_0`
+(digest `635e70c8…`), prompt `mnimi-con-v1` · judge `gpt-4o-2024-08-06` ·
+stratified 100-question slice, seed 0 · NVIDIA RTX 1000 Ada Laptop GPU, driver
+595.95, CUDA 13.2 · `provisional: []` on all five. The artifacts, the full
+provenance table, the paired McNemar tests and every caveat live in
+[`results/published/`](results/published/); the numbers above are copied from
+there, never typed in.
 
-A 20-question stratified slice, reader `qwen2.5:1.5b-instruct-q4_0`, judge
-`gpt-4o-2024-08-06`. Artifacts committed under
-[`results/published/`](results/published/):
+Read it with the caveats attached:
 
-| System       | Overall | ssu | ssa | ssp |  tr |  ku |  ms |
-| ------------ | ------: | --: | --: | --: | --: | --: | --: |
-| no_memory    |  2/20   | 1/4 | 1/4 | 0/3 | 0/3 | 0/3 | 0/3 |
-| full_history |  4/20   | 1/4 | 0/4 | 0/3 | 1/3 | 2/3 | 0/3 |
+- **mnimi is significantly above the floor** (vs `no_memory`: b=33, c=2,
+  Holm-corrected p≈0) and **below the evidence-availability bound**
+  (vs `oracle`: b=3, c=18, p_holm=0.003).
+- **mnimi vs naive_rag — the pre-specified primary — went against mnimi**
+  (b=0, c=6, p=0.031): all six discordant questions are ones the v1 dedup screen
+  changed the retrieved set on. Six is the smallest discordance at which p<0.05
+  exists, and the pre-registration was written for an earlier reader build, so
+  this is a directionally uniform signal to investigate, not a confirmatory
+  result. v1's write side is a dedup screen and nothing else; the bet attaches
+  to the extraction era.
+- `full_history` truncates every question to the most recent ~27k tokens; it is
+  a truncation policy, not full history.
+- Absolute scores carry judge instrument error (gpt-4o at temperature 0 flipped
+  9 of 140 re-gradings on one borderline row) on top of sampling error. No
+  per-category cell is quoted: at n=100 they hold 16–17 questions each.
+- **The reader build is part of the number.** The same pins on Ollama 0.32.5
+  scored 5 / 12 / 43 / 41 / 43 with byte-identical prompts — every point of
+  movement was the reader binary. The build is now a harness pin (below).
 
-The harness marks both **PROVISIONAL — not publishable**, for two reasons: the
-reader prompt is `plain-prose-v2` and the pinned configuration calls for JSON +
-Chain-of-Note (`json-con-v1`, Phase D), and the harness tree was dirty at run
-time. A 20-question slice also carries a sampling error far larger than any
-effect worth reporting. Quote these numbers nowhere.
-
-`full_history` truncated all 20 questions — mean 27,210 prompt tokens fed, ~1.8M
-dropped (~77% of history) — so that row is "most recent ~27k tokens", not a
-ceiling.
-
-Provisional and auditable are separate claims: these artifacts fail the first and
-pass the second. Anyone can recompute their score in seconds (below).
+Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
+`full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
+`results/published/` because a published artifact is immutable. They are marked
+provisional by the harness and are quoted nowhere.
 
 ## Running the harness
 
@@ -59,33 +72,42 @@ pip install -e ".[eval]"
 ollama pull qwen2.5:1.5b-instruct-q4_0     # the pinned reader
 echo 'OPENAI_API_KEY=sk-...' >> .env       # judge only (gpt-4o-2024-08-06)
 
-# The daemon MUST be launched with these set, and the tray app must not be
-# serving on 11434. Both are resolved at daemon start and cannot be sent
-# per-request; a run under the wrong daemon is a different configuration
-# wearing this one's pins_hash, so preflight refuses to run.
+# Three daemon-level pins, none of which can be sent per request:
+#   - the Ollama build itself must be 0.32.13 (`ollama --version`; preflight
+#     reads GET /api/version and refuses any other build BEFORE loading a
+#     model — a build change moved 20/20 predictions on identical prompts, so
+#     stop the tray app's auto-updater);
+#   - OLLAMA_FLASH_ATTENTION=1 and LLAMA_ARG_CACHE_RAM=0, resolved at daemon
+#     start; the tray app's daemon sets neither and must not be serving on
+#     11434.
+# A run under the wrong daemon is a different configuration wearing this one's
+# pins_hash, so preflight refuses to run.
 OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 OLLAMA_SERVE_LOG=serve.log ollama serve
 
-python -m evals --system full_history --limit 20    # predict + judge
+python -m evals --system mnimi --limit 100          # predict + judge
 python -m evals --system no_memory --limit 500      # the full set
 ```
 
 `--limit` defaults to 10 (a cheap smoke run) and selects questions
 **stratified** across categories, because the dataset is clustered by category
 and a file-order slice comes back single-category — not comparable across
-systems. Pass a limit at or above the dataset size to run everything.
+systems. Pass a limit at or above the dataset size to run everything. n=20 is a
+smoke test only: categories sit at 3–4 questions and one question is 5 points.
 
 The two stages split, so neither half needs the other's dependency:
 
 ```bash
-python -m evals --system no_memory --limit 20 --stage predict   # Ollama, no API key
-python -m evals --system no_memory --limit 20 --stage judge     # API key, no GPU
+python -m evals --system no_memory --limit 100 --stage predict   # Ollama, no API key
+python -m evals --system no_memory --limit 100 --stage judge     # API key, no GPU
+python -m evals.stats runs/mnimi__100q runs/naive_rag__100q      # paired McNemar + Holm
 ```
 
 Each run writes `pins.json`, `predictions.jsonl`, and `results.json` under
 `runs/<system>__<N>q/`. The pins header records the dataset sha256, reader model
-digest, every decode pin, and both prompt hashes, so a run is self-identifying.
-`runs/` is gitignored scratch; a run whose number gets quoted is copied to
-[`results/published/`](results/published/) and committed.
+digest, the Ollama build, every decode pin, and both prompt hashes, so a run is
+self-identifying; `results.json` additionally records what the daemon actually
+resolved. `runs/` is gitignored scratch; a run whose number gets quoted is
+copied to [`results/published/`](results/published/) and committed.
 
 ## Reproducibility
 
@@ -96,7 +118,7 @@ because conflating them overstates what the artifacts prove.
 
 ```bash
 python -m evals --stage judge \
-    --predictions results/published/no_memory__20q/predictions.jsonl
+    --predictions results/published/mnimi__100q/predictions.jsonl
 ```
 
 Seconds to run. **No GPU, no Ollama, no model weights, no dataset download, and
@@ -115,26 +137,32 @@ predictions came from the pipeline the pins claim. Tier 1 is *auditable*, never
 
 `--stage predict` regenerates the predictions given the request pins
 (`num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`,
-temperature 0, `num_ctx=32768`) **and** the daemon-level pins
-(`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`), which are resolved at
-daemon start and asserted at preflight.
+temperature 0, `num_ctx=32768`) **and** the daemon-level pins — the Ollama build
+(`0.32.13`), `OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0` — which are
+resolved at daemon start and asserted at preflight before any model load.
 
-Measured error bar, same `pins_hash` across a daemon restart on a clean GPU:
-**0/20 predictions changed** on both published systems (10.0% → 10.0%,
-20.0% → 20.0%). Getting there took three attempts and two wrong conclusions —
-the full bisection, including the retired ones, is in
-[docs/SPEC.md](docs/SPEC.md) and [docs/DECISIONS.md](docs/DECISIONS.md), because
-the self-corrections are the evidence.
+What has been measured: the reader binary is the whole error bar. Across the
+0.32.5 → 0.32.13 build change, with pins, prompts and fed-token counts
+byte-identical on every row, **20/20 predictions changed** on every arm and the
+headline moved by up to 8 points. That is why the build became a pin. What has
+**not** been measured: a daemon-restart pair on 0.32.13 itself — so the
+published set is auditable (Tier 1) and carries no restart-stability figure of
+its own. Earlier restart figures were measured under a retired prompt and a
+retired build and are not cited. The bisection that found the request-level
+and daemon-level pins, including the two wrong conclusions along the way, is in
+[docs/SPEC.md](docs/SPEC.md) and [docs/DECISIONS.md](docs/DECISIONS.md),
+because the self-corrections are the evidence.
 
-Bit-identity across different GPUs, drivers, CUDA versions or Ollama builds is
-**not** claimed: each can change kernel selection and therefore float reduction
-order. Deviating from a pin self-marks the artifact provisional.
+Bit-identity across different GPUs, drivers or CUDA versions is **not**
+claimed: each can change kernel selection and therefore float reduction order.
+Deviating from a request pin self-marks the artifact provisional; deviating
+from a daemon pin is refused outright.
 
 ### Tier 3 — containerized reference environment
 
-Queued, not forced: both variables that would have made it mandatory (flash
-attention, the prompt cache) proved controllable in-process. Trigger conditions
-in [docs/FUTURE.md](docs/FUTURE.md).
+Queued, not forced: the variables that would have made it mandatory (flash
+attention, the prompt cache, the server build) proved controllable in-process
+or checkable at preflight. Trigger conditions in [docs/FUTURE.md](docs/FUTURE.md).
 
 Competitor runs go through the same harness, the same reader, and the same judge,
 so their numbers are auditable on identical terms.
@@ -163,11 +191,17 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, and the library is the part that isn't built. The eval harness runs
-today with two baselines (`no_memory`, `full_history`); the write-side policy
-that `Memory` promises — extraction, dedup, conflict resolution, decay — is
-specified but not implemented, and the default embedder is a numpy hashing
-placeholder. `docs/SPEC.md` describes the target, not the current code.
+Pre-alpha, v1.4.0. The block above is the locked contract; what ships today is
+narrower. Built: per-round ingestion with an exact-match plus cosine dedup
+screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
+one shared context renderer, the `memory_meta` guard that refuses a store built
+by a different embedder or embed template, the real `BAAI/bge-small-en-v1.5`
+embedder behind the `[embed]` extra (the default import path is a numpy hashing
+placeholder), and the full five-arm eval harness. Not built: extraction (the
+one LLM the library will ever call), conflict resolution, decay and the salience
+multiplier — `consolidate()` is a no-op — and `export()`; `recall()` currently
+returns plain records without the score. `docs/SPEC.md` § "v1 as built" is the
+exact list; the rest of SPEC describes the target.
 
 See [docs/SPEC.md](docs/SPEC.md) for the contract,
 [docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions, and
