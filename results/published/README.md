@@ -9,7 +9,7 @@ Each subdirectory is one run and holds three files:
 | --- | --- |
 | `pins.json` | the reproducibility header: dataset sha256, reader model digest, every decode pin, both prompt hashes, and `pins_hash` over all of it |
 | `predictions.jsonl` | one row per question, carrying the question text and the gold answer **inline** alongside the reader's answer |
-| `results.json` | the header again, the `provisional` list, run stats, and the graded per-question rows |
+| `results.json` | the header again, the `provisional` list, run stats, the resolved daemon environment (`run.environment`), and the graded per-question rows |
 
 ## Verify a number yourself (Tier 1)
 
@@ -18,7 +18,7 @@ pip install -e ".[eval]"
 echo 'OPENAI_API_KEY=sk-...' >> .env
 
 python -m evals --stage judge \
-    --predictions results/published/no_memory__20q/predictions.jsonl
+    --predictions results/published/mnimi__100q/predictions.jsonl
 ```
 
 Seconds to run. No GPU, no Ollama, no local model weights, no dataset download,
@@ -43,15 +43,99 @@ preconditions in `docs/SPEC.md`.
 
 ## What is here
 
+### The published number: five arms, n=100, one sitting (2026-08-16)
+
+Every value below is copied from the artifacts (`results.json` `summary` /
+`run` / `run.environment` blocks, `pins.json`) or printed by
+`python -m evals.stats` over these five directories. Nothing is hand-computed.
+
+**Provenance — the same for all five arms:**
+
+| field | value |
+| --- | --- |
+| date | 2026-08-16, one sitting, `--stage all` per arm, no re-runs |
+| harness commit | `ae5da2b1de38d523d4b6149d8af4974d09a69f30` — **clean tree**, no `-dirty` suffix |
+| artifact schema | `mnimi-eval-artifact/4` |
+| `provisional` | `[]` on all five — the harness marks nothing about this set as unquotable |
+| reader transport | **Ollama 0.32.13** (`run.environment.ollama_version`) |
+| reader | `qwen2.5:1.5b-instruct-q4_0`, digest `635e70c8687b9d74…`, `num_ctx=32768`, `num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`, temperature 0 |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` |
+| daemon | launched manually with `OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0`, tray app killed; resolved `Flash Attention enabled`, `prompt cache disabled`, 29/29 layers offloaded, `ollama_env_mismatch: none` — asserted at preflight per arm |
+| hardware | NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2 |
+| run environment | system Python 3.14.4 (`C:\Python314`), user site-packages; `numpy 2.4.6`, `sqlite-vec 0.1.9`, `onnxruntime 1.28.0`, `tokenizers 0.23.1` (the pins in `pyproject.toml`) |
+| dataset | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442` |
+| sampling | `stratified-round-robin`, seed 0, n=100 (16–17 per category, 5 abstention questions); the same 100 question ids as the 2026-07-30 sitting |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3`, temperature 0, `max_tokens=10` |
+| retrieval arms | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10`; mnimi `dedup_cosine_threshold=0.95`, `embed_template_hash` `d7c07af084510d83…` |
+
+**Scores** (Wilson 95% CI; fed tokens are the reader's own `prompt_eval_count`):
+
+| run | score | 95% CI | mean fed tokens | truncated | quotable? |
+| --- | --- | --- | --- | --- | --- |
+| `no_memory__100q` | 4/100 (4.0%) | [1.6, 9.8] | 166 | 0/100 | yes |
+| `full_history__100q` | 17/100 (17.0%) | [10.9, 25.5] | 27,464 | **100/100** (~9.2M tokens dropped) | yes, only with the truncation caveat |
+| `oracle__100q` | 50/100 (50.0%) | [40.4, 59.6] | 5,153 | 0/100 | yes |
+| `naive_rag__100q` | 41/100 (41.0%) | [31.9, 50.8] | 4,710 | 0/100 | yes |
+| `mnimi__100q` | 35/100 (35.0%) | [26.4, 44.7] | 4,708 | 0/100 | yes |
+
+**Paired tests** (exact McNemar, `python -m evals.stats` over these
+directories; the harness parity guard passed across all five arms):
+
+| comparison | b | c | discordant | p | p_holm |
+| --- | --- | --- | --- | --- | --- |
+| mnimi vs naive_rag (pre-specified primary) | 0 | 6 | 6 | 0.0313 | — (uncorrected) |
+| mnimi vs no_memory | 33 | 2 | 35 | 0.0000 | 0.0000 |
+| mnimi vs full_history | 26 | 8 | 34 | 0.0029 | 0.0030 |
+| mnimi vs oracle | 3 | 18 | 21 | 0.0015 | 0.0030 |
+
+**What this set claims, and what it does not:**
+
+- **Auditable, not reproducible.** Tier 1 holds for every row. Tier 2 (a
+  daemon-restart pair on Ollama 0.32.13) was **not measured** for this
+  sitting; the restart figure in `docs/SPEC.md` was measured on 0.32.5 and
+  does not transfer.
+- **The reader build is part of the number.** The same pins on Ollama 0.32.5
+  (2026-07-30, dirty tree, never published) scored 5 / 12 / 43 / 41 / 43 with
+  `reader_prompt_tokens` byte-identical on every row of every arm — every
+  point of movement is the reader binary. The daemon on the development
+  machine has since moved to 0.33.3, so **this set cannot be regenerated on
+  that machine as it stands**. Since v1.4.0 the harness pins the build
+  (`reader_transport_version`, schema /5) and preflight refuses any other.
+- **The primary is post-hoc for this transport.** The 2026-07-30
+  pre-registration (`docs/DECISIONS.md`) named mnimi vs naive_rag as a null
+  for the 0.32.5 sitting; on 0.32.13 all six discordant pairs go against
+  mnimi, and six is the smallest discordance at which p<0.05 exists. It is a
+  directionally uniform signal that the v1 dedup screen costs points under
+  this reader — grounds to investigate those six questions, not a
+  confirmatory result.
+- **Absolute scores carry judge instrument error** (measured 9 flips in 140
+  gradings on one borderline row) on top of sampling error; no absolute
+  difference smaller than that is interpretable. Paired comparisons are
+  unaffected.
+- **No per-category cell is quoted.** At n=100 the cells are 16–17 questions;
+  they are in each `results.json` `summary.by_category` for completeness only.
+- **`full_history` is a truncation policy, not full history**: most-recent
+  ~27k tokens under the pinned 32K window, 100/100 questions truncated.
+- The n=100 headline includes the 20-question dev slice the 0.95 dedup
+  threshold was selected on; the held-out 80 (questions 21–100) score
+  3 / 14 / 42 / 36 / 30 and every discordant pair of the primary sits inside
+  them.
+
+`model_load.log` (the verbatim daemon load block per arm) was not promoted; the
+resolved values it proves are recorded in `results.json` `run.environment`.
+
+### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
+
 | run | score | quotable? |
 | --- | --- | --- |
 | `no_memory__20q` | 2/20 (10.0%) | no — provisional |
 | `full_history__20q` | 4/20 (20.0%) | no — provisional |
 
-Both carry a non-empty `provisional` list, for two reasons each:
+Ollama 0.32.4, harness `c85a174-dirty`, reader prompt `plain-prose-v2`. Both
+carry a non-empty `provisional` list, for two reasons each:
 
-1. **`reader prompt is plain-prose-v2`** — the pinned reader prompt is meant to
-   be JSON + Chain-of-Note (`json-con-v1`), which lands in Phase D.
+1. **`reader prompt is plain-prose-v2`** — the pinned reader prompt is
+   `mnimi-con-v1` (Phase D); these predate it.
 2. **`harness tree was dirty at run time`** — `harness_git_sha` ends in
    `-dirty`, so the exact harness source that produced these rows is not
    identified by a commit.
@@ -59,11 +143,8 @@ Both carry a non-empty `provisional` list, for two reasons each:
 A provisional artifact is still fully auditable — that is the point of keeping
 the two claims separate. `provisional` answers "may I quote this number?"; Tier
 1 answers "does the judge reproduce it from these predictions?". These artifacts
-are published for the second question and fail the first.
-
-`full_history__20q` additionally truncated all 20 questions: mean 27,210 prompt
-tokens fed, ~1.8M dropped (~77% of history). That row is "most recent ~27k
-tokens", not a full-history ceiling.
+are published for the second question and fail the first. They stay because a
+published artifact is immutable, not because they say anything.
 
 ## Rules
 
@@ -73,3 +154,8 @@ tokens", not a full-history ceiling.
   subdirectory, not an overwrite — the old one stays so the change is visible.
 - **Publish the pair, not the score.** A number quoted anywhere in this repo
   should be traceable to a directory here.
+- **A number never travels without its provenance.** Reader build, harness
+  commit, daemon environment and date go wherever the score goes. The reader
+  transport moved twice under identical pins (0.32.5 → 0.32.13 → 0.33.3) and
+  each move changed 20/20 predictions on byte-identical prompts, so a bare
+  score cannot be told apart from a score on a different build.

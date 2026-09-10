@@ -135,9 +135,12 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   dirty harness tree, a reader prompt other than `mnimi-con-v1`, or a file-order
   slice each mark the artifact **PROVISIONAL — not publishable**; don't quote a
   provisional number. Provisional and auditable are separate claims — a
-  provisional artifact is still fully auditable. **Today `results/published/`
-  holds only the two n=20 `plain-prose-v2` runs (`no_memory`, `full_history`),
-  themselves provisional; the W3 n=100 set has not been published.**
+  provisional artifact is still fully auditable. **`results/published/` holds
+  the five-arm n=100 sitting of 2026-08-16 (Ollama 0.32.13, sha `ae5da2b`
+  clean, `provisional: []` on all five — the published number, see its
+  README for the full provenance) plus the two provisional n=20
+  `plain-prose-v2` smoke dirs. The 0.32.5 n=100 set (dirty tree) was never
+  published.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **The judge is not deterministic on borderline rows.** gpt-4o at temperature 0

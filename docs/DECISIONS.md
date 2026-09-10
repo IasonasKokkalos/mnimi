@@ -771,3 +771,32 @@ format-parity change would have moved every vector and voided the evidence
 the 0.95 dedup threshold was selected on — evidence that cannot be
 regenerated, since further threshold selection against LongMemEval is
 prohibited.
+
+## The published number is the 0.32.13 sitting (2026-09-10)
+
+**Decision:** `runs/replay/{no_memory,full_history,oracle,naive_rag,mnimi}__100q/`
+— the five-arm n=100 sitting of 2026-08-16 on Ollama 0.32.13, harness
+`ae5da2b` with a clean tree, `provisional: []` on every arm — is promoted to
+`results/published/<arm>__100q/` and is the number this repo quotes:
+no_memory 4, full_history 17, oracle 50, naive_rag 41, mnimi 35 (of 100).
+
+**The alternatives, and why not.** (a) The 2026-07-30 sitting on 0.32.5
+(`runs/<arm>__100q/`, mnimi 43 = oracle 43) is provisional on a dirty tree and
+cannot be regenerated: the transport moved under it, 20/20 predictions changed
+on byte-identical prompts, and the headline it supported reversed on the next
+build. (c) Waiting for a daemon-restart pair on a frozen build would leave the
+repo with no published n=100 number at all while the only build with a
+publishable-grade set is already gone from the development machine (daemon now
+0.33.3). The 0.32.13 set is the only one the harness itself marks quotable.
+
+**What it claims.** Tier 1 auditable on every row; Holm-significant separation
+from `no_memory` (b=33, c=2); mnimi below the evidence-availability bound
+(b=3, c=18). **What it does not claim.** Tier 2 reproducibility on 0.32.13
+(restart pair unmeasured); a confirmatory primary — mnimi vs naive_rag
+(b=0, c=6, p=0.0313) is post-hoc relative to the 0.32.5 pre-registration and
+sits at the minimum discordance where p<0.05 exists; any per-category cell.
+
+**The rule that comes with it.** A benchmark number never travels without its
+provenance — reader build, harness commit, daemon environment, date. Two
+transport moves under identical `pins_hash` are the reason; the build itself
+becomes a pin in the next commit (pins schema /5).
