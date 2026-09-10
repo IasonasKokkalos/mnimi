@@ -845,3 +845,66 @@ the only build with a publishable-grade n=100 set; a run against the current
 0.33.3 daemon is refused (measured 2026-09-10: exit 2 at preflight naming both
 builds, no runner spawned, no run directory touched) until either that build is
 restored or the constant is changed deliberately and every arm re-baselined.
+
+## Reader transport frozen at 0.32.13 by rollback; restart pair 0/100 (2026-09-10)
+
+**Decision:** the development machine serves the pinned build from the release
+zip, `D:\ollama-0.32.13\` (`ollama-windows-amd64.zip` of tag v0.32.13, sha256
+`20d61a8075038694f5b6db1e937551dbc79d470e85217003facf6ecaac394258`, verified
+against the release's `sha256sum.txt`). The desktop app (0.33.3) is
+uninstalled, not merely stopped. Rollback chosen over a 0.33.3 re-baseline:
+the re-baseline costs a three-hour sitting and a third mutually incomparable
+set, and would supersede the published number the day after it was published;
+the rollback costs thirty minutes and lets the published set gain the Tier 2
+figure it lacked.
+
+**What was found on the machine.** The desktop app's updater checks ollama.com
+hourly and had already downloaded the v0.34.0 installer (1.47 GB, staged
+under `%LOCALAPPDATA%\Ollama\updates_v2\`) for application at its next
+launch — the mechanism that moved this machine 0.32.5 → 0.32.13 (2026-08-16)
+and → 0.33.3 (2026-09-04, `upgrade.log`). Its `auto_update_enabled` setting
+only suppresses the download; the check continues and a staged installer is
+still applied. There is no supported way to freeze a desktop install, so the
+freeze is structural: no desktop app, a version-named folder, PATH pointing at
+it, and `READER_TRANSPORT_VERSION` refusing anything else.
+
+**Procedure, as executed.** (0) Tray and daemon killed, staged installer and
+the `Startup\Ollama.lnk` shortcut deleted — before anything else, because a
+reboot would have installed 0.34.0. (1) Zip downloaded, checksum verified,
+extracted; client reports 0.32.13. (2) 0.33.3 uninstalled silently (exit 0):
+app folder, uninstall key and `%LOCALAPPDATA%\Ollama` removed; models in
+`D:\ollama-models` untouched (same blob, digest `635e70c8…`); the stale PATH
+entry replaced with `D:\ollama-0.32.13`. (3) Daemon launched with
+`OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0`, stderr redirected to the
+file `OLLAMA_SERVE_LOG` names; `/api/version` = 0.32.13, `server config`
+shows `OLLAMA_FLASH_ATTENTION:true`. (4) `no_memory --limit 1 --stage predict`
+passed every preflight (build, `flash_attn = enabled`, `prompt cache is
+disabled`, 29/29 layers) and wrote the first schema /5 artifact; its one
+prediction matched the published row byte for byte. (5) Restart pair below.
+
+**The measurement.** `mnimi --limit 100 --stage predict` into
+`runs/restart_pair/`, after `ollama stop` so the run began with the pinned
+warm-up load; 3,700 s; the serve log shows no model reload during the run.
+Against `results/published/mnimi__100q/predictions.jsonl`: `predicted`
+identical 100/100, `reader_prompt_tokens` identical 100/100, `truncated`
+identical 100/100. That is across a daemon restart, a reinstall of the server
+binary from a different distribution (installer → zip), 25 days, several
+reboots, three harness commits (`ae5da2b` → `511edd2`) and the pins schema
+/4 → /5 bump. Promoted as `results/published/mnimi__100q_restart_2026-09-10/`
+(predict-only) so the claim is a diff. The elapsed time differed (2,136 s in
+August; the CPU-bound ingest ran ~4× slower for the first 20 questions this
+time, then at the August pace) — timing is not a pin and the rows did not
+care.
+
+**What it does and does not establish.** Tier 2 on 0.32.13 for the mnimi arm:
+0/100 changed. The other four arms were not replayed; they carry Tier 1 only
+until they are. Nothing about 0.33.3 or any other build; those are refused.
+The 2026-07-30 four-arm n=20 figure on 0.32.5 is consistent and superseded.
+
+**Residual hazards, named.** NVIDIA driver updates (595.95 today, the value in
+every published `run.environment`) are recorded but not pinned and can move
+the reader the same way; pause them. Reinstalling the desktop app on any
+machine restarts the whole problem. The keep-alive is 5 min: an ingest slower
+than that between two reads would unload and reload the model mid-run, which
+changes the CUDA graph state the warm-up load exists to absorb — check the
+runner-start marker count in the serve log after any long arm.

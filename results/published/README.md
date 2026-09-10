@@ -90,17 +90,21 @@ directories; the harness parity guard passed across all five arms):
 
 **What this set claims, and what it does not:**
 
-- **Auditable, not reproducible.** Tier 1 holds for every row. Tier 2 (a
-  daemon-restart pair on Ollama 0.32.13) was **not measured** for this
-  sitting; the restart figure in `docs/SPEC.md` was measured on 0.32.5 and
-  does not transfer.
+- **Auditable on every row, and reproducible on this build for the mnimi arm.**
+  Tier 1 holds for every row. Tier 2 was measured on 2026-09-10: a fresh
+  `--stage predict` of mnimi at n=100 on Ollama 0.32.13 (reinstalled from the
+  release zip after the desktop app had drifted to 0.33.3) replayed 100/100
+  predictions byte-identical to `mnimi__100q`, `reader_prompt_tokens` and the
+  truncation flag identical on every row. Evidence:
+  `mnimi__100q_restart_2026-09-10/` below. The other four arms carry the
+  Tier 1 claim only; their restart pairs have not been run on this build.
 - **The reader build is part of the number.** The same pins on Ollama 0.32.5
   (2026-07-30, dirty tree, never published) scored 5 / 12 / 43 / 41 / 43 with
   `reader_prompt_tokens` byte-identical on every row of every arm — every
-  point of movement is the reader binary. The daemon on the development
-  machine has since moved to 0.33.3, so **this set cannot be regenerated on
-  that machine as it stands**. Since v1.4.0 the harness pins the build
-  (`reader_transport_version`, schema /5) and preflight refuses any other.
+  point of movement is the reader binary. Since v1.4.0 the harness pins the
+  build (`reader_transport_version`, schema /5) and preflight refuses any
+  other; the development machine was rolled back to 0.32.13 on 2026-09-10
+  (`docs/DECISIONS.md`).
 - **The primary is post-hoc for this transport.** The 2026-07-30
   pre-registration (`docs/DECISIONS.md`) named mnimi vs naive_rag as a null
   for the 0.32.5 sitting; on 0.32.13 all six discordant pairs go against
@@ -123,6 +127,21 @@ directories; the harness parity guard passed across all five arms):
 
 `model_load.log` (the verbatim daemon load block per arm) was not promoted; the
 resolved values it proves are recorded in `results.json` `run.environment`.
+
+### Restart-pair evidence: `mnimi__100q_restart_2026-09-10/` (predict-only)
+
+Two files, `pins.json` and `predictions.jsonl`, from a fresh
+`python -m evals --system mnimi --limit 100 --stage predict` on 2026-09-10:
+Ollama 0.32.13 served from the release zip (`D:\ollama-0.32.13`, sha256 of the
+zip `20d61a80…4258` as published in the release's `sha256sum.txt`), harness
+`511edd2` clean, schema `/5`, same GPU and driver 595.95, daemon launched with
+the two env vars and the tray app uninstalled. It is not a graded run and has
+no `results.json`; it exists so the Tier 2 claim on `mnimi__100q` is a `diff`,
+not a sentence: every `predicted`, `reader_prompt_tokens` and `truncated`
+value matches the published row for the same `question_id`, 100/100 — in fact
+`cmp` on the two `predictions.jsonl` files reports no difference at all. The
+`pins.json` differs from the published one on `artifact_schema`,
+`harness_git_sha` and the added `reader_transport_version` — by design.
 
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 

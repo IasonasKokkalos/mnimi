@@ -141,9 +141,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   provisional artifact is still fully auditable. **`results/published/` holds
   the five-arm n=100 sitting of 2026-08-16 (Ollama 0.32.13, sha `ae5da2b`
   clean, `provisional: []` on all five — the published number, see its
-  README for the full provenance) plus the two provisional n=20
-  `plain-prose-v2` smoke dirs. The 0.32.5 n=100 set (dirty tree) was never
-  published.**
+  README for the full provenance), the predict-only restart-pair evidence
+  `mnimi__100q_restart_2026-09-10` (100/100 rows identical to `mnimi__100q`),
+  plus the two provisional n=20 `plain-prose-v2` smoke dirs. The 0.32.5 n=100
+  set (dirty tree) was never published.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **The judge is not deterministic on borderline rows.** gpt-4o at temperature 0
@@ -151,9 +152,13 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   20 cache-bypassed re-grades). Absolute scores carry judge instrument error on
   top of question-sampling error, and no absolute difference smaller than that
   rate is interpretable. Paired comparisons are unaffected.
-- **The daemon precondition is part of the run.** Launch Ollama manually with
-  `OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0`, with the tray app not
-  serving. Preflight asserts the daemon's *resolved* values and refuses
+- **The daemon precondition is part of the run.** Launch the pinned build
+  manually — on the development machine `/d/ollama-0.32.13/ollama.exe serve`
+  (the release zip, version-named folder, no tray, no updater) with
+  `OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0` and stderr redirected to the
+  file `OLLAMA_SERVE_LOG` names. The tray app is not installed and must not be:
+  its updater moved the build three times (SPEC § daemon precondition).
+  Preflight asserts the daemon's *resolved* values and the build, and refuses
   otherwise. Kill `llama-server` children too — they outlive the daemon and hold
   VRAM. **Known preflight bug (measured 2026-07-30, unfixed):** it scans the last
   400 KB of the serve log for the resolved `flash_attn` line, but that line is
@@ -170,11 +175,15 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   never *reproducible* — this is a language rule, not a preference.
 - **Tier 2 — reproducible given the pins AND the daemon precondition.**
   `--stage predict` reproduces predictions on comparable hardware. Current
-  measured error bar: the n=20 prefix of the n=100 slice replayed
-  **byte-identical predictions across a daemon restart and a commit, on four
-  independent arms** — observed as uniform 20-per-arm verdict-cache hits in the
-  n=100 judge stage. Predictions changed: 0. Score delta: 0. No bit-identity
-  claim across different GPUs, drivers, CUDA versions or Ollama builds. The
+  measured error bar (2026-09-10, Ollama 0.32.13): a fresh mnimi n=100 predict
+  replayed **100/100 predictions byte-identical to the published artifact**,
+  prompt tokens identical on every row, across a daemon restart, a reinstall of
+  the server binary, 25 days, three commits and the schema /5 bump. Predictions
+  changed: 0. Score delta: 0. Evidence:
+  `results/published/mnimi__100q_restart_2026-09-10/`. The 2026-07-30 n=20
+  four-arm figure (0.32.5) is consistent but superseded — its build is refused
+  now. No bit-identity claim across different GPUs, drivers or CUDA versions;
+  a different Ollama build is refused, not tolerated. The
   `run.environment` block is diagnostic only and never enters `pins_hash`;
   `pins_hash` identifies what was *requested*, the run block what was *resolved*.
   **Retired — do not cite:** the "12/20 changed, 5 points" figure (judge-stage

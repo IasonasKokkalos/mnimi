@@ -1199,13 +1199,23 @@ identical short answers, so a clean count there is close to guaranteed and says
 little about a system that ingests 500 records per question. The probe belongs
 on a retrieval arm.
 
-Current figure, measured under `mnimi-con-v1` at HEAD-adjacent state
-(2026-07-30, the n=100 evidence run): the n=20 prefix questions replayed
-**byte-identical predictions across a daemon restart and a commit on four
-independent arms** — observed as uniform 20-per-arm verdict-cache hits in the
-n=100 judge stage. Predictions changed: 0. Score delta: 0. The four arms
-include both retrieval arms (mnimi, naive_rag), so the figure carries weight
-beyond a context-free floor system.
+Current figure, measured 2026-09-10 on the published build (Ollama 0.32.13)
+against the published `mnimi__100q` artifact: a fresh `--stage predict` of the
+mnimi arm at n=100 replayed **100/100 predictions byte-identical**, with
+`reader_prompt_tokens` and the truncation flag identical on every row, across a
+daemon restart, a reinstall of the server binary from a different distribution
+(the tray installer's `ollama.exe` → the release zip's), 25 days, several
+reboots, three harness commits (`ae5da2b` → `511edd2`) and the pins schema
+/4 → /5 bump. Predictions changed: 0. Score delta: 0. The evidence is committed
+as `results/published/mnimi__100q_restart_2026-09-10/` (predict-only: pins and
+predictions; the comparison is row-by-row, since `pins.json` differs by design
+on schema and sha). `elapsed_s` differed (3,700 s vs 2,136 s — the CPU-bound
+ingest ran slower for the first 20 questions); timing is not a pin.
+
+Previous figure, superseded (measured 2026-07-30 on Ollama 0.32.5, a build
+this harness now refuses): the n=20 prefix replayed byte-identical across a
+daemon restart and a commit on four arms. Consistent with the current figure,
+no longer citable on its own because its build is gone.
 
 **Retired figures — do not cite:** (a) the earlier "12/20 changed, 5 points"
 number was a cache-state artifact from judge-stage bookkeeping over predictions
@@ -1219,12 +1229,24 @@ it on strictly stronger evidence.
 #### The daemon precondition, and why it is part of the claim
 
 The daemon must be launched manually with both variables set, and **the tray app
-must not be serving**: it starts a daemon on 11434 with neither set, silently
-yielding `flash_attn = auto` plus a live 8 GiB prompt cache — a different
-configuration wearing this configuration's `pins_hash`.
+must not be installed, let alone serving**: it starts a daemon on 11434 with
+neither set, silently yielding `flash_attn = auto` plus a live 8 GiB prompt
+cache — a different configuration wearing this configuration's `pins_hash` —
+and its updater replaces the server build on its own schedule (it moved this
+machine 0.32.5 → 0.32.13 → 0.33.3 and had 0.34.0 staged before it was removed,
+`docs/DECISIONS.md` 2026-09-10). Since 2026-09-10 the development machine runs
+the release zip of the pinned build from a version-named folder; the build can
+only change by a person replacing that folder and editing
+`READER_TRANSPORT_VERSION`.
 
-```
-OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 OLLAMA_SERVE_LOG=<path> ollama serve
+```bash
+# The pinned build lives in a version-named folder with no tray app and no
+# updater. The daemon logs to stderr; preflight reads the file OLLAMA_SERVE_LOG
+# names, so redirect there and export it in the shell the harness runs from.
+export OLLAMA_SERVE_LOG="D:/ollama-0.32.13/serve.log"
+OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 OLLAMA_MODELS='D:\ollama-models' \
+  /d/ollama-0.32.13/ollama.exe serve >> "$OLLAMA_SERVE_LOG" 2>&1 &
+curl -s localhost:11434/api/version   # {"version":"0.32.13"} or preflight refuses
 ```
 
 `preflight_reader_env` reads the daemon's **resolved** values out of its load log
@@ -1282,10 +1304,12 @@ a re-baseline decision recorded in `docs/DECISIONS.md`.
 #### Tolerance, stated honestly
 
 These pins fix reduction order on a given machine. They do not guarantee
-bit-identity across different GPUs, drivers, CUDA versions, or Ollama builds —
-each can change kernel selection and therefore the order of float reductions,
-which flips argmax at near-ties. Divergence across dissimilar hardware is
-expected and is not a harness defect.
+bit-identity across different GPUs, drivers or CUDA versions — each can change
+kernel selection and therefore the order of float reductions, which flips
+argmax at near-ties. Divergence across dissimilar hardware is expected and is
+not a harness defect. A different Ollama build is the same mechanism one layer
+down, measured at 20/20 changed predictions; it is not tolerated but refused,
+because the build is a pin (schema /5).
 
 The `run` block does not currently record CPU model or SIMD dispatch path. That
 is a real gap only on the `--num-gpu 0` path, where llama.cpp's AVX2 / AVX-512 /

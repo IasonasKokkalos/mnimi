@@ -73,16 +73,18 @@ ollama pull qwen2.5:1.5b-instruct-q4_0     # the pinned reader
 echo 'OPENAI_API_KEY=sk-...' >> .env       # judge only (gpt-4o-2024-08-06)
 
 # Three daemon-level pins, none of which can be sent per request:
-#   - the Ollama build itself must be 0.32.13 (`ollama --version`; preflight
-#     reads GET /api/version and refuses any other build BEFORE loading a
-#     model — a build change moved 20/20 predictions on identical prompts, so
-#     stop the tray app's auto-updater);
+#   - the Ollama build itself must be 0.32.13 — preflight reads GET /api/version
+#     and refuses any other build BEFORE loading a model (a build change moved
+#     20/20 predictions on identical prompts). Run the release zip from a
+#     version-named folder, not the desktop installer: the desktop app's updater
+#     replaces the build on its own schedule and cannot be switched off;
 #   - OLLAMA_FLASH_ATTENTION=1 and LLAMA_ARG_CACHE_RAM=0, resolved at daemon
-#     start; the tray app's daemon sets neither and must not be serving on
-#     11434.
+#     start; nothing else may be serving on 11434.
+# The daemon logs to stderr; preflight reads the file OLLAMA_SERVE_LOG names.
 # A run under the wrong daemon is a different configuration wearing this one's
 # pins_hash, so preflight refuses to run.
-OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 OLLAMA_SERVE_LOG=serve.log ollama serve
+export OLLAMA_SERVE_LOG="$PWD/serve.log"
+OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 /path/to/ollama-0.32.13/ollama.exe serve >> "$OLLAMA_SERVE_LOG" 2>&1 &
 
 python -m evals --system mnimi --limit 100          # predict + judge
 python -m evals --system no_memory --limit 500      # the full set
@@ -141,22 +143,29 @@ temperature 0, `num_ctx=32768`) **and** the daemon-level pins — the Ollama bui
 (`0.32.13`), `OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0` — which are
 resolved at daemon start and asserted at preflight before any model load.
 
-What has been measured: the reader binary is the whole error bar. Across the
-0.32.5 → 0.32.13 build change, with pins, prompts and fed-token counts
-byte-identical on every row, **20/20 predictions changed** on every arm and the
-headline moved by up to 8 points. That is why the build became a pin. What has
-**not** been measured: a daemon-restart pair on 0.32.13 itself — so the
-published set is auditable (Tier 1) and carries no restart-stability figure of
-its own. Earlier restart figures were measured under a retired prompt and a
-retired build and are not cited. The bisection that found the request-level
-and daemon-level pins, including the two wrong conclusions along the way, is in
+Measured error bar on the published build (2026-09-10, Ollama 0.32.13): a
+fresh `--stage predict` of the mnimi arm at n=100 replayed **100/100
+predictions byte-identical** to the published artifact, prompt tokens identical
+on every row, across a daemon restart, a reinstall of the server binary from
+the release zip, 25 days, three harness commits and the pins schema bump. The
+evidence is committed beside the published set as
+`results/published/mnimi__100q_restart_2026-09-10/`, and anyone can diff the
+two `predictions.jsonl` files.
+
+Across builds the reader binary is the whole error bar: the 0.32.5 → 0.32.13
+change, with pins, prompts and fed-token counts byte-identical on every row,
+changed **20/20 predictions** on every arm and moved the headline by up to 8
+points. That is why the build is a pin and any other build is refused. Earlier
+restart figures were measured under a retired prompt or a retired build and
+are not cited. The bisection that found the request-level and daemon-level
+pins, including the two wrong conclusions along the way, is in
 [docs/SPEC.md](docs/SPEC.md) and [docs/DECISIONS.md](docs/DECISIONS.md),
 because the self-corrections are the evidence.
 
 Bit-identity across different GPUs, drivers or CUDA versions is **not**
 claimed: each can change kernel selection and therefore float reduction order.
 Deviating from a request pin self-marks the artifact provisional; deviating
-from a daemon pin is refused outright.
+from a daemon pin, the build included, is refused outright.
 
 ### Tier 3 — containerized reference environment
 
