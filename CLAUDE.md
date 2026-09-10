@@ -92,8 +92,11 @@ resolution. Both roles are in extraction scope.
   (OMEGA first) go through the same harness.
 - **Harness pins:** reader = local Ollama `qwen2.5:1.5b-instruct-q4_0`
   (`num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`, temp 0,
-  `num_ctx=32768`) **plus two daemon-level pins that cannot be sent per request**
-  (`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`); reader prompt =
+  `num_ctx=32768`) **plus three daemon-level pins that cannot be sent per request**
+  (`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`, and the server build
+  `READER_TRANSPORT_VERSION = "0.32.13"` — checked against `GET /api/version`
+  before any model load; a build change moved 20/20 predictions on
+  byte-identical prompts, so any other build is refused); reader prompt =
   `mnimi-con-v1` (LongMemEval Fig 13 with exactly two deviations — one
   abstention sentence, the `${cache_bust}` prefix — so it is *not* the paper's
   prompt and is never named as one; `json-con-paper-v1` stays reserved for a
@@ -235,10 +238,10 @@ python -m evals --stage judge --predictions <file>           # Tier 1 audit, rea
 python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + Holm
 ```
 
-## Current state vs SPEC (as of v1.3.0, HEAD 658f516)
+## Current state vs SPEC (as of v1.4.0; library unchanged since v1.3.0 @ 658f516)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
-field exists — **read SPEC §"v1 as built (v1.3.0)" first**, then the code. It is
+field exists — **read SPEC §"v1 as built" first**, then the code. It is
 the shipped-state section; the per-section `**v1 as built:**` notes mark every
 place code and target diverge, and `docs/DECISIONS.md` § "v1 build: PLANNED vs
 ACTUAL" says why.

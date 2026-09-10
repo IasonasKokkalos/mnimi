@@ -6,6 +6,7 @@ import pytest
 from evals.stats import (
     HARNESS_PARITY_FIELDS,
     analyse,
+    assert_harness_parity,
     discordance,
     exact_binomial_two_sided,
     harness_identity,
@@ -146,3 +147,27 @@ def test_pairing_proceeds_across_arms_differing_only_in_retrieval_pins():
     report = analyse(arms, identities=identities)
     assert report["primary"] is not None
     assert report["primary"]["result"].n_pairs == 2
+
+
+def test_pairing_refuses_across_reader_transport_builds():
+    """Schema /5: the Ollama build is a harness pin. Two arms served by
+    different builds are two configurations — the 0.32.5 -> 0.32.13 move
+    changed 20/20 predictions — and the guard must name the field and both
+    builds instead of pairing them under a bare sha mismatch."""
+    identities = {
+        "mnimi": harness_identity(_payload("mnimi", reader_transport_version="0.32.13")),
+        "naive_rag": harness_identity(_payload("naive_rag", reader_transport_version="0.33.3")),
+    }
+    with pytest.raises(ValueError, match="reader_transport_version") as excinfo:
+        assert_harness_parity(identities)
+    assert "0.32.13" in str(excinfo.value) and "0.33.3" in str(excinfo.value)
+
+
+def test_schema_4_artifacts_without_the_transport_field_still_pair():
+    """The published 0.32.13 set predates the field on both sides; None == None
+    is parity, not a mismatch, so those artifacts keep pairing."""
+    identities = {
+        "mnimi": harness_identity(_payload("mnimi", reader_transport_version=None)),
+        "naive_rag": harness_identity(_payload("naive_rag", reader_transport_version=None)),
+    }
+    assert_harness_parity(identities)

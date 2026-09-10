@@ -35,6 +35,7 @@ def _pins(**overrides) -> dict:
         reader_num_batch=512,
         reader_flash_attention=1,
         reader_cache_ram=0,
+        reader_transport_version=runner.READER_TRANSPORT_VERSION,
         reader_prompt_version="mnimi-con-v1",
         reader_prompt_hash="rp",
         render_template_hash="rt",
@@ -83,7 +84,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/4"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/5"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -136,6 +137,17 @@ def test_template_split_hashes_move_the_pins_hash():
     # harness-wide and always present.
     assert _pins()["embed_template_hash"] is None
     assert _pins()["render_template_hash"] == "rt"
+
+
+def test_reader_transport_version_moves_the_pins_hash():
+    """Schema /5. The Ollama build moved twice under identical pins
+    (0.32.5 -> 0.32.13 -> 0.33.3) and the first move changed 20/20 predictions
+    on byte-identical prompts; until now the build lived only in the diagnostic
+    run.environment block, outside the hash, so two runs on different builds
+    were indistinguishable by pins_hash."""
+    baseline = artifacts.pins_hash(_pins())
+    assert _pins()["reader_transport_version"] == runner.READER_TRANSPORT_VERSION
+    assert artifacts.pins_hash(_pins(reader_transport_version="0.33.3")) != baseline
 
 
 def test_reader_sends_pinned_decode_options():
@@ -370,6 +382,83 @@ def _request_traffic(nbytes: int) -> str:
         'msg="request" method=POST path=/api/chat status=200\n'
     )
     return line * (nbytes // len(line) + 1)
+
+
+class TestPreflightReaderTransport:
+    """The build the pins name must be the build that serves. Exact string
+    compare: no semver parsing, no prefix matching — 0.32.13 and 0.32.5 are
+    different reader binaries with measured 20/20 prediction drift between them.
+    """
+
+    def test_accepts_the_pinned_build(self):
+        runner.preflight_reader_transport(runner.READER_TRANSPORT_VERSION)
+
+    def test_refuses_another_build_naming_both_versions(self):
+        with pytest.raises(runner.ReaderEnvError) as excinfo:
+            runner.preflight_reader_transport("0.33.3")
+        message = str(excinfo.value)
+        assert "0.33.3" in message
+        assert runner.READER_TRANSPORT_VERSION in message
+
+    def test_refuses_when_the_build_cannot_be_confirmed(self):
+        # Unreachable endpoint or missing field: fail closed, never pass on
+        # absent evidence — the same rule preflight_reader_env follows.
+        with pytest.raises(runner.ReaderEnvError, match="cannot confirm"):
+            runner.preflight_reader_transport(None)
+
+    def test_exact_compare_not_prefix(self):
+        with pytest.raises(runner.ReaderEnvError):
+            runner.preflight_reader_transport(runner.READER_TRANSPORT_VERSION + ".1")
+
+
+class TestPredictRefusesWrongTransportBeforeModelLoad:
+    """Integration, no network: the build check runs after the tags preflight
+    and BEFORE the warm-up load, so a wrong daemon is refused without loading a
+    model and without creating a run directory."""
+
+    def _wire(self, monkeypatch, version_get):
+        loads = []
+        monkeypatch.setattr(evals_main, "ollama_preflight", lambda model: (None, "sha256:x"))
+        monkeypatch.setattr(evals_main, "ollama_context_length", lambda model: None)
+        monkeypatch.setattr(evals_main, "_ollama_get", version_get)
+        monkeypatch.setattr(
+            evals_main, "_force_model_load", lambda *a, **k: loads.append((a, k))
+        )
+        return loads
+
+    def _run(self, tmp_path):
+        run_dir = tmp_path / "r"
+        rc = evals_main.main(
+            ["--system", "no_memory", "--limit", "1", "--stage", "predict",
+             "--run-dir", str(run_dir)]
+        )
+        return rc, run_dir
+
+    def test_wrong_build_is_refused_naming_both_versions(self, tmp_path, monkeypatch, capsys):
+        loads = self._wire(monkeypatch, lambda path: {"version": "0.33.3"})
+
+        rc, run_dir = self._run(tmp_path)
+
+        assert rc == 2
+        assert loads == [], "a model load happened before the transport was checked"
+        err = capsys.readouterr().err
+        assert "0.33.3" in err and runner.READER_TRANSPORT_VERSION in err
+        assert not run_dir.exists(), "no artifact may be written for a refused run"
+
+    def test_unreachable_version_endpoint_is_refused(self, tmp_path, monkeypatch, capsys):
+        import urllib.error
+
+        def down(path):
+            raise urllib.error.URLError("connection refused")
+
+        loads = self._wire(monkeypatch, down)
+
+        rc, run_dir = self._run(tmp_path)
+
+        assert rc == 2
+        assert loads == []
+        assert "cannot confirm" in capsys.readouterr().err
+        assert not run_dir.exists()
 
 
 class TestModelLoadLogSelection:

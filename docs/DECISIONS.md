@@ -800,3 +800,48 @@ sits at the minimum discordance where p<0.05 exists; any per-category cell.
 provenance — reader build, harness commit, daemon environment, date. Two
 transport moves under identical `pins_hash` are the reason; the build itself
 becomes a pin in the next commit (pins schema /5).
+
+## Pins schema /5: the reader transport build is a pin (2026-09-10)
+
+**Decision:** `artifact_schema` → `mnimi-eval-artifact/5`, adding
+`reader_transport_version` — the Ollama server build — to `build_pins`, hence to
+`pins_hash`, and to `HARNESS_PARITY_FIELDS`. The constant is
+`runner.READER_TRANSPORT_VERSION = "0.32.13"`. Preflight reads
+`GET /api/version` right after the tags check and BEFORE the warm-up load, and
+refuses on any other string, or on no string at all (unreachable endpoint or
+missing field = cannot confirm = fail closed). Exact compare: no semver parsing,
+no prefix match.
+
+**Why, in one measurement.** The tray app auto-updated the daemon 0.32.5 →
+0.32.13 (2026-08-16). The replay gate — the mnimi arm's 20-question prefix of
+the n=100 slice, identical pins, identical `pins_hash` — changed **20/20
+predictions**, with `reader_prompt_tokens` identical on every row: ingest,
+dedup, retrieval, render and trim reproduced byte-for-byte and only the reader
+binary moved. The full re-baseline confirmed it across all five arms (100/100
+rows moved on three, 99/100 on the other two) and reversed the headline:
+mnimi 43 = oracle 43 became mnimi 35 < oracle 50. Nothing in the header could
+tell the two sittings apart, because the build lived only in the diagnostic
+`run.environment` block, which by design never enters the hash. A hash that
+cannot separate two runs differing on 100/100 predictions is the same false
+guarantee /2 closed for the dedup threshold — the fourth time the pins contract
+has been falsified by measurement rather than review. The daemon has since
+moved again, to 0.33.3.
+
+**Mechanism.** The same requested-vs-resolved split as flash attention. The pin
+holds the build the harness *requested* (the constant);
+`run.environment.ollama_version` keeps holding the build that *resolved*; and
+`preflight_reader_transport` guarantees they agree or the run never starts — no
+model load, no run directory. A cross-build pairing in `evals.stats` now fails
+naming `reader_transport_version` and both builds rather than surfacing as a
+bare `harness_git_sha` mismatch; /4 artifacts lack the field on both sides
+(`None == None`), so the published 0.32.13 set keeps pairing.
+
+**What was deliberately not done.** No `_provisional_reasons` entry for a
+missing field — re-judging the published /4 set would otherwise flip the only
+zero-provisional artifacts to provisional. No rollback of the daemon and no
+change to the tray's auto-update: which build the machine serves is an
+operational decision outside this commit. The constant is 0.32.13 because it is
+the only build with a publishable-grade n=100 set; a run against the current
+0.33.3 daemon is refused (measured 2026-09-10: exit 2 at preflight naming both
+builds, no runner spawned, no run directory touched) until either that build is
+restored or the constant is changed deliberately and every arm re-baselined.

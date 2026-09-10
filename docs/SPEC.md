@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.3.0, 2026-07-30, HEAD 658f516)
+## v1 as built (v1.4.0, 2026-09-10; library unchanged since v1.3.0 @ 658f516)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1102,9 +1102,13 @@ Request-level, sent on every call and recorded in `pins_hash`:
 `num_gpu=99`, `num_batch=512`, `num_thread=8`, `num_ctx=32768`.
 
 Daemon-level, resolved when the daemon starts and impossible to set per request:
-`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`. These are also in
-`pins_hash`, which means a `pins_hash` can describe a configuration the serving
-daemon does not implement — hence the preflight below.
+`OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0`, and the server build itself,
+`reader_transport_version = 0.32.13` (schema /5) — checked against
+`GET /api/version` before the warm-up load, because a different build is a
+different llama.cpp and the 0.32.5 → 0.32.13 move changed 20/20 predictions on
+byte-identical prompts. All three are in `pins_hash`, which means a `pins_hash`
+can describe a configuration the serving daemon does not implement — hence the
+preflight below.
 
 Harness-level: the per-question cache-bust prefix (introduced by
 `plain-prose-v2`, carried by `mnimi-con-v1`) and `_force_model_load`, which
@@ -1261,6 +1265,19 @@ This block is **diagnostic only — it never enters `pins_hash`**, so it cannot
 alter the identity of a run. Its purpose is to make a divergence report locatable
 rather than mysterious: the next drift should fall out of a diff between two run
 blocks.
+
+The Ollama build is the one field that has crossed from this block into the pins
+(schema /5, 2026-09-10). It earned the trip the way flash attention did, by
+measurement: the tray auto-updated 0.32.5 → 0.32.13 and the replay gate changed
+20/20 predictions under an identical `pins_hash`, with `reader_prompt_tokens`
+identical on every row — the whole delta was the reader binary, and nothing in
+the header could tell the two runs apart. Now `reader_transport_version` in the
+pins holds the build the harness **requests**, `run.environment.ollama_version`
+keeps holding the build that **resolved**, and `preflight_reader_transport`
+refuses to run — before any model load, so no artifact is written — unless the
+two agree exactly (string compare, no semver tolerance). The next drift of this
+kind cannot happen silently; it can only happen by editing the constant, which is
+a re-baseline decision recorded in `docs/DECISIONS.md`.
 
 #### Tolerance, stated honestly
 

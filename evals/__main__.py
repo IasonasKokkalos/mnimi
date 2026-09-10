@@ -152,6 +152,19 @@ def _force_model_load(model: str, num_ctx: int, num_gpu: int) -> None:
         pass  # preflight_reader_env reports the missing log far more usefully
 
 
+def _live_ollama_version() -> str | None:
+    """The serving daemon's build from ``GET /api/version``, or ``None``.
+
+    ``None`` means "could not confirm" — unreachable endpoint, non-JSON body,
+    or no ``version`` field — and preflight_reader_transport refuses on it.
+    Fail closed here, never guess: the build is a pin.
+    """
+    try:
+        return _ollama_get("/api/version")["version"]
+    except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _recent_model_load_log() -> str:
     """The current runner's output from the daemon's serve log.
 
@@ -287,11 +300,13 @@ def main(argv: list[str] | None = None) -> int:
         READER_PROMPT_VERSION,
         READER_SEED,
         READER_TOP_K,
+        READER_TRANSPORT_VERSION,
         Prediction,
         ReaderEnvError,
         judge_predictions,
         predict,
         preflight_reader_env,
+        preflight_reader_transport,
         reader_prompt_hash,
         reader_trim_pins,
     )
@@ -356,13 +371,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         declared_ctx = ollama_context_length(args.model)
 
-        # The daemon only reports its resolved flash-attention and prompt-cache
-        # settings when it loads a model, so force the load the run needs anyway
-        # and then assert the serving daemon is the one the pins describe. A run
-        # served by the tray app's daemon carries `flash_attn = auto` and a live
-        # prompt cache, which is a different configuration wearing this
+        # The server build is checked FIRST, before the warm-up load: it is
+        # readable without loading anything, and a daemon on the wrong build
+        # must be refused without touching VRAM or writing a run directory.
+        # Then the daemon only reports its resolved flash-attention and
+        # prompt-cache settings when it loads a model, so force the load the
+        # run needs anyway and assert the serving daemon is the one the pins
+        # describe. A run served by the tray app's daemon carries
+        # `flash_attn = auto`, a live prompt cache and whatever build the
+        # auto-updater last installed — a different configuration wearing this
         # configuration's pins_hash.
         try:
+            preflight_reader_transport(_live_ollama_version())
             _force_model_load(args.model, args.num_ctx, num_gpu)
             preflight_reader_env(_recent_model_load_log())
         except ReaderEnvError as exc:
@@ -395,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             reader_num_batch=READER_NUM_BATCH,
             reader_flash_attention=READER_FLASH_ATTENTION,
             reader_cache_ram=READER_CACHE_RAM,
+            reader_transport_version=READER_TRANSPORT_VERSION,
             reader_prompt_version=READER_PROMPT_VERSION,
             reader_prompt_hash=reader_prompt_hash(),
             # The canonical context format every arm renders through. Pinned
@@ -624,6 +645,11 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
     print(
         f"reader daemon:    flash_attn={pins.get('reader_flash_attention')} "
         f"cache_ram={pins.get('reader_cache_ram')} (verified resolved at preflight)",
+        file=sys.stderr,
+    )
+    print(
+        f"reader transport: ollama {pins.get('reader_transport_version')} "
+        "(verified at preflight)",
         file=sys.stderr,
     )
     print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)

@@ -139,6 +139,31 @@ READER_FLASH_ATTENTION = 1
 # per-request option.
 READER_CACHE_RAM = 0
 
+# THE SERVER BUILD. Load-bearing, and the pin whose absence let two sittings
+# drift with nothing in the header to show for it. The reader transport moved
+# 0.32.5 -> 0.32.13 (tray auto-update, 2026-08-16) and the replay gate changed
+# 20/20 predictions under identical pins with `reader_prompt_tokens` identical
+# on every row: ingest, dedup, retrieval, render and trim reproduced
+# byte-for-byte and only the reader binary moved. On the full n=100 the
+# headline reversed (mnimi 43 = oracle 43 became mnimi 35 < oracle 50). Then it
+# moved again, to 0.33.3 (seen 2026-09-08). A different build ships a different
+# llama.cpp with different kernels, hence a different float reduction order,
+# hence a different argmax at near-ties — the same mechanism as flash attention
+# and the prompt cache, one layer down.
+#
+# Until schema /5 the build lived only in `run.environment.ollama_version`,
+# which is diagnostic and outside `pins_hash`: two runs on different builds
+# carried the same hash. Now it is a pin, asserted at preflight against
+# `GET /api/version` BEFORE the warm-up load, so a wrong daemon is refused
+# without loading a model or writing an artifact.
+#
+# 0.32.13 because it is the only build with a zero-provisional n=100 set
+# (`results/published/<arm>__100q/`, 2026-08-16). Like a daemon-level env var,
+# it cannot be requested per call: the build that serves is the build that is
+# installed. Changing this constant is a re-baseline decision, not a refresh —
+# every build change measured so far moved 20/20 predictions.
+READER_TRANSPORT_VERSION = "0.32.13"
+
 # The daemon environment this harness requires. Both are resolved at daemon
 # start, so a run served by a daemon launched without them is not the
 # configuration these pins describe, whatever pins.json says.
@@ -365,6 +390,38 @@ class Reader:
 
 class ReaderEnvError(RuntimeError):
     """The serving daemon is not the configuration the pins claim."""
+
+
+def preflight_reader_transport(live_version: str | None) -> None:
+    """Fail fast when the serving daemon is not the pinned Ollama build.
+
+    ``live_version`` is what ``GET /api/version`` returned, or ``None`` when
+    the endpoint was unreachable or carried no version field. ``None`` refuses:
+    a build that cannot be confirmed is not a build that matches, and a
+    preflight that passes on absent evidence is worse than no preflight.
+
+    Exact string compare, deliberately. No semver parsing, no prefix matching:
+    0.32.5 and 0.32.13 share a prefix and differ by 20/20 predictions.
+
+    Raises ReaderEnvError rather than warning: a run on another build is not a
+    degraded number, it is a different configuration wearing these pins.
+    """
+    if live_version is None:
+        raise ReaderEnvError(
+            "cannot confirm the Ollama server build — GET /api/version was "
+            "unreachable or carried no `version` field; pins require Ollama "
+            f"{READER_TRANSPORT_VERSION}. Check the daemon is serving on the "
+            "harness host and answers /api/version."
+        )
+    if live_version != READER_TRANSPORT_VERSION:
+        raise ReaderEnvError(
+            f"daemon is Ollama {live_version}, pins require "
+            f"{READER_TRANSPORT_VERSION}. The server build is a pin: every build "
+            "change measured so far moved 20/20 predictions on byte-identical "
+            f"prompts. Serve Ollama {READER_TRANSPORT_VERSION} with the tray "
+            "app's auto-update stopped — or, to re-baseline on a new build, "
+            "change READER_TRANSPORT_VERSION deliberately and re-run every arm."
+        )
 
 
 def preflight_reader_env(model_load_log: str, daemon_env: dict | None = None) -> None:

@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/4"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/5"
 
 
 def fingerprint(text: str) -> str:
@@ -199,8 +199,13 @@ def capture_environment(
     since promoted to pins (see ``runner.READER_FLASH_ATTENTION`` /
     ``READER_CACHE_RAM``) — and these fields are what made the diagnosis
     possible, so they stay. They remain diagnostics rather than pins: they
-    describe the machine, and the two settings that describe the *configuration*
+    describe the machine, and the settings that describe the *configuration*
     now live in ``build_pins`` where a mismatch changes ``pins_hash``.
+
+    ``ollama_version`` is the third field to make that trip (schema /5): the
+    *requested* build is the pin ``reader_transport_version``, and this field
+    keeps recording the *resolved* one so a divergence report can still say
+    which binary actually served. Preflight guarantees the two agree.
 
     ``prompt_cache_reported`` follows the same requested-vs-resolved discipline
     that caught flash attention: the daemon prints its own cache limit, and that
@@ -414,6 +419,7 @@ def build_pins(
     reader_num_batch: int,
     reader_flash_attention: int,
     reader_cache_ram: int,
+    reader_transport_version: str,
     reader_prompt_version: str,
     reader_prompt_hash: str,
     reader_answer_reserve: int,
@@ -468,6 +474,17 @@ def build_pins(
     dedup key, and invalidates any threshold selected under the previous form.
     ``render_template_hash`` is harness-wide (every arm renders through one
     code path); ``embed_template_hash`` is declared by the arms that embed.
+
+    Schema /5 (2026-09-10) added ``reader_transport_version``, the Ollama
+    server build. One measurement: the tray auto-updated 0.32.5 -> 0.32.13
+    and the replay gate changed 20/20 predictions under identical pins with
+    ``reader_prompt_tokens`` identical on every row — the whole delta was the
+    reader binary, and ``pins_hash`` could not tell the two runs apart because
+    the build lived only in the diagnostic ``run.environment`` block. It is
+    the same requested-vs-resolved split as flash attention: this field holds
+    the build the harness REQUESTED (``runner.READER_TRANSPORT_VERSION``),
+    ``run.environment.ollama_version`` keeps holding the one that RESOLVED,
+    and ``preflight_reader_transport`` refuses to run unless they agree.
     """
     return {
         "artifact_schema": ARTIFACT_SCHEMA,
@@ -495,6 +512,11 @@ def build_pins(
         # reader_env` asserts the serving daemon actually resolved to these.
         "reader_flash_attention": reader_flash_attention,
         "reader_cache_ram": reader_cache_ram,
+        # The server build, same discipline: the value REQUESTED (the pinned
+        # constant), not the live one — preflight asserts the serving daemon
+        # reports exactly this string before any model load. A different
+        # build is a different llama.cpp and moved 20/20 predictions.
+        "reader_transport_version": reader_transport_version,
         "reader_prompt_version": reader_prompt_version,
         "reader_prompt_hash": reader_prompt_hash,
         # The trim gate: budget = num_ctx - answer_reserve - scaffold_tokens,

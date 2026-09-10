@@ -97,6 +97,12 @@ HARNESS_PARITY_FIELDS = (
     "judge_prompt_hash",
     "judge_temperature",
     "judge_max_tokens",
+    # Schema /5. Two arms served by different Ollama builds are two
+    # configurations (0.32.5 -> 0.32.13 moved 20/20 predictions), and a
+    # cross-build pairing should say so by name rather than surface as a bare
+    # harness_git_sha mismatch. /4 artifacts lack the field on both sides —
+    # None == None — so the published 0.32.13 set keeps pairing.
+    "reader_transport_version",
 )
 
 
