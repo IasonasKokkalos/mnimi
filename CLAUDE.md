@@ -160,12 +160,12 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   its updater moved the build three times (SPEC § daemon precondition).
   Preflight asserts the daemon's *resolved* values and the build, and refuses
   otherwise. Kill `llama-server` children too — they outlive the daemon and hold
-  VRAM. **Known preflight bug (measured 2026-07-30, unfixed):** it scans the last
-  400 KB of the serve log for the resolved `flash_attn` line, but that line is
-  written once per model load and never re-emitted while the model stays warm.
-  At n=100 the log passed ~1.2 MB and preflight refused three arms whose daemon
-  was verifiably correct. Workaround: `ollama stop` before each arm. Fix the
-  tail-window logic before any n=500 sitting.
+  VRAM. Preflight anchors its log read on the runner-start marker, not on a
+  byte offset (`d70c191`, 2026-08-16) — the 400 KB tail window that refused
+  three verifiably correct arms at n=100 on 2026-07-30 is gone, and the log
+  volume of an n=500 sitting no longer matters. `ollama stop` before each arm
+  stays as sitting procedure because it makes every arm begin with the pinned
+  warm-up load, not as a workaround.
 
 ## Reproducibility tiers (what a number is allowed to claim)
 

@@ -1257,14 +1257,16 @@ no `cache state` line at all when the cache is off, so keying off the limit alon
 treated absent evidence as a pass. A preflight that passes on no evidence is
 worse than no preflight.
 
-**Known limitation (measured 2026-07-30, unfixed by design mid-run):**
-preflight reads the **last 400,000 bytes** of the serve log for the resolved
-`flash_attn` line, but that line is written once at first model load and never
-re-emitted while the model stays warm. At n=100 the log grew past the window
-and preflight refused arms whose daemon was verifiably in the pinned
-configuration. Workaround: `ollama stop` before each arm forces a fresh load
-block into the log tail. Fix the tail-window logic before any n=500 sitting;
-the log volume scales with n.
+**A limitation that was measured and then removed.** Until 2026-08-16
+preflight read the **last 400,000 bytes** of the serve log for the resolved
+`flash_attn` line; that line is written once per model load and never
+re-emitted while the model stays warm, so at n=100 (2026-07-30) the log grew
+past the window and preflight refused three arms whose daemon was verifiably
+in the pinned configuration. Since `d70c191` the read is anchored on the
+runner-start marker (both spellings — 0.32.13 renamed it) and is independent
+of log volume, so an n=500 sitting needs no workaround. `ollama stop` before
+each arm remains sitting procedure for a different reason: it makes every arm
+begin with the pinned warm-up load.
 
 Killing the daemon is not enough — `llama-server.exe` child runners outlive
 `Stop-Process -Name ollama` and keep holding VRAM. Six accumulated unnoticed
