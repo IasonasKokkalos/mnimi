@@ -365,12 +365,17 @@ class TestOpenAITransportCli:
         assert "reader transport: openai gpt-4o-2024-08-06" in err
 
     def test_missing_api_key_is_refused_before_any_call(self, tmp_path, monkeypatch, capsys):
-        import dotenv
-
         client = _FakeOpenAI()
         self._wire(monkeypatch, tmp_path, client)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
+        # With the [eval] extra installed, .env would put the key back; without
+        # it (CI's dev-only install) there is nothing to neutralise.
+        try:
+            import dotenv
+        except ImportError:
+            pass
+        else:
+            monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
 
         rc, run_dir = self._run(tmp_path)
 

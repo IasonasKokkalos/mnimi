@@ -318,9 +318,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
-    from dotenv import load_dotenv
-
-    load_dotenv()
+    # python-dotenv ships with the [eval] extra; without it (CI installs the
+    # dev extra alone) the environment is taken as-is.
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover — exercised by CI's dev-only install
+        pass
+    else:
+        load_dotenv()
 
     # Library import, core deps only (no [embed] extra): the render template
     # is library-owned and its hash is a mandatory harness pin.
@@ -803,20 +808,26 @@ def _record_spend(entry: dict, budget_usd: float) -> None:
 
 
 def _preflight_snapshot(client, model: str) -> str | None:
-    """Confirm the dated snapshot is served for this key, before any spend."""
-    import openai
+    """Confirm the dated snapshot is served for this key, before any spend.
 
+    Classified on the SDK error's ``status_code`` rather than on its classes,
+    so this module never imports ``openai`` at call time: the harness tests
+    run under the dev extra alone (CI's rule that the core needs no eval deps),
+    and a fake client only has to raise something with a status code.
+    """
     try:
         client.models.retrieve(model)
-    except openai.NotFoundError:
-        return (
-            f"snapshot {model!r} is not served for this API key (models.retrieve → 404). "
-            "A retired or mistyped snapshot cannot be the pinned reader; see "
-            "docs/DECISIONS.md for the pinned family."
-        )
-    except openai.AuthenticationError as exc:
-        return f"OpenAI rejected the API key while checking snapshot {model!r}: {exc}"
-    except openai.APIError as exc:  # fail closed: an unknown state is not a pass
+    except Exception as exc:  # noqa: BLE001 — every failure is a refusal
+        status = getattr(exc, "status_code", None)
+        if status == 404:
+            return (
+                f"snapshot {model!r} is not served for this API key "
+                "(models.retrieve → 404). A retired or mistyped snapshot cannot be "
+                "the pinned reader; see docs/DECISIONS.md for the pinned family."
+            )
+        if status == 401:
+            return f"OpenAI rejected the API key while checking snapshot {model!r}: {exc}"
+        # Fail closed: an unknown state is not a pass.
         return f"could not confirm snapshot {model!r} is served: {exc}"
     return None
 

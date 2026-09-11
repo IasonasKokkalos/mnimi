@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-import openai
 import pytest
 from evals import __main__ as evals_main
 from evals import pricing, runner
@@ -20,6 +19,15 @@ from evals.judge import Judge
 
 
 # ---------------------------------------------------------------- fakes ---
+class _HttpError(Exception):
+    """Duck-typed stand-in for openai.APIStatusError: only status_code matters,
+    so the test suite needs no openai install (CI runs the dev extra alone)."""
+
+    def __init__(self, status_code, message):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class _FakeClient:
     def __init__(self, *, served=("gpt-4o-2024-08-06",), prompt_tokens=120,
                  completion_tokens=40, fingerprint="fp_test"):
@@ -32,11 +40,7 @@ class _FakeClient:
             def retrieve(self, model):
                 outer.model_lookups.append(model)
                 if model not in outer.served:
-                    raise openai.NotFoundError(
-                        f"model {model} not found",
-                        response=SimpleNamespace(status_code=404, headers={}, request=None),
-                        body=None,
-                    )
+                    raise _HttpError(404, f"model {model} not found")
                 return SimpleNamespace(id=model, created=1723000000)
 
         class _Completions:
