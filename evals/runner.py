@@ -472,23 +472,60 @@ class OpenAIReader(_BaseReader):
     ) -> ReaderOutput:
         context, truncated, dropped = self._fit(context)
         prompt = self._prompt(context, question, cache_bust, question_date)
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            seed=self.seed,
-            max_tokens=self.answer_reserve,
-        )
+        body = self._body(prompt)
+        completion = self.client.chat.completions.create(**body)
+        text, prompt_tokens, fingerprint = parse_completion(completion)
+        return ReaderOutput(text, prompt_tokens, truncated, dropped, system_fingerprint=fingerprint)
+
+    def _body(self, prompt: str) -> dict:
+        # The exact request, shared by the synchronous call and the Batch API
+        # line: one user message (the reference implementation's shape), the
+        # dated snapshot, temperature 0, the seed, and max_tokens = the answer
+        # reserve. Batch mode is not a pin precisely because this body is.
+        return {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            "seed": self.seed,
+            "max_tokens": self.answer_reserve,
+        }
+
+    def request_body(
+        self,
+        context: str,
+        question: str,
+        cache_bust: str = "",
+        question_date: str = "",
+    ) -> tuple[dict, bool, int]:
+        """The request the sync path would send, without sending it.
+
+        Returns ``(body, truncated, tokens_dropped)`` — the trim gate runs
+        here so a batch line carries the same accounting as a sync answer.
+        """
+        context, truncated, dropped = self._fit(context)
+        prompt = self._prompt(context, question, cache_bust, question_date)
+        return self._body(prompt), truncated, dropped
+
+
+def parse_completion(completion) -> tuple[str, int | None, str | None]:
+    """``(text, prompt_tokens, system_fingerprint)`` from a chat completion.
+
+    Accepts the SDK object (sync path) or a plain dict (a Batch API output
+    body), so both transports of the same family parse through one function.
+    """
+    if isinstance(completion, dict):
+        choices = completion.get("choices") or []
+        message = (choices[0].get("message") or {}) if choices else {}
+        text = message.get("content")
+        usage = completion.get("usage") or {}
+        prompt_tokens = usage.get("prompt_tokens")
+        fingerprint = completion.get("system_fingerprint")
+    else:
         text = completion.choices[0].message.content
         usage = getattr(completion, "usage", None)
         prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
-        return ReaderOutput(
-            (text or "").strip(),
-            prompt_tokens,
-            truncated,
-            dropped,
-            system_fingerprint=getattr(completion, "system_fingerprint", None),
-        )
+        fingerprint = getattr(completion, "system_fingerprint", None)
+    return (text or "").strip(), prompt_tokens, fingerprint
 
 
 @dataclass
@@ -683,6 +720,91 @@ def predict(
         )
         if progress is not None:
             progress(i + 1, len(questions), q, out.truncated)
+    return predictions
+
+
+@dataclass
+class BatchItem:
+    """One question's Batch API request plus the row metadata its Prediction
+    needs later, so a resume never re-ingests."""
+
+    custom_id: str
+    body: dict
+    category: str
+    is_abstention: bool
+    question: str
+    answer: str
+    truncated: bool
+    tokens_dropped: int
+
+
+def build_batch_items(
+    system: MemorySystem,
+    reader: OpenAIReader,
+    *,
+    limit: int | None,
+    dataset_file: str | None = None,
+    strategy: str = SAMPLE_STRATIFIED,
+    sample_seed: int = DEFAULT_SAMPLE_SEED,
+    progress: PredictProgressFn | None = None,
+) -> list[BatchItem]:
+    """The ingest half of :func:`predict` with no reader call: every question
+    is reset, fed, asked for context, and turned into a request body."""
+    questions = load(
+        limit=limit, filename=dataset_file, strategy=strategy, seed=sample_seed
+    )
+    items: list[BatchItem] = []
+    for i, q in enumerate(questions):
+        system.reset()
+        for session in _sessions_for(system, q):
+            system.add(_session_to_messages(session))
+        context = system.get_context(q.question)
+        body, truncated, dropped = reader.request_body(
+            context, q.question, cache_bust=q.question_id, question_date=q.question_date
+        )
+        items.append(
+            BatchItem(
+                custom_id=q.question_id,
+                body=body,
+                category=q.category,
+                is_abstention=q.is_abstention,
+                question=q.question,
+                answer=q.answer,
+                truncated=truncated,
+                tokens_dropped=dropped,
+            )
+        )
+        if progress is not None:
+            progress(i + 1, len(questions), q, truncated)
+    return items
+
+
+def predictions_from_batch(
+    items: list[BatchItem], outputs: dict, stats: PredictStats | None = None
+) -> list[Prediction]:
+    """Prediction rows in ITEM order (the Batch API returns lines unordered)."""
+    predictions: list[Prediction] = []
+    for item in items:
+        text, prompt_tokens, fingerprint = parse_completion(outputs[item.custom_id])
+        out = ReaderOutput(
+            text, prompt_tokens, item.truncated, item.tokens_dropped,
+            system_fingerprint=fingerprint,
+        )
+        if stats is not None:
+            stats.record(out)
+        predictions.append(
+            Prediction(
+                question_id=item.custom_id,
+                category=item.category,
+                is_abstention=item.is_abstention,
+                question=item.question,
+                answer=item.answer,
+                predicted=out.text,
+                reader_prompt_tokens=out.prompt_tokens,
+                truncated=out.truncated,
+                tokens_dropped=out.tokens_dropped,
+            )
+        )
     return predictions
 
 

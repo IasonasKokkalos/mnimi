@@ -956,3 +956,53 @@ later task (0.3). Until it lands, the limit is the budget guard.
 byte-for-byte as before; the local family's published artifacts stay valid
 and its restart pair stays measured. Batch API mode (0.2), the `models.list`
 preflight and the cost projection (0.3) are the next tasks.
+
+## Batch API mode for the gpt-4o family (2026-09-11)
+
+**Decision:** `--batch` sends the predict stage of the openai transport
+through the OpenAI Batch API: one JSONL of `{custom_id, method, url, body}`
+lines uploaded with `purpose="batch"`, one batch on `/v1/chat/completions`
+with the only allowed window (`24h`), polled to a terminal status, outputs
+downloaded and re-ordered by `custom_id` into the same `predictions.jsonl` a
+synchronous run writes.
+
+**Why.** The programme's reader budget is $50 in total and the Batch API
+halves the price; the separate rate-limit pool is a bonus. Every sitting on
+this family goes through it.
+
+**Not a pin.** The batch line's body is byte-for-byte the synchronous
+request (`OpenAIReader.request_body`, shared by both paths): same snapshot,
+temperature 0, seed, `max_tokens`. So a batch run and a sync run share a
+`pins_hash`, and a pair of them is a valid drift measurement under identical
+pins. What the batch resolved to — id, status, request counts, output and
+error file ids, the served `system_fingerprint` histogram — is recorded in
+`reader_resolved.json`, never hashed.
+
+**Resume contract.** `batch_requests.jsonl` and `pins.json` are written
+before submission, `batch_state.json` (batch id, status, `pins_hash`, the
+per-item row metadata without bodies) right after it. Re-running the same
+command in the same `--run-dir` with no `predictions.jsonl` present resumes:
+it refuses if the pins hash differs, otherwise polls the recorded batch and
+never re-uploads. `--batch-no-wait` submits and prints the resume command,
+so a 1-hour day can submit and a later day can collect.
+
+**Fallback rule.** A terminal `completed` or `expired` batch delivers what it
+finished; every item without a 200 body is answered with ONE synchronous
+call using the item's own body — same configuration, different transport —
+and listed under `sync_fallbacks`. `failed` (validation) and `cancelled`
+write nothing; the state is kept for the record and the errors are printed.
+
+**Run-directory extras.** `batch_requests.jsonl`, `batch_state.json` and
+`reader_resolved.json` are diagnostics beside the run; the three-file
+promotion rule for `results/published/` is unchanged.
+
+**First drift observation (2026-09-11, no_memory, one shared question).** The
+same request sent synchronously (served fingerprint `fp_c9a0e786b8`) and
+through a batch (`fp_f923e16c69`) returned different text — identical prompt
+tokens (132), divergence at character 182, different served builds. One
+question is not a rate; it is the reason the family's Tier 2 statement is a
+measured N/100 (task 0.7) and not an assumption of stability.
+
+Also in this change: `pyproject.toml` `1.4.0 → 1.5.1` (the previous commit was
+titled v1.5.0 without bumping the file; this one is v1.5.1 and does); the library under `src/`
+is unchanged since v1.3.0.

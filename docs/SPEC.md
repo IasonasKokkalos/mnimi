@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.4.0, 2026-09-10; library unchanged since v1.3.0 @ 658f516)
+## v1 as built (v1.5.1, 2026-09-11; library unchanged since v1.3.0 @ 658f516)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1044,6 +1044,15 @@ gitignored scratch, `results/published/` is the record.
 | `pins.json` | `pins` + `pins_hash`: dataset sha256, reader model + digest, every decode pin, the reader prompt hash. Predict-side only — no judge fields since schema /3 |
 | `predictions.jsonl` | one row per question: `question_id`, `category`, `is_abstention`, `question`, `answer` (gold), `predicted`, `reader_prompt_tokens`, `truncated`, `tokens_dropped` |
 | `results.json` | header + `judge` block with its own `judge_hash` + `provisional` + run stats + graded rows |
+
+A run directory may hold three more files that are **never promoted**: the
+Ollama family's `model_load.log`, and the gpt-4o family's
+`reader_resolved.json` (what the transport resolved to — served
+`system_fingerprint`s, and for Batch API runs the batch id, status, request
+counts and any synchronous fallbacks), `batch_requests.jsonl` (the exact
+lines uploaded) and `batch_state.json` (what makes an interrupted submission
+resumable without paying twice). Diagnostics, all of them; the three-file
+rule above is the record.
 
 **The self-sufficiency contract.** `question` and `answer` travel inline on
 every prediction row. This is not incidental convenience — it is the property

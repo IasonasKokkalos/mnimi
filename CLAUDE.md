@@ -257,9 +257,13 @@ python -m evals --system <name> --limit 100 --stage predict  # needs Ollama, no 
 python -m evals --system <name> --limit 100 --stage judge    # needs OPENAI_API_KEY
 python -m evals --stage judge --predictions <file>           # Tier 1 audit, read-only
 python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + Holm
+# gpt-4o family, through the Batch API (half price; resumable — the same
+# command in the same --run-dir polls the submitted batch, never resubmits):
+python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
 ```
 
-## Current state vs SPEC (as of v1.4.0; library unchanged since v1.3.0 @ 658f516)
+## Current state vs SPEC (as of v1.5.1; library unchanged since v1.3.0 @ 658f516)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is

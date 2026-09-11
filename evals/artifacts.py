@@ -595,6 +595,28 @@ def read_reader_resolved_optional(directory: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# Batch API mode leaves two extra files in the run directory. Neither is
+# promoted to results/published/ (the three-file rule stands): the requests
+# file is the record of what was asked, the state file is what makes an
+# interrupted sitting resumable without paying twice.
+BATCH_REQUESTS_FILE = "batch_requests.jsonl"
+BATCH_STATE_FILE = "batch_state.json"
+
+
+def write_batch_state(directory: Path, state: dict) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / BATCH_STATE_FILE
+    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def read_batch_state_optional(directory: Path) -> dict | None:
+    path = directory / BATCH_STATE_FILE
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def read_pins(directory: Path) -> dict:
     path = directory / "pins.json"
     if not path.exists():

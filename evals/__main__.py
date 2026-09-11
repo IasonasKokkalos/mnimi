@@ -234,6 +234,25 @@ def main(argv: list[str] | None = None) -> int:
         "cost projection lands, this is the only guard on the API budget.",
     )
     parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="openai transport only: send the predict stage through the Batch "
+        "API (half price, 24h window). Resumable: re-run the same command with "
+        "the same --run-dir to poll a submitted batch instead of paying again.",
+    )
+    parser.add_argument(
+        "--batch-no-wait",
+        action="store_true",
+        help="with --batch: submit, write batch_state.json, print the resume "
+        "command and exit 0 instead of polling.",
+    )
+    parser.add_argument(
+        "--batch-poll-seconds",
+        type=float,
+        default=60.0,
+        help="with --batch: seconds between status polls (default 60).",
+    )
+    parser.add_argument(
         "--judge-model", default=JUDGE_MODEL, help="judge model id (OpenAI snapshot)"
     )
     parser.add_argument(
@@ -341,6 +360,12 @@ def main(argv: list[str] | None = None) -> int:
         args.model = OPENAI_READER_MODEL if is_api else READER_MODEL
     if args.num_ctx is None:
         args.num_ctx = OPENAI_NUM_CTX if is_api else DEFAULT_NUM_CTX
+    if args.batch and not is_api:
+        print(
+            "ERROR: --batch is the OpenAI Batch API; it needs --reader-transport openai.",
+            file=sys.stderr,
+        )
+        return 2
 
     # A Tier 1 audit points at one predictions file: judge only, no system, no
     # dataset, no reader — and no writes into the artifact being audited.
@@ -490,28 +515,34 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
 
-        predict_stats = PredictStats()
-        predictions = predict(
-            system,
-            reader_model=args.model,
-            limit=args.limit,
-            num_ctx=args.num_ctx,
-            num_gpu=num_gpu,
-            dataset_file=args.dataset_file,
-            strategy=args.sample,
-            sample_seed=args.sample_seed,
-            progress=predict_progress,
-            reader_transport=args.reader_transport,
-            reader_client=reader_client,
-            stats=predict_stats,
-        )
-        artifacts.write_pins(directory, pins)
-        artifacts.write_predictions(directory, predictions)
-        if is_api:
-            # The API family's counterpart of model_load.log: what served.
-            artifacts.write_reader_resolved(
-                directory, predict_stats.as_resolved(args.reader_transport, args.model)
+        if args.batch:
+            outcome = _predict_batch(args, directory, system, pins, reader_client, predict_progress)
+            if isinstance(outcome, int):
+                return outcome
+            predictions = outcome
+        else:
+            predict_stats = PredictStats()
+            predictions = predict(
+                system,
+                reader_model=args.model,
+                limit=args.limit,
+                num_ctx=args.num_ctx,
+                num_gpu=num_gpu,
+                dataset_file=args.dataset_file,
+                strategy=args.sample,
+                sample_seed=args.sample_seed,
+                progress=predict_progress,
+                reader_transport=args.reader_transport,
+                reader_client=reader_client,
+                stats=predict_stats,
             )
+            artifacts.write_pins(directory, pins)
+            artifacts.write_predictions(directory, predictions)
+            if is_api:
+                # The API family's counterpart of model_load.log: what served.
+                artifacts.write_reader_resolved(
+                    directory, predict_stats.as_resolved(args.reader_transport, args.model)
+                )
         print(f"wrote {directory / 'predictions.jsonl'}", file=sys.stderr)
     else:
         # Judge-only replay: the header and the rows both come off disk.
@@ -666,6 +697,152 @@ def _capture_environment_for(reader_transport: str, directory: Path) -> dict:
         "reader_resolved": artifacts.read_reader_resolved_optional(directory),
     }
     return env
+
+
+def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
+    """The predict stage through the Batch API. Returns the predictions, or an
+    exit code.
+
+    Resumable at every step: the requests file and ``pins.json`` are written
+    before submission, ``batch_state.json`` right after it, and a later run of
+    the same command in the same ``--run-dir`` polls the recorded batch
+    instead of resubmitting. Items the batch did not answer (an error line,
+    an expired window) are filled with ONE synchronous call each, using the
+    item's own body, and listed in ``reader_resolved.json``.
+    """
+    from . import batch as batch_mod
+    from .runner import (
+        BatchItem,
+        OpenAIReader,
+        PredictStats,
+        build_batch_items,
+        predictions_from_batch,
+    )
+
+    pins_hash = artifacts.pins_hash(pins)
+    state = artifacts.read_batch_state_optional(directory)
+    resuming = state is not None and not (directory / "predictions.jsonl").exists()
+
+    if resuming:
+        if state.get("pins_hash") != pins_hash:
+            print(
+                f"ERROR: {directory} holds batch {state.get('batch_id')} submitted under "
+                f"pins_hash {state.get('pins_hash')}, but this command's pins hash to "
+                f"{pins_hash}. A resume must be the same configuration; use another "
+                "--run-dir for a different one.",
+                file=sys.stderr,
+            )
+            return 2
+        bodies = batch_mod.read_requests_jsonl(directory / artifacts.BATCH_REQUESTS_FILE)
+        items = [BatchItem(body=bodies[meta["custom_id"]], **meta) for meta in state["items"]]
+        print(
+            f"resuming batch {state['batch_id']} (last seen {state.get('status')}) "
+            f"from {directory}",
+            file=sys.stderr,
+        )
+    else:
+        reader = OpenAIReader(args.model, num_ctx=args.num_ctx, client=client)
+        items = build_batch_items(
+            system,
+            reader,
+            limit=args.limit,
+            dataset_file=args.dataset_file,
+            strategy=args.sample,
+            sample_seed=args.sample_seed,
+            progress=progress,
+        )
+        requests_path = batch_mod.write_requests_jsonl(
+            directory / artifacts.BATCH_REQUESTS_FILE, items
+        )
+        artifacts.write_pins(directory, pins)
+        submitted = batch_mod.submit(
+            client,
+            requests_path,
+            metadata={
+                "run_dir": str(directory)[:512],
+                "system": str(args.system),
+                "pins_hash": pins_hash[:64],
+            },
+        )
+        state = {
+            "batch_id": submitted.id,
+            "status": submitted.status,
+            "input_file_id": getattr(submitted, "input_file_id", None),
+            "pins_hash": pins_hash,
+            "reader_model": args.model,
+            "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "items": [_batch_item_meta(item) for item in items],
+        }
+        artifacts.write_batch_state(directory, state)
+        print(
+            f"submitted batch {submitted.id}: {len(items)} requests, status {submitted.status}",
+            file=sys.stderr,
+        )
+        if args.batch_no_wait:
+            print(
+                "Resume later (polls the batch, then writes predictions.jsonl) with:\n"
+                f"  python -m evals --system {args.system} --limit {args.limit} "
+                f"--stage {args.stage} --reader-transport openai --batch "
+                f"--run-dir {directory}",
+                file=sys.stderr,
+            )
+            return 0
+
+    def on_change(batch_obj) -> None:
+        counts = batch_mod.request_counts(batch_obj)
+        print(
+            f"batch {batch_obj.id}: {batch_obj.status} "
+            f"{counts.get('completed')}/{counts.get('total')} completed",
+            file=sys.stderr,
+        )
+
+    final = batch_mod.wait(
+        client, state["batch_id"], poll_seconds=args.batch_poll_seconds, progress=on_change
+    )
+    state["status"] = final.status
+    artifacts.write_batch_state(directory, state)
+    if final.status not in batch_mod.WITH_OUTPUT:
+        errors = batch_mod.summary(final)["batch_errors"]
+        print(
+            f"ERROR: batch {final.id} ended {final.status}; nothing written."
+            + (f" Batch errors: {errors}." if errors else "")
+            + " The state file is kept for the record; resubmit into a fresh --run-dir.",
+            file=sys.stderr,
+        )
+        return 2
+
+    outputs, errors = batch_mod.fetch_outputs(client, final)
+    outputs, fallbacks = batch_mod.complete_outputs(client, items, outputs)
+    if fallbacks:
+        print(
+            f"{len(fallbacks)} request(s) had no batch output and were answered "
+            f"synchronously: {fallbacks}",
+            file=sys.stderr,
+        )
+    stats = PredictStats()
+    predictions = predictions_from_batch(items, outputs, stats=stats)
+    artifacts.write_predictions(directory, predictions)
+    resolved = stats.as_resolved(args.reader_transport, args.model)
+    resolved.update(batch_mod.summary(final))
+    resolved["sync_fallbacks"] = fallbacks
+    resolved["batch_errors_by_id"] = errors
+    artifacts.write_reader_resolved(directory, resolved)
+    state["status"] = "done"
+    artifacts.write_batch_state(directory, state)
+    return predictions
+
+
+def _batch_item_meta(item) -> dict:
+    """The item without its body (the body lives in batch_requests.jsonl)."""
+    return {
+        "custom_id": item.custom_id,
+        "category": item.category,
+        "is_abstention": item.is_abstention,
+        "question": item.question,
+        "answer": item.answer,
+        "truncated": item.truncated,
+        "tokens_dropped": item.tokens_dropped,
+    }
 
 
 def _report_audit(source_dir: Path, results, cache) -> None:

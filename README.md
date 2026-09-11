@@ -86,8 +86,13 @@ echo 'OPENAI_API_KEY=sk-...' >> .env       # judge only (gpt-4o-2024-08-06)
 export OLLAMA_SERVE_LOG="$PWD/serve.log"
 OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 /path/to/ollama-0.32.13/ollama.exe serve >> "$OLLAMA_SERVE_LOG" 2>&1 &
 
-python -m evals --system mnimi --limit 100          # predict + judge
+python -m evals --system mnimi --limit 100          # predict + judge, local family
 python -m evals --system no_memory --limit 500      # the full set
+
+# The gpt-4o family: the same harness with an API reader, through the Batch
+# API at half price. Resumable — re-running the same command in the same
+# --run-dir polls the submitted batch instead of paying again.
+python -m evals --system mnimi --limit 100 --reader-transport openai --batch
 ```
 
 `--limit` defaults to 10 (a cheap smoke run) and selects questions
