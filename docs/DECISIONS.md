@@ -908,3 +908,51 @@ machine restarts the whole problem. The keep-alive is 5 min: an ingest slower
 than that between two reads would unload and reload the model mid-run, which
 changes the CUDA graph state the warm-up load exists to absorb — check the
 runner-start marker count in the serve log after any long arm.
+
+## The gpt-4o era begins: a second reader transport (2026-09-11)
+
+**Decision:** the harness gains `--reader-transport openai` with
+`gpt-4o-2024-08-06` as the reader, pins schema /5 → /6 (`reader_transport`
+added, the six Ollama-only pins nullable). The local family
+(`qwen2.5:1.5b-instruct-q4_0` on Ollama 0.32.13) is unchanged, stays
+published, and is never paired with the new family (`HARNESS_PARITY_FIELDS`
+refuses).
+
+**Why the reader moves.** The 1.5B reader's evidence-availability bound is
+50/100 on the published slice: with every evidence session in context it
+scores 50, so no write-side policy can show above it. The project's
+completion criterion is SPEC-complete *or* a Wilson lower bound ≥ 85% on
+LongMemEval, and 85 is only reachable on a reader whose bound is above it.
+The paper (Fig 3b, LongMemEval-S, Chain-of-Note) puts GPT-4o at 92.4 with
+oracle evidence and 64.0 with the full 115k-token context; Llama-3.1-8B at
+84.8 / 28.6; Phi-3.5-mini (4B) at 65.2 / 32.4.
+
+**Why this snapshot.** `gpt-4o-2024-08-06` is the paper's reader and its
+judge; the reader behind Zep's 71.2 (vs 60.2 full context), Supermemory's
+85.4 and Mastra's 84.2; and not on OpenAI's deprecation page (checked
+2026-09-11 — only `chatgpt-4o-latest` was retired). Reader and judge share a
+snapshot, as in the paper; disclosed, not hidden. Official price $2.50 /
+$10.00 per million tokens, Batch API half.
+
+**Why 128K.** The model's window. `full_history` becomes the paper's
+untruncated full-context baseline (the 64.0 row) instead of a truncation
+policy; the same trim gate still reports the few histories longer than that.
+
+**What is pinned, what is recorded.** Pinned: snapshot, `temperature=0`,
+`seed=0`, `max_tokens=800`, `num_ctx=128000`, the unchanged `mnimi-con-v1`
+prompt (its hash `50c6fe10…` is asserted unchanged by a test — the transport
+must not move the prompt identity). Recorded, never pinned: the response's
+`system_fingerprint`, aggregated per run into `reader_resolved.json` beside
+the predictions and into `run.environment` at judge time. The family's Tier 2
+claim is "reproducible within measured drift", measured by one n=100 re-run.
+
+**Guards.** `OPENAI_API_KEY` is required before any call; `--limit` above
+100 is refused without `--allow-large-run`. The programme's API budget is $50
+in total (`mnimi docs/PLAN.md`), an accidental `full_history` sitting at
+128K and n=500 would cost ~$150, and the per-sitting cost projection is a
+later task (0.3). Until it lands, the limit is the budget guard.
+
+**What did not change.** The Ollama `Reader`, its preflights and its pins are
+byte-for-byte as before; the local family's published artifacts stay valid
+and its restart pair stays measured. Batch API mode (0.2), the `models.list`
+preflight and the cost projection (0.3) are the next tasks.

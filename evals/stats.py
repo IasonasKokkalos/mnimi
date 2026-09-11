@@ -103,6 +103,10 @@ HARNESS_PARITY_FIELDS = (
     # harness_git_sha mismatch. /4 artifacts lack the field on both sides —
     # None == None — so the published 0.32.13 set keeps pairing.
     "reader_transport_version",
+    # Schema /6. The local 1.5B family and the gpt-4o API family are two
+    # configurations; pairing them would measure the reader, not the system.
+    # /5 artifacts lack the field on both sides (None == None) and still pair.
+    "reader_transport",
 )
 
 

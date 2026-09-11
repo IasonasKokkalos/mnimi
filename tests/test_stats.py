@@ -171,3 +171,16 @@ def test_schema_4_artifacts_without_the_transport_field_still_pair():
         "naive_rag": harness_identity(_payload("naive_rag", reader_transport_version=None)),
     }
     assert_harness_parity(identities)
+
+
+def test_pairing_refuses_across_reader_transports():
+    """Schema /6: the local 1.5B family and the gpt-4o API family are two
+    configurations; a paired test across them would measure the reader."""
+    identities = {
+        "mnimi": harness_identity(_payload("mnimi", reader_transport="ollama")),
+        "naive_rag": harness_identity(_payload("naive_rag", reader_transport="openai")),
+    }
+    with pytest.raises(ValueError, match="reader_transport") as excinfo:
+        assert_harness_parity(identities)
+    assert "ollama" in str(excinfo.value) and "openai" in str(excinfo.value)
+

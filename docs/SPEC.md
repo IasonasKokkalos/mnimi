@@ -1091,9 +1091,16 @@ currently published runs are provisional on both `reader_prompt_version`
 
 ### Tier 2 — Reproducible given the pins AND the daemon precondition
 
-**Claim:** re-running `--stage predict` under the published pins, on a daemon
-launched with the required environment, reproduces the published predictions on
-comparable hardware.
+**Claim (local family):** re-running `--stage predict` under the published
+pins, on a daemon launched with the required environment, reproduces the
+published predictions on comparable hardware.
+
+**Claim (gpt-4o family):** weaker by construction — an API reader is not
+bit-reproducible and the served build is outside the harness's control. The
+family states "reproducible within measured drift": one re-run of an arm at
+n=100 under identical pins, published as N/100 predictions changed beside the
+number, with the `system_fingerprint` histogram of both runs. The verdict
+cache remains the drift detector; Tier 1 is unchanged.
 
 #### The pins, and which layer they live at
 
@@ -1109,6 +1116,16 @@ different llama.cpp and the 0.32.5 → 0.32.13 move changed 20/20 predictions on
 byte-identical prompts. All three are in `pins_hash`, which means a `pins_hash`
 can describe a configuration the serving daemon does not implement — hence the
 preflight below.
+
+API-level (the `openai` transport, pins schema /6, 2026-09-11): the dated
+snapshot `gpt-4o-2024-08-06` (recorded as both `reader_model` and
+`reader_transport_version` — the build that served *is* the snapshot),
+`temperature=0`, `seed=0`, `max_tokens=800`, `num_ctx=128000`. The six
+Ollama-only pins are `None` on this family. The response's
+`system_fingerprint` is the API's own statement of which backend build
+served; it is **recorded** (`reader_resolved.json`, `run.environment`) and
+never pinned, because it cannot be requested. `reader_transport` is a pin and a
+parity field: the local family and the gpt-4o family are never paired.
 
 Harness-level: the per-question cache-bust prefix (introduced by
 `plain-prose-v2`, carried by `mnimi-con-v1`) and `_force_model_load`, which

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from string import Template
 
 from .artifacts import canonical, fingerprint
@@ -164,6 +164,32 @@ READER_CACHE_RAM = 0
 # every build change measured so far moved 20/20 predictions.
 READER_TRANSPORT_VERSION = "0.32.13"
 
+# READER TRANSPORTS. Two, and they are two configuration FAMILIES, never paired
+# against each other (`stats.HARNESS_PARITY_FIELDS` refuses).
+#
+#   "ollama" — the local family: qwen2.5:1.5b-instruct-q4_0 on the pinned
+#   Ollama build, bit-reproducible under the pins above (restart pair measured
+#   100/100 identical, 2026-09-10). Its evidence-availability bound is ~50/100:
+#   the reader, not the memory layer, decides that number.
+#
+#   "openai" — the gpt-4o family (decided 2026-09-11). `gpt-4o-2024-08-06` is
+#   the LongMemEval paper's reader AND its judge snapshot (Fig 3b: oracle 92.4,
+#   full context 64.0 on LongMemEval-S with Chain-of-Note), and the reader
+#   behind the published rows this project is compared against (Zep 71.2,
+#   Supermemory 85.4, Mastra 84.2). A dated snapshot, temperature 0, `seed`,
+#   `max_tokens` = the answer reserve; the response's `system_fingerprint` is
+#   RECORDED, never pinned — an API is reproducible only within measured
+#   drift, and the family says so (SPEC Tier 2).
+#
+#   128K is the model's window, so `full_history` becomes the paper's
+#   untruncated full-context baseline instead of a truncation policy. The trim
+#   gate still runs with the same reserve and scaffold, so the few histories
+#   longer than the window are cut the same way and reported.
+READER_TRANSPORT_OLLAMA = "ollama"
+READER_TRANSPORT_OPENAI = "openai"
+OPENAI_READER_MODEL = "gpt-4o-2024-08-06"
+OPENAI_NUM_CTX = 128_000
+
 # The daemon environment this harness requires. Both are resolved at daemon
 # start, so a run served by a daemon launched without them is not the
 # configuration these pins describe, whatever pins.json says.
@@ -255,9 +281,13 @@ class ReaderOutput:
     """A reader answer plus the token accounting for that call."""
 
     text: str
-    prompt_tokens: int | None  # exact, from Ollama's prompt_eval_count
+    prompt_tokens: int | None  # exact: Ollama's prompt_eval_count / the API's usage
     truncated: bool
     tokens_dropped: int  # estimated (see _estimate_tokens)
+    # Diagnostic, API transport only: the served build's fingerprint. Never
+    # written into predictions.jsonl (the Tier 1 row schema is a contract and
+    # the drift pair compares rows); aggregated into reader_resolved.json.
+    system_fingerprint: str | None = None
 
 
 @dataclass
@@ -293,7 +323,45 @@ class Result:
     tokens_dropped: int = 0
 
 
-class Reader:
+class _BaseReader:
+    """The transport-independent half of a reader: the trim gate and the prompt.
+
+    Both transports render the same ``mnimi-con-v1`` template into the same
+    single user message and trim with the same gate, so ``reader_prompt_hash``
+    is one value for both families and the transport is the only thing that
+    differs — which is exactly what the ``reader_transport`` pin says.
+    """
+
+    def __init__(self, model: str, *, num_ctx: int, answer_reserve: int) -> None:
+        self.model = model
+        self.num_ctx = num_ctx
+        self.answer_reserve = answer_reserve
+
+    def _fit(self, context: str) -> tuple[str, bool, int]:
+        """Trim context to the reader's budget, keeping the most recent text."""
+        budget = self.num_ctx - self.answer_reserve - _SCAFFOLD_TOKENS
+        if _estimate_tokens(context) <= budget:
+            return context, False, 0
+        keep_chars = max(0, budget * _CHARS_PER_TOKEN)
+        kept = context[-keep_chars:]  # tail = most recent sessions (oldest first)
+        dropped = _estimate_tokens(context) - _estimate_tokens(kept)
+        return kept, True, dropped
+
+    def _prompt(self, context: str, question: str, cache_bust: str, question_date: str) -> str:
+        # cache_bust leads the (single) user message so the shared prefix
+        # against the previous request is zero-length. Measured: with the
+        # prompt cache off, this takes prefill from "27,191 of 27,255 tokens"
+        # (64 reused from a shared prefix, i.e. the boundary depends on the
+        # PREVIOUS question) to the full token count every time.
+        return _READER_T.substitute(
+            cache_bust=cache_bust,
+            context=context,
+            question_date=question_date,
+            question=question,
+        )
+
+
+class Reader(_BaseReader):
     """Ollama-backed question answerer with explicit context truncation."""
 
     def __init__(
@@ -309,9 +377,7 @@ class Reader:
         num_batch: int = READER_NUM_BATCH,
         client=None,
     ) -> None:
-        self.model = model
-        self.num_ctx = num_ctx
-        self.answer_reserve = answer_reserve
+        super().__init__(model, num_ctx=num_ctx, answer_reserve=answer_reserve)
         self.seed = seed
         self.top_k = top_k
         self.num_gpu = num_gpu
@@ -322,16 +388,6 @@ class Reader:
 
             client = ollama
         self.client = client
-
-    def _fit(self, context: str) -> tuple[str, bool, int]:
-        """Trim context to the reader's budget, keeping the most recent text."""
-        budget = self.num_ctx - self.answer_reserve - _SCAFFOLD_TOKENS
-        if _estimate_tokens(context) <= budget:
-            return context, False, 0
-        keep_chars = max(0, budget * _CHARS_PER_TOKEN)
-        kept = context[-keep_chars:]  # tail = most recent sessions (oldest first)
-        dropped = _estimate_tokens(context) - _estimate_tokens(kept)
-        return kept, True, dropped
 
     def answer(
         self,
@@ -347,17 +403,7 @@ class Reader:
         unanswerable without knowing when "now" is.
         """
         context, truncated, dropped = self._fit(context)
-        # cache_bust leads the (single) user message so the shared prefix
-        # against the previous request is zero-length. Measured: with the
-        # prompt cache off, this takes prefill from "27,191 of 27,255 tokens"
-        # (64 reused from a shared prefix, i.e. the boundary depends on the
-        # PREVIOUS question) to the full token count every time.
-        prompt = _READER_T.substitute(
-            cache_bust=cache_bust,
-            context=context,
-            question_date=question_date,
-            question=question,
-        )
+        prompt = self._prompt(context, question, cache_bust, question_date)
         # One user message, matching the reference implementation's request
         # (run_generation.py: messages=[{"role": "user", "content": prompt}]).
         response = self.client.chat(
@@ -386,6 +432,100 @@ class Reader:
             text = response.message.content
             prompt_tokens = getattr(response, "prompt_eval_count", None)
         return ReaderOutput((text or "").strip(), prompt_tokens, truncated, dropped)
+
+
+class OpenAIReader(_BaseReader):
+    """OpenAI-backed question answerer — the gpt-4o family's transport.
+
+    Same prompt, same single user message, same trim gate as :class:`Reader`.
+    What is pinned: the dated snapshot, ``temperature=0``, ``seed``,
+    ``max_tokens`` (the answer reserve, the paper's 800). What is recorded
+    but not pinned: ``system_fingerprint`` — the API's own statement of which
+    backend build served the call, the closest thing to the Ollama build pin
+    this transport can offer, and the reason the family's Tier 2 claim is
+    "reproducible within measured drift" rather than bit identity.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        num_ctx: int,
+        answer_reserve: int = READER_ANSWER_RESERVE,
+        seed: int = READER_SEED,
+        client=None,
+    ) -> None:
+        super().__init__(model, num_ctx=num_ctx, answer_reserve=answer_reserve)
+        self.seed = seed
+        if client is None:
+            import openai
+
+            client = openai.OpenAI(max_retries=4)  # the judge's client shape
+        self.client = client
+
+    def answer(
+        self,
+        context: str,
+        question: str,
+        cache_bust: str = "",
+        question_date: str = "",
+    ) -> ReaderOutput:
+        context, truncated, dropped = self._fit(context)
+        prompt = self._prompt(context, question, cache_bust, question_date)
+        completion = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            seed=self.seed,
+            max_tokens=self.answer_reserve,
+        )
+        text = completion.choices[0].message.content
+        usage = getattr(completion, "usage", None)
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+        return ReaderOutput(
+            (text or "").strip(),
+            prompt_tokens,
+            truncated,
+            dropped,
+            system_fingerprint=getattr(completion, "system_fingerprint", None),
+        )
+
+
+@dataclass
+class PredictStats:
+    """What the reader transport RESOLVED to during a predict stage.
+
+    Diagnostic, like ``run.environment``: never in ``pins_hash``. For the API
+    transport this is the histogram of ``system_fingerprint`` values seen —
+    one value across a run is the normal case; more than one means the
+    provider moved the serving build mid-run, which is the drift the family's
+    Tier 2 statement has to disclose.
+    """
+
+    requests: int = 0
+    system_fingerprints: dict = field(default_factory=dict)
+
+    def record(self, out: ReaderOutput) -> None:
+        self.requests += 1
+        fp = out.system_fingerprint
+        if fp is not None:
+            self.system_fingerprints[fp] = self.system_fingerprints.get(fp, 0) + 1
+
+    def as_resolved(self, transport: str, model: str) -> dict:
+        resolved = {
+            "reader_transport": transport,
+            "reader_model": model,
+            "requests": self.requests,
+            "system_fingerprints": dict(sorted(self.system_fingerprints.items())),
+        }
+        if transport == READER_TRANSPORT_OPENAI:
+            try:
+                import openai
+
+                resolved["openai_sdk_version"] = openai.__version__
+            except Exception:  # noqa: BLE001 — diagnostic only
+                resolved["openai_sdk_version"] = None
+        return resolved
 
 
 class ReaderEnvError(RuntimeError):
@@ -497,17 +637,25 @@ def predict(
     sample_seed: int = DEFAULT_SAMPLE_SEED,
     progress: PredictProgressFn | None = None,
     reader_client=None,
+    reader_transport: str = READER_TRANSPORT_OLLAMA,
+    stats: PredictStats | None = None,
 ) -> list[Prediction]:
-    """Stage 1: ingest and read. No judge, no API key, no grading.
+    """Stage 1: ingest and read. No judge, no grading.
 
-    This is the expensive half — it re-ingests every session and runs the local
+    This is the expensive half — it re-ingests every session and runs the
     reader over every question — which is exactly why it is separable from the
-    half that gets re-run.
+    half that gets re-run. ``reader_transport`` picks the family; ``stats``,
+    when given, collects what the transport resolved to (API fingerprints).
     """
     questions = load(
         limit=limit, filename=dataset_file, strategy=strategy, seed=sample_seed
     )
-    reader = Reader(reader_model, num_ctx=num_ctx, num_gpu=num_gpu, client=reader_client)
+    if reader_transport == READER_TRANSPORT_OPENAI:
+        reader = OpenAIReader(reader_model, num_ctx=num_ctx, client=reader_client)
+    elif reader_transport == READER_TRANSPORT_OLLAMA:
+        reader = Reader(reader_model, num_ctx=num_ctx, num_gpu=num_gpu, client=reader_client)
+    else:
+        raise ValueError(f"unknown reader transport: {reader_transport!r}")
 
     predictions: list[Prediction] = []
     for i, q in enumerate(questions):
@@ -518,6 +666,8 @@ def predict(
         out = reader.answer(
             context, q.question, cache_bust=q.question_id, question_date=q.question_date
         )
+        if stats is not None:
+            stats.record(out)
         predictions.append(
             Prediction(
                 question_id=q.question_id,

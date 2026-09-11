@@ -35,6 +35,7 @@ def _pins(**overrides) -> dict:
         reader_num_batch=512,
         reader_flash_attention=1,
         reader_cache_ram=0,
+        reader_transport="ollama",
         reader_transport_version=runner.READER_TRANSPORT_VERSION,
         reader_prompt_version="mnimi-con-v1",
         reader_prompt_hash="rp",
@@ -84,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/5"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/6"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -148,6 +149,256 @@ def test_reader_transport_version_moves_the_pins_hash():
     baseline = artifacts.pins_hash(_pins())
     assert _pins()["reader_transport_version"] == runner.READER_TRANSPORT_VERSION
     assert artifacts.pins_hash(_pins(reader_transport_version="0.33.3")) != baseline
+
+
+PUBLISHED_READER_PROMPT_HASH = (
+    "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce"
+)
+
+
+def _openai_pins(**overrides) -> dict:
+    """Pins as the OpenAI transport emits them: API decode pins, Ollama-only
+    fields null, the served snapshot as the transport version."""
+    base = dict(
+        reader_transport="openai",
+        reader_model=runner.OPENAI_READER_MODEL,
+        reader_transport_version=runner.OPENAI_READER_MODEL,
+        reader_num_ctx=runner.OPENAI_NUM_CTX,
+        reader_top_k=None,
+        reader_num_gpu=None,
+        reader_num_thread=None,
+        reader_num_batch=None,
+        reader_flash_attention=None,
+        reader_cache_ram=None,
+    )
+    base.update(overrides)
+    return _pins(**base)
+
+
+def test_reader_transport_moves_the_pins_hash():
+    """Schema /6. The same prompt on a different transport is a different
+    configuration: the paper's reader and a 1.5B local model never pair."""
+    baseline = artifacts.pins_hash(_pins())
+    assert _pins()["reader_transport"] == "ollama"
+    assert artifacts.pins_hash(_openai_pins()) != baseline
+
+
+def test_openai_pins_carry_null_daemon_fields():
+    pins = _openai_pins()
+    assert pins["reader_transport"] == "openai"
+    assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
+    assert pins["reader_num_ctx"] == 128_000
+    for key in ("reader_top_k", "reader_num_gpu", "reader_num_thread",
+                "reader_num_batch", "reader_flash_attention", "reader_cache_ram"):
+        assert pins[key] is None, key
+    # Canonical JSON handles the nulls; the hash is stable.
+    assert artifacts.pins_hash(pins) == artifacts.pins_hash(_openai_pins())
+
+
+def test_provisional_reasons_are_transport_aware():
+    """Daemon and decode-pin checks have no meaning for the API family; the
+    prompt, dirty-tree and sampling checks still apply to it."""
+    # The dirty-tree reason is legitimate while developing; every other reason
+    # on an OpenAI header would be a daemon check applied to the wrong family.
+    def reasons(pins):
+        return [r for r in evals_main._provisional_reasons(pins) if "dirty" not in r]
+
+    assert reasons(_openai_pins()) == []
+    wrong_prompt = reasons(_openai_pins(reader_prompt_version="plain-prose-v2"))
+    assert any("plain-prose-v2" in r for r in wrong_prompt)
+    # The Ollama family is unchanged: a deviated decode pin still marks it.
+    assert any("reader_num_gpu" in r for r in reasons(_pins(reader_num_gpu=0)))
+
+
+class _FakeOpenAI:
+    """Minimal stand-in for openai.OpenAI: records the kwargs of the one call."""
+
+    def __init__(self, text="The answer is 42.", prompt_tokens=1234,
+                 fingerprint="fp_test"):
+        from types import SimpleNamespace
+
+        self.calls: list[dict] = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                return SimpleNamespace(
+                    id="chatcmpl-test",
+                    system_fingerprint=fingerprint,
+                    usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=7),
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
+                )
+
+        self.chat = SimpleNamespace(completions=_Completions())
+
+
+class TestOpenAIReader:
+    def test_sends_api_decode_pins_as_one_user_message(self):
+        client = _FakeOpenAI()
+        runner.OpenAIReader("gpt-4o-2024-08-06", num_ctx=128_000, client=client).answer(
+            "ctx", "q?", cache_bust="q1", question_date="2023/05/20"
+        )
+        (call,) = client.calls
+        assert call["model"] == "gpt-4o-2024-08-06"
+        assert call["temperature"] == 0
+        assert call["seed"] == runner.READER_SEED
+        assert call["max_tokens"] == runner.READER_ANSWER_RESERVE
+        assert [m["role"] for m in call["messages"]] == ["user"]
+        assert "Answer (step by step):" in call["messages"][0]["content"]
+        assert call["messages"][0]["content"].startswith("q1\n\n")
+        # Ollama-only knobs never reach the API.
+        for key in ("options", "top_k", "num_ctx", "num_gpu", "num_batch", "num_thread"):
+            assert key not in call, key
+
+    def test_reads_usage_and_fingerprint(self):
+        out = runner.OpenAIReader(
+            "gpt-4o-2024-08-06", num_ctx=128_000,
+            client=_FakeOpenAI(text="  yes \n", prompt_tokens=4321, fingerprint="fp_x"),
+        ).answer("ctx", "q?")
+        assert out.text == "yes"
+        assert out.prompt_tokens == 4321
+        assert out.system_fingerprint == "fp_x"
+        assert out.truncated is False and out.tokens_dropped == 0
+
+    def test_trims_to_the_api_window_with_the_shared_gate(self):
+        """Same _fit as the Ollama reader: budget = num_ctx - reserve - scaffold,
+        most recent text kept. 128K is the pin, so full_history only truncates
+        the few histories longer than that."""
+        client = _FakeOpenAI()
+        reader = runner.OpenAIReader("gpt-4o-2024-08-06", num_ctx=128_000, client=client)
+        budget_tokens = 128_000 - runner.READER_ANSWER_RESERVE - runner._SCAFFOLD_TOKENS
+        budget_chars = budget_tokens * runner._CHARS_PER_TOKEN
+        context = "x" * (budget_chars + 4_000) + "TAIL"
+        out = reader.answer(context, "q?")
+        assert out.truncated is True and out.tokens_dropped > 0
+        assert client.calls[0]["messages"][0]["content"].count("TAIL") == 1
+
+    def test_prompt_identity_is_unchanged_by_the_transport(self):
+        """Same template, same single user message, same absent system slot —
+        the published mnimi-con-v1 hash must survive the second transport."""
+        assert reader_prompt_hash() == PUBLISHED_READER_PROMPT_HASH
+
+    def test_era_constants(self):
+        assert runner.OPENAI_READER_MODEL == "gpt-4o-2024-08-06"
+        assert runner.OPENAI_NUM_CTX == 128_000
+        assert runner.READER_TRANSPORT_OPENAI == "openai"
+        assert runner.READER_TRANSPORT_OLLAMA == "ollama"
+
+
+class TestOpenAITransportCli:
+    """End to end through main(), no network, no dataset, no Ollama."""
+
+    def _wire(self, monkeypatch, tmp_path, client):
+        from evals import dataset as dataset_mod
+        from evals import runner as runner_mod
+        from evals.dataset import Question, Session
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        # Any Ollama call is a failure of the branch.
+        def forbid(name):
+            def _touched(*a, **k):
+                raise AssertionError(f"Ollama touched via {name}")
+
+            return _touched
+
+        for name in ("ollama_preflight", "_force_model_load", "_live_ollama_version",
+                     "ollama_context_length", "_ollama_get", "_ollama_post"):
+            monkeypatch.setattr(evals_main, name, forbid(name))
+        monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: client)
+        dataset_file = tmp_path / "fake_dataset.json"
+        dataset_file.write_text("[]", encoding="utf-8")
+        monkeypatch.setattr(dataset_mod, "resolve_path", lambda *a, **k: dataset_file)
+        question = Question(
+            question_id="q_fake", question_type="single-session-user",
+            question="What is my cat called?", answer="Luna",
+            question_date="2023/05/20 (Sat) 10:00",
+            sessions=[Session(session_id="s1", date="2023/05/19 (Fri) 09:00",
+                              turns=[{"role": "user", "content": "My cat is Luna"},
+                                     {"role": "assistant", "content": "Noted."}])],
+            answer_session_ids=["s1"],
+        )
+        monkeypatch.setattr(runner_mod, "load", lambda *a, **k: [question])
+
+    def _run(self, tmp_path, *extra):
+        run_dir = tmp_path / "r"
+        rc = evals_main.main(
+            ["--system", "no_memory", "--limit", "1", "--stage", "predict",
+             "--reader-transport", "openai", "--run-dir", str(run_dir), *extra]
+        )
+        return rc, run_dir
+
+    def test_openai_run_writes_honest_pins_and_resolved_fingerprint(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        client = _FakeOpenAI(fingerprint="fp_live")
+        self._wire(monkeypatch, tmp_path, client)
+
+        rc, run_dir = self._run(tmp_path)
+
+        assert rc == 0, capsys.readouterr().err
+        pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/6"
+        assert pins["reader_transport"] == "openai"
+        assert pins["reader_model"] == "gpt-4o-2024-08-06"
+        assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
+        assert pins["reader_num_ctx"] == 128_000
+        assert pins["reader_num_gpu"] is None and pins["reader_cache_ram"] is None
+        assert pins["reader_prompt_hash"] == PUBLISHED_READER_PROMPT_HASH
+        lines = (run_dir / "predictions.jsonl").read_text(encoding="utf-8").splitlines()
+        rows = [json.loads(line) for line in lines]
+        assert len(rows) == 1 and rows[0]["predicted"] == "The answer is 42."
+        assert "system_fingerprint" not in rows[0], "diagnostics never enter the Tier 1 rows"
+        resolved = json.loads((run_dir / "reader_resolved.json").read_text(encoding="utf-8"))
+        assert resolved["reader_transport"] == "openai"
+        assert resolved["system_fingerprints"] == {"fp_live": 1}
+        assert resolved["requests"] == 1
+        (call,) = client.calls
+        assert call["temperature"] == 0 and call["seed"] == 0 and call["max_tokens"] == 800
+        err = capsys.readouterr().err
+        assert "reader transport: openai gpt-4o-2024-08-06" in err
+
+    def test_missing_api_key_is_refused_before_any_call(self, tmp_path, monkeypatch, capsys):
+        import dotenv
+
+        client = _FakeOpenAI()
+        self._wire(monkeypatch, tmp_path, client)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
+
+        rc, run_dir = self._run(tmp_path)
+
+        assert rc == 2
+        assert "OPENAI_API_KEY" in capsys.readouterr().err
+        assert client.calls == [] and not run_dir.exists()
+
+    def test_large_limit_is_refused_without_the_flag(self, tmp_path, monkeypatch, capsys):
+        client = _FakeOpenAI()
+        self._wire(monkeypatch, tmp_path, client)
+
+        rc, run_dir = evals_main.main(
+            ["--system", "no_memory", "--limit", "101", "--stage", "predict",
+             "--reader-transport", "openai", "--run-dir", str(tmp_path / "r")]
+        ), tmp_path / "r"
+
+        assert rc == 2
+        assert "--allow-large-run" in capsys.readouterr().err
+        assert client.calls == [] and not run_dir.exists()
+
+    def test_ollama_default_is_untouched(self, tmp_path, monkeypatch):
+        """No flag → the local family, exactly as before: Ollama preflight runs
+        and the resolved model/window defaults are the 1.5B pins."""
+        seen = {}
+
+        def fake_preflight(model):
+            seen["model"] = model
+            return ("stop here", None)  # rc 2 right after, before any load
+
+        monkeypatch.setattr(evals_main, "ollama_preflight", fake_preflight)
+        rc = evals_main.main(["--system", "no_memory", "--limit", "1", "--stage", "predict",
+                              "--run-dir", str(tmp_path / "r")])
+        assert rc == 2
+        assert seen["model"] == evals_main.READER_MODEL
 
 
 def test_reader_sends_pinned_decode_options():

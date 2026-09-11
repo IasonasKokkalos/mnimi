@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/5"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/6"
 
 
 def fingerprint(text: str) -> str:
@@ -409,16 +409,17 @@ def build_pins(
     limit: int | None,
     sample_strategy: str,
     sample_seed: int,
+    reader_transport: str,
     reader_model: str,
     reader_digest: str | None,
     reader_num_ctx: int,
     reader_seed: int,
-    reader_top_k: int,
-    reader_num_gpu: int,
-    reader_num_thread: int,
-    reader_num_batch: int,
-    reader_flash_attention: int,
-    reader_cache_ram: int,
+    reader_top_k: int | None,
+    reader_num_gpu: int | None,
+    reader_num_thread: int | None,
+    reader_num_batch: int | None,
+    reader_flash_attention: int | None,
+    reader_cache_ram: int | None,
     reader_transport_version: str,
     reader_prompt_version: str,
     reader_prompt_hash: str,
@@ -485,6 +486,18 @@ def build_pins(
     the build the harness REQUESTED (``runner.READER_TRANSPORT_VERSION``),
     ``run.environment.ollama_version`` keeps holding the one that RESOLVED,
     and ``preflight_reader_transport`` refuses to run unless they agree.
+
+    Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
+    ``"openai"`` — and made the six Ollama-only pins nullable. The same
+    prompt on a different transport is a different configuration family; a
+    header that could not say which family produced a row would let a 1.5B
+    local reader and gpt-4o carry the same hash. For the OpenAI transport the
+    request-level pins are the dated snapshot (``reader_model``, repeated in
+    ``reader_transport_version`` as "the build that served"), ``seed``,
+    temperature 0 and ``max_tokens`` = the answer reserve; the six daemon and
+    decode knobs are ``None`` because they do not exist there. The served
+    ``system_fingerprint`` is resolved, not requested, so it lives in
+    ``reader_resolved.json`` / ``run.environment`` — the /5 split again.
     """
     return {
         "artifact_schema": ARTIFACT_SCHEMA,
@@ -497,6 +510,10 @@ def build_pins(
         # slice and a stratified slice of the same size are different benchmarks.
         "sample_strategy": sample_strategy,
         "sample_seed": sample_seed,
+        # Which family: "ollama" (local, bit-reproducible under the daemon
+        # pins) or "openai" (the gpt-4o era, reproducible within measured
+        # drift). Never paired across — stats.HARNESS_PARITY_FIELDS refuses.
+        "reader_transport": reader_transport,
         "reader_model": reader_model,
         "reader_digest": reader_digest,
         "reader_num_ctx": reader_num_ctx,
@@ -551,6 +568,31 @@ def write_pins(directory: Path, pins: dict) -> Path:
     payload = {"pins": pins, "pins_hash": pins_hash(pins)}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path
+
+
+READER_RESOLVED_FILE = "reader_resolved.json"
+
+
+def write_reader_resolved(directory: Path, resolved: dict) -> Path:
+    """What the reader transport resolved to, beside the predictions.
+
+    Diagnostic, like ``model_load.log`` for the Ollama family: the API
+    family's ``system_fingerprint`` histogram and request count. Written at
+    predict time so a ``--stage predict`` run keeps it even when no
+    ``results.json`` is ever produced; folded into ``run.environment`` by the
+    judge stage. Never part of ``pins_hash``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / READER_RESOLVED_FILE
+    path.write_text(json.dumps(resolved, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def read_reader_resolved_optional(directory: Path) -> dict | None:
+    path = directory / READER_RESOLVED_FILE
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_pins(directory: Path) -> dict:

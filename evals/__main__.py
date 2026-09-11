@@ -214,7 +214,24 @@ def main(argv: list[str] | None = None) -> int:
         help="run only the first N questions (default 10; a cheap smoke run)",
     )
     parser.add_argument(
-        "--model", default=READER_MODEL, help="reader model tag (local Ollama)"
+        "--reader-transport",
+        default="ollama",
+        choices=["ollama", "openai"],
+        help="which reader family: 'ollama' (the local, bit-reproducible "
+        "family; default) or 'openai' (the gpt-4o era). The two are never "
+        "paired against each other.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=f"reader model. Default per transport: {READER_MODEL} (ollama) "
+        "or gpt-4o-2024-08-06 (openai).",
+    )
+    parser.add_argument(
+        "--allow-large-run",
+        action="store_true",
+        help="permit --limit above 100 on the openai transport. Until the "
+        "cost projection lands, this is the only guard on the API budget.",
     )
     parser.add_argument(
         "--judge-model", default=JUDGE_MODEL, help="judge model id (OpenAI snapshot)"
@@ -222,8 +239,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--num-ctx",
         type=int,
-        default=DEFAULT_NUM_CTX,
-        help="reader context window passed to Ollama (default 32768)",
+        default=None,
+        help=f"reader context window. Default per transport: {DEFAULT_NUM_CTX} "
+        "(ollama) or 128000 (openai, the model's window).",
     )
     parser.add_argument(
         "--dataset-file",
@@ -292,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     from .report import print_report
     from .report import summary as report_summary
     from .runner import (
+        OPENAI_NUM_CTX,
+        OPENAI_READER_MODEL,
         READER_CACHE_RAM,
         READER_FLASH_ATTENTION,
         READER_NUM_BATCH,
@@ -300,8 +320,10 @@ def main(argv: list[str] | None = None) -> int:
         READER_PROMPT_VERSION,
         READER_SEED,
         READER_TOP_K,
+        READER_TRANSPORT_OPENAI,
         READER_TRANSPORT_VERSION,
         Prediction,
+        PredictStats,
         ReaderEnvError,
         judge_predictions,
         predict,
@@ -312,6 +334,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     num_gpu = READER_NUM_GPU if args.num_gpu is None else args.num_gpu
+    # Per-transport defaults, resolved here rather than in argparse so the
+    # help text stays honest about both families.
+    is_api = args.reader_transport == READER_TRANSPORT_OPENAI
+    if args.model is None:
+        args.model = OPENAI_READER_MODEL if is_api else READER_MODEL
+    if args.num_ctx is None:
+        args.num_ctx = OPENAI_NUM_CTX if is_api else DEFAULT_NUM_CTX
 
     # A Tier 1 audit points at one predictions file: judge only, no system, no
     # dataset, no reader — and no writes into the artifact being audited.
@@ -363,7 +392,30 @@ def main(argv: list[str] | None = None) -> int:
 
     digest = None
     declared_ctx = None
-    if do_predict:
+    reader_client = None
+    if do_predict and is_api:
+        # The gpt-4o family. No daemon, no model load, no serve log: the
+        # reader is a dated API snapshot. Two guards before any call.
+        if not os.environ.get("OPENAI_API_KEY"):
+            print(
+                "ERROR: OPENAI_API_KEY is not set. The openai reader transport "
+                f"({args.model}) runs on the OpenAI API; set it in .env and re-run.",
+                file=sys.stderr,
+            )
+            return 2
+        # The API budget for the whole programme is $50 (PLAN.md). Until the
+        # per-sitting cost projection lands (task 0.3), the only guard against
+        # an accidental $150 full_history sitting is this limit.
+        if (args.limit is None or args.limit > 100) and not args.allow_large_run:
+            print(
+                f"ERROR: --limit {args.limit} on the openai transport exceeds the "
+                "n=100 working slice. Pass --allow-large-run only for the planned "
+                "final sitting.",
+                file=sys.stderr,
+            )
+            return 2
+        reader_client = build_openai_reader_client()
+    elif do_predict:
         # Reader transport: local Ollama. Fail fast if daemon or model is missing.
         err, digest = ollama_preflight(args.model)
         if err:
@@ -405,17 +457,20 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             sample_strategy=args.sample,
             sample_seed=args.sample_seed,
+            reader_transport=args.reader_transport,
             reader_model=args.model,
             reader_digest=digest,
             reader_num_ctx=args.num_ctx,
             reader_seed=READER_SEED,
-            reader_top_k=READER_TOP_K,
-            reader_num_gpu=num_gpu,
-            reader_num_thread=READER_NUM_THREAD,
-            reader_num_batch=READER_NUM_BATCH,
-            reader_flash_attention=READER_FLASH_ATTENTION,
-            reader_cache_ram=READER_CACHE_RAM,
-            reader_transport_version=READER_TRANSPORT_VERSION,
+            # The six Ollama-only pins do not exist on the API; for that
+            # family the "build that served" is the dated snapshot itself.
+            reader_top_k=None if is_api else READER_TOP_K,
+            reader_num_gpu=None if is_api else num_gpu,
+            reader_num_thread=None if is_api else READER_NUM_THREAD,
+            reader_num_batch=None if is_api else READER_NUM_BATCH,
+            reader_flash_attention=None if is_api else READER_FLASH_ATTENTION,
+            reader_cache_ram=None if is_api else READER_CACHE_RAM,
+            reader_transport_version=args.model if is_api else READER_TRANSPORT_VERSION,
             reader_prompt_version=READER_PROMPT_VERSION,
             reader_prompt_hash=reader_prompt_hash(),
             # The canonical context format every arm renders through. Pinned
@@ -435,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
 
+        predict_stats = PredictStats()
         predictions = predict(
             system,
             reader_model=args.model,
@@ -445,9 +501,17 @@ def main(argv: list[str] | None = None) -> int:
             strategy=args.sample,
             sample_seed=args.sample_seed,
             progress=predict_progress,
+            reader_transport=args.reader_transport,
+            reader_client=reader_client,
+            stats=predict_stats,
         )
         artifacts.write_pins(directory, pins)
         artifacts.write_predictions(directory, predictions)
+        if is_api:
+            # The API family's counterpart of model_load.log: what served.
+            artifacts.write_reader_resolved(
+                directory, predict_stats.as_resolved(args.reader_transport, args.model)
+            )
         print(f"wrote {directory / 'predictions.jsonl'}", file=sys.stderr)
     else:
         # Judge-only replay: the header and the rows both come off disk.
@@ -539,10 +603,10 @@ def main(argv: list[str] | None = None) -> int:
         "judge_cache_misses": cache.misses,
         "abstention_questions": sum(1 for r in results if r.is_abstention),
         # Diagnostic only — never folded into pins_hash (see capture_environment).
-        "environment": artifacts.capture_environment(
-            ollama_host=OLLAMA_HOST,
-            serve_log=artifacts.default_serve_log(),
-            save_log_to=directory / "model_load.log",
+        # The family comes from the pins on disk, not the CLI flag, so a
+        # judge-only replay of an API-era run never reads an Ollama daemon.
+        "environment": _capture_environment_for(
+            pins.get("reader_transport", args.reader_transport), directory
         ),
     }
     provisional = _provisional_reasons(pins)
@@ -571,6 +635,37 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+def build_openai_reader_client():
+    """The OpenAI client for the reader — the judge's shape, one seam for tests."""
+    import openai
+
+    return openai.OpenAI(max_retries=4)
+
+
+def _capture_environment_for(reader_transport: str, directory: Path) -> dict:
+    """The resolved-environment block for one family.
+
+    Ollama: the daemon's resolved state from its serve log, unchanged. OpenAI:
+    the machine (the embedder and, later, the extractor still run here) plus
+    what the transport resolved to at predict time (``reader_resolved.json``).
+    """
+    if reader_transport != "openai":
+        return artifacts.capture_environment(
+            ollama_host=OLLAMA_HOST,
+            serve_log=artifacts.default_serve_log(),
+            save_log_to=directory / "model_load.log",
+        )
+    machine = artifacts.capture_environment(ollama_host="http://127.0.0.1:1", serve_log=None)
+    env = {
+        "reader_transport": "openai",
+        "gpu_model": machine.get("gpu_model"),
+        "driver_version": machine.get("driver_version"),
+        "cuda_version": machine.get("cuda_version"),
+        "reader_resolved": artifacts.read_reader_resolved_optional(directory),
+    }
+    return env
 
 
 def _report_audit(source_dir: Path, results, cache) -> None:
@@ -628,10 +723,9 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
     print(f"harness git:      {pins.get('harness_git_sha')}", file=sys.stderr)
     print(f"dataset:          {pins.get('dataset_file')}", file=sys.stderr)
     print(f"dataset sha256:   {pins.get('dataset_sha256')}", file=sys.stderr)
-    print(
-        f"reader (Ollama):  {pins.get('reader_model')}  digest={pins.get('reader_digest')}",
-        file=sys.stderr,
-    )
+    transport = pins.get("reader_transport", "ollama")
+    digest = "" if transport == "openai" else f"  digest={pins.get('reader_digest')}"
+    print(f"reader ({transport}):  {pins.get('reader_model')}{digest}", file=sys.stderr)
     print(
         f"reader num_ctx:   {pins.get('reader_num_ctx')}"
         + (f"  (model declares {declared_ctx})" if declared_ctx else ""),
@@ -642,16 +736,23 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
         f"({str(pins.get('reader_prompt_hash'))[:12]}...)",
         file=sys.stderr,
     )
-    print(
-        f"reader daemon:    flash_attn={pins.get('reader_flash_attention')} "
-        f"cache_ram={pins.get('reader_cache_ram')} (verified resolved at preflight)",
-        file=sys.stderr,
-    )
-    print(
-        f"reader transport: ollama {pins.get('reader_transport_version')} "
-        "(verified at preflight)",
-        file=sys.stderr,
-    )
+    if pins.get("reader_transport") == "openai":
+        print(
+            f"reader transport: openai {pins.get('reader_model')} (snapshot; "
+            "fingerprints recorded per call, seed/temperature/max_tokens pinned)",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"reader daemon:    flash_attn={pins.get('reader_flash_attention')} "
+            f"cache_ram={pins.get('reader_cache_ram')} (verified resolved at preflight)",
+            file=sys.stderr,
+        )
+        print(
+            f"reader transport: ollama {pins.get('reader_transport_version')} "
+            "(verified at preflight)",
+            file=sys.stderr,
+        )
     print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
     print("------------", file=sys.stderr)
 
@@ -679,7 +780,10 @@ def _provisional_reasons(pins: dict) -> list[str]:
     from .runner import READER_CACHE_RAM, READER_NUM_BATCH, READER_NUM_GPU
 
     reasons = []
-    if pins.get("reader_cache_ram") != READER_CACHE_RAM:
+    # The daemon and decode-pin checks describe the Ollama family; on the API
+    # family those pins are None by construction and carry no meaning.
+    is_api = pins.get("reader_transport") == "openai"
+    if not is_api and pins.get("reader_cache_ram") != READER_CACHE_RAM:
         reasons.append(
             f"reader_cache_ram={pins.get('reader_cache_ram')} overrides the pin "
             f"({READER_CACHE_RAM}) — a live prompt cache makes a prediction "
@@ -697,12 +801,12 @@ def _provisional_reasons(pins: dict) -> list[str]:
         reasons.append("harness tree was dirty at run time")
     # A deviated decode pin means this run is not the configuration the
     # determinism evidence was gathered under.
-    if pins.get("reader_num_gpu") != READER_NUM_GPU:
+    if not is_api and pins.get("reader_num_gpu") != READER_NUM_GPU:
         reasons.append(
             f"reader_num_gpu={pins.get('reader_num_gpu')} overrides the pin "
             f"({READER_NUM_GPU}) — not the measured-reproducible configuration"
         )
-    if pins.get("reader_num_batch") != READER_NUM_BATCH:
+    if not is_api and pins.get("reader_num_batch") != READER_NUM_BATCH:
         reasons.append(
             f"reader_num_batch={pins.get('reader_num_batch')} overrides the pin "
             f"({READER_NUM_BATCH}) — unpinned batch size caused observed drift"
