@@ -70,9 +70,14 @@ class _FakeBatchClient:
                     choices=[SimpleNamespace(message=SimpleNamespace(content="sync answer"))],
                 )
 
+        class _Models:
+            def retrieve(self, model):
+                return SimpleNamespace(id=model)
+
         self.files = _Files()
         self.batches = _Batches()
         self.chat = SimpleNamespace(completions=_Completions())
+        self.models = _Models()
 
     def _batch(self, status, batch_id="batch_1"):
         total = len(self._requests)
@@ -141,6 +146,7 @@ def _wire(monkeypatch, tmp_path, client):
     from evals import runner as runner_mod
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MNIMI_API_LEDGER", str(tmp_path / "ledger.jsonl"))
 
     def forbid(name):
         def _touched(*a, **k):
@@ -288,6 +294,11 @@ def test_resume_never_resubmits(tmp_path, monkeypatch, capsys):
     assert second.uploads == [] and second.created == []
     rows = _rows(run_dir)
     assert [r["question_id"] for r in rows] == ["q1", "q2"]
+    ledger_text = (tmp_path / "ledger.jsonl").read_text(encoding="utf-8")
+    ledger = [json.loads(x) for x in ledger_text.splitlines()]
+    assert [e["status"] for e in ledger] == ["submitted", "done"]
+    assert ledger[1]["supersedes_ts"] == ledger[0]["ts"]
+    assert ledger[1]["actual_usd"] == pytest.approx((100 + 101) * 1.25e-6 + 10 * 5e-6)
 
 
 def test_resume_with_different_pins_is_refused(tmp_path, monkeypatch, capsys):

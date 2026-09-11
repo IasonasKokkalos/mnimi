@@ -1136,6 +1136,15 @@ served; it is **recorded** (`reader_resolved.json`, `run.environment`) and
 never pinned, because it cannot be requested. `reader_transport` is a pin and a
 parity field: the local family and the gpt-4o family are never paired.
 
+Money is not a pin either. The API family projects every run's cost from the
+real request bodies before the first call (`evals/pricing.py`: a dated price
+table, an upper bound at the trim gate's chars/4 convention and `max_tokens`
+per request, the judge at a fixed per-call estimate), refuses above the
+remaining programme budget, and records actual spend from the API's own
+`usage` counts in a ledger outside the repo. The projection, the actual, and
+the ledger are diagnostics — they never enter `pins_hash`, and a run's
+identity is the same whether it cost a cent or a dollar.
+
 Harness-level: the per-question cache-bust prefix (introduced by
 `plain-prose-v2`, carried by `mnimi-con-v1`) and `_force_model_load`, which
 are pins in everything but name.

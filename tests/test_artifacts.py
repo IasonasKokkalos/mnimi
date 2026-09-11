@@ -230,7 +230,12 @@ class _FakeOpenAI:
                     choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
                 )
 
+        class _Models:
+            def retrieve(self, model):
+                return SimpleNamespace(id=model)
+
         self.chat = SimpleNamespace(completions=_Completions())
+        self.models = _Models()
 
 
 class TestOpenAIReader:
@@ -295,6 +300,7 @@ class TestOpenAITransportCli:
         from evals.dataset import Question, Session
 
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("MNIMI_API_LEDGER", str(tmp_path / "ledger.jsonl"))
         # Any Ollama call is a failure of the branch.
         def forbid(name):
             def _touched(*a, **k):
@@ -370,19 +376,6 @@ class TestOpenAITransportCli:
 
         assert rc == 2
         assert "OPENAI_API_KEY" in capsys.readouterr().err
-        assert client.calls == [] and not run_dir.exists()
-
-    def test_large_limit_is_refused_without_the_flag(self, tmp_path, monkeypatch, capsys):
-        client = _FakeOpenAI()
-        self._wire(monkeypatch, tmp_path, client)
-
-        rc, run_dir = evals_main.main(
-            ["--system", "no_memory", "--limit", "101", "--stage", "predict",
-             "--reader-transport", "openai", "--run-dir", str(tmp_path / "r")]
-        ), tmp_path / "r"
-
-        assert rc == 2
-        assert "--allow-large-run" in capsys.readouterr().err
         assert client.calls == [] and not run_dir.exists()
 
     def test_ollama_default_is_untouched(self, tmp_path, monkeypatch):

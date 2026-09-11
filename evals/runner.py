@@ -528,6 +528,18 @@ def parse_completion(completion) -> tuple[str, int | None, str | None]:
     return (text or "").strip(), prompt_tokens, fingerprint
 
 
+def completion_usage(completion) -> tuple[int | None, int | None]:
+    """``(prompt_tokens, completion_tokens)`` as the API counted them, from an
+    SDK object or a Batch API output body; ``(None, None)`` when absent."""
+    if isinstance(completion, dict):
+        usage = completion.get("usage") or {}
+        return usage.get("prompt_tokens"), usage.get("completion_tokens")
+    usage = getattr(completion, "usage", None)
+    if usage is None:
+        return None, None
+    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+
+
 @dataclass
 class PredictStats:
     """What the reader transport RESOLVED to during a predict stage.
@@ -541,12 +553,19 @@ class PredictStats:
 
     requests: int = 0
     system_fingerprints: dict = field(default_factory=dict)
+    # The API's own token counts, summed — what the ledger bills against.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
-    def record(self, out: ReaderOutput) -> None:
+    def record(self, out: ReaderOutput, usage: tuple | None = None) -> None:
         self.requests += 1
         fp = out.system_fingerprint
         if fp is not None:
             self.system_fingerprints[fp] = self.system_fingerprints.get(fp, 0) + 1
+        if usage is not None:
+            prompt_tokens, completion_tokens = usage
+            self.prompt_tokens += prompt_tokens or 0
+            self.completion_tokens += completion_tokens or 0
 
     def as_resolved(self, transport: str, model: str) -> dict:
         resolved = {
@@ -554,6 +573,10 @@ class PredictStats:
             "reader_model": model,
             "requests": self.requests,
             "system_fingerprints": dict(sorted(self.system_fingerprints.items())),
+            "usage": {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+            },
         }
         if transport == READER_TRANSPORT_OPENAI:
             try:
@@ -791,7 +814,7 @@ def predictions_from_batch(
             system_fingerprint=fingerprint,
         )
         if stats is not None:
-            stats.record(out)
+            stats.record(out, completion_usage(outputs[item.custom_id]))
         predictions.append(
             Prediction(
                 question_id=item.custom_id,
@@ -808,6 +831,21 @@ def predictions_from_batch(
     return predictions
 
 
+def answer_items_sync(client, items: list[BatchItem], *, progress=None) -> dict:
+    """The synchronous OpenAI path over prebuilt items: one call per body.
+
+    Built on the same items the Batch API path uses, so the cost projection
+    sees the exact bodies before the first call and the two paths differ only
+    in transport. ``progress(i, n, item)`` fires after each call.
+    """
+    outputs: dict = {}
+    for i, item in enumerate(items):
+        outputs[item.custom_id] = client.chat.completions.create(**item.body)
+        if progress is not None:
+            progress(i + 1, len(items), item)
+    return outputs
+
+
 def judge_predictions(
     predictions: list[Prediction],
     *,
@@ -815,14 +853,17 @@ def judge_predictions(
     judge_cache=None,
     judge_client=None,
     progress: JudgeProgressFn | None = None,
+    judge: Judge | None = None,
 ) -> list[Result]:
     """Stage 2: grade predictions. Needs no dataset, no system, no reader.
 
     Everything required to grade travels in the prediction rows, so this stage
     replays from ``predictions.jsonl`` alone — and with the verdict cache warm,
-    replays for free.
+    replays for free. A prebuilt ``judge`` may be passed so the caller can read
+    its usage counters afterwards.
     """
-    judge = Judge(judge_model, client=judge_client, cache=judge_cache)
+    if judge is None:
+        judge = Judge(judge_model, client=judge_client, cache=judge_cache)
 
     results: list[Result] = []
     for i, p in enumerate(predictions):

@@ -106,9 +106,10 @@ resolution. Both roles are in extraction scope.
   baseline); the six Ollama-only pins are `None`; the served
   `system_fingerprint` is recorded per call in `reader_resolved.json` and
   `run.environment`, never pinned, so this family is reproducible only
-  within measured drift; `--limit` above 100 is refused without
-  `--allow-large-run` until the cost projection lands (the API budget is $50
-  for the whole programme, `mnimi docs/PLAN.md`). Both families: reader prompt =
+  within measured drift; every run projects its cost from the real request
+  bodies before the first call and refuses above the remaining budget (the
+  API budget is $50 for the whole programme, `mnimi docs/PLAN.md`;
+  `evals/pricing.py`). Both families: reader prompt =
   `mnimi-con-v1` (LongMemEval Fig 13 with exactly two deviations — one
   abstention sentence, the `${cache_bust}` prefix — so it is *not* the paper's
   prompt and is never named as one; `json-con-paper-v1` stays reserved for a
@@ -159,6 +160,16 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   set (dirty tree) was never published.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
+- **A run that cannot be projected cannot spend.** On the API family the
+  harness prices the reader and the judge from a dated table
+  (`evals/pricing.py`, `PRICES_AS_OF`), confirms the snapshot is served
+  (`models.retrieve`), projects an upper bound from the real request bodies
+  before the first call, and refuses when projection plus the ledger's spend
+  exceeds the budget (`API_BUDGET_USD = 50`). Actual spend from the API's
+  `usage` counts is appended to `.cache/api_ledger.jsonl` (gitignored — a fact
+  about this key, not the code) after every run; `python -m evals.pricing`
+  prints it. `--api-budget-usd` is the one override and is echoed loudly.
+  Money never enters `pins_hash`.
 - **The judge is not deterministic on borderline rows.** gpt-4o at temperature 0
   flipped 9 verdicts in 140 gradings (question `eace081b`: 9 yes / 11 no across
   20 cache-bypassed re-grades). Absolute scores carry judge instrument error on
@@ -261,6 +272,7 @@ python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + 
 # command in the same --run-dir polls the submitted batch, never resubmits):
 python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
+python -m evals.pricing                                     # the API spend ledger vs the $50 cap
 ```
 
 ## Current state vs SPEC (as of v1.5.1; library unchanged since v1.3.0 @ 658f516)

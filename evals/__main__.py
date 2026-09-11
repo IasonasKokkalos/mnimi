@@ -14,7 +14,7 @@ from pathlib import Path
 # Stdlib-only, so importing these here keeps `python -m evals --help` from
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
-from . import artifacts
+from . import artifacts, pricing
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
 
 # Phase A pins. Reader is a local Ollama model; judge is the paper's validated
@@ -228,10 +228,13 @@ def main(argv: list[str] | None = None) -> int:
         "or gpt-4o-2024-08-06 (openai).",
     )
     parser.add_argument(
-        "--allow-large-run",
-        action="store_true",
-        help="permit --limit above 100 on the openai transport. Until the "
-        "cost projection lands, this is the only guard on the API budget.",
+        "--api-budget-usd",
+        type=float,
+        default=None,
+        help=f"override the programme's API budget (${pricing.API_BUDGET_USD:.2f}) "
+        "for this run. Every run projects its cost from the real request bodies "
+        "before the first call and refuses above the remaining budget; the "
+        "override is echoed loudly and recorded in the ledger.",
     )
     parser.add_argument(
         "--batch",
@@ -324,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     from mnimi.memory import render_template_hash
 
     from .dataset import file_sha256, resolve_path
-    from .judge import judge_block
+    from .judge import Judge, judge_block
     from .judge_cache import JudgeCache
     from .report import print_report
     from .report import summary as report_summary
@@ -428,18 +431,21 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        # The API budget for the whole programme is $50 (PLAN.md). Until the
-        # per-sitting cost projection lands (task 0.3), the only guard against
-        # an accidental $150 full_history sitting is this limit.
-        if (args.limit is None or args.limit > 100) and not args.allow_large_run:
-            print(
-                f"ERROR: --limit {args.limit} on the openai transport exceeds the "
-                "n=100 working slice. Pass --allow-large-run only for the planned "
-                "final sitting.",
-                file=sys.stderr,
-            )
+        # A model without a price cannot be projected, and a run that cannot
+        # be projected cannot spend (the budget gate below needs the number).
+        try:
+            pricing.price(args.model)
+        except pricing.UnpricedModelError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         reader_client = build_openai_reader_client()
+        # The snapshot must be served for this key before anything is built:
+        # a retired snapshot found out at question 1 would already have cost
+        # the ingest of the whole slice.
+        snapshot_error = _preflight_snapshot(reader_client, args.model)
+        if snapshot_error:
+            print(f"ERROR: {snapshot_error}", file=sys.stderr)
+            return 2
     elif do_predict:
         # Reader transport: local Ollama. Fail fast if daemon or model is missing.
         err, digest = ollama_preflight(args.model)
@@ -467,6 +473,32 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     started = time.perf_counter()
+    budget_usd = pricing.API_BUDGET_USD if args.api_budget_usd is None else args.api_budget_usd
+    budget_override = args.api_budget_usd is not None
+    if budget_override:
+        print(
+            f"BUDGET OVERRIDE: --api-budget-usd {budget_usd:.2f} replaces the programme "
+            f"cap of ${pricing.API_BUDGET_USD:.2f} for this run (recorded in the ledger).",
+            file=sys.stderr,
+        )
+    # One ledger line per invocation: filled by the reader stage, the judge
+    # stage, or both, and appended before main() returns. Money never enters
+    # pins_hash; it is a fact about this key, kept in the gitignored .cache/.
+    ledger_entry = {
+        "ts": _ledger_ts(),
+        "run_dir": str(directory),
+        "system": args.system,
+        "limit": args.limit,
+        "stage": args.stage,
+        "reader_transport": args.reader_transport if do_predict else None,
+        "reader_model": args.model if (do_predict and is_api) else None,
+        "batch": bool(args.batch and do_predict),
+        "judge_model": args.judge_model if do_judge else None,
+        "budget_usd": budget_usd,
+        "budget_override": budget_override,
+        "prices_as_of": pricing.PRICES_AS_OF,
+        "status": "done",
+    }
 
     if do_predict:
         dataset_path = resolve_path(args.dataset_file)
@@ -515,8 +547,16 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
 
-        if args.batch:
-            outcome = _predict_batch(args, directory, system, pins, reader_client, predict_progress)
+        if is_api:
+            judge_calls_planned = 0
+            if do_judge:
+                # Upper bound: every row graded, no cache hit assumed.
+                judge_calls_planned = args.limit if args.limit is not None else 0
+            outcome = _predict_openai(
+                args, directory, system, pins, reader_client, predict_progress,
+                budget_usd=budget_usd, judge_calls_planned=judge_calls_planned,
+                entry=ledger_entry,
+            )
             if isinstance(outcome, int):
                 return outcome
             predictions = outcome
@@ -584,6 +624,8 @@ def main(argv: list[str] | None = None) -> int:
             f"--limit {args.limit} --stage judge",
             file=sys.stderr,
         )
+        if is_api:
+            _record_spend(ledger_entry, budget_usd)
         return 0
 
     # Judge identity, built once from the judge about to run. It feeds both the
@@ -592,6 +634,35 @@ def main(argv: list[str] | None = None) -> int:
     # drift apart.
     judge_info = judge_block(args.judge_model)
     _print_judge(judge_info)
+
+    # The judge is API spend on every family. Same discipline as the reader:
+    # priced, served, projected and gated before the first verdict is asked.
+    try:
+        pricing.price(args.judge_model)
+    except pricing.UnpricedModelError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    judge_client = build_openai_reader_client()
+    snapshot_error = _preflight_snapshot(judge_client, args.judge_model)
+    if snapshot_error:
+        print(f"ERROR: {snapshot_error}", file=sys.stderr)
+        return 2
+    if not do_predict:
+        # Judge-only invocation: the reader stage did not project, so this one
+        # does. With the reader stage, the judge calls were inside its bound.
+        judge_usd = len(predictions) * pricing.estimate_usd(
+            args.judge_model, pricing.JUDGE_PROMPT_TOKENS_EST, pricing.JUDGE_COMPLETION_TOKENS_EST
+        )
+        print(
+            f"projected: judge ${judge_usd:.4f} ({len(predictions)} calls, upper bound: "
+            f"no cache hits assumed) | {pricing.status_line(budget_usd)}",
+            file=sys.stderr,
+        )
+        refusal = pricing.gate(judge_usd, budget_usd, "judge stage")
+        if refusal:
+            print(f"ERROR: {refusal}", file=sys.stderr)
+            return 2
+        ledger_entry["projected_usd"] = judge_usd
 
     # The fingerprint scopes cached verdicts to the judge that produced them.
     # Without it, changing the judge model, prompt or decode config replays
@@ -605,13 +676,24 @@ def main(argv: list[str] | None = None) -> int:
         mark = "PASS" if correct else "FAIL"
         print(f"[{done}/{total}] {mark}  {p.question_id} ({p.category})", file=sys.stderr)
 
+    judge = Judge(args.judge_model, client=judge_client, cache=cache)
     results = judge_predictions(
         predictions,
         judge_model=args.judge_model,
         judge_cache=cache,
         progress=judge_progress,
+        judge=judge,
     )
     elapsed = time.perf_counter() - started
+    judge_usd_actual = pricing.estimate_usd(
+        args.judge_model, judge.prompt_tokens, judge.completion_tokens
+    )
+    ledger_entry.update(
+        judge_calls=judge.calls,
+        judge_prompt_tokens=judge.prompt_tokens,
+        judge_completion_tokens=judge.completion_tokens,
+        judge_actual_usd=judge_usd_actual,
+    )
 
     print_report(args.system or source_dir.name, results)
 
@@ -630,8 +712,8 @@ def main(argv: list[str] | None = None) -> int:
         "reader_mean_prompt_tokens": round(sum(fed) / len(fed)) if fed else None,
         "truncated": truncated_n,
         "tokens_dropped_estimated": dropped_total,
-        "judge_cache_hits": cache.hits,
-        "judge_cache_misses": cache.misses,
+        "judge_cache_hits": getattr(cache, "hits", 0),
+        "judge_cache_misses": getattr(cache, "misses", 0),
         "abstention_questions": sum(1 for r in results if r.is_abstention),
         # Diagnostic only — never folded into pins_hash (see capture_environment).
         # The family comes from the pins on disk, not the CLI flag, so a
@@ -656,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
         f"\nwall-clock: {elapsed:,.1f}s over {len(results)} q"
         f"  |  mean reader prompt tokens: {mean_fed}"
         f"  |  truncated: {truncated_n}/{len(results)} (~{dropped_total:,} tok dropped)"
-        f"  |  judge cache: {cache.hits} hit / {cache.misses} miss",
+        f"  |  judge cache: {getattr(cache, 'hits', 0)} hit / {getattr(cache, 'misses', 0)} miss",
         file=sys.stderr,
     )
     print(f"wrote {results_path}", file=sys.stderr)
@@ -665,6 +747,7 @@ def main(argv: list[str] | None = None) -> int:
             "PROVISIONAL - not publishable: " + "; ".join(provisional),
             file=sys.stderr,
         )
+    _record_spend(ledger_entry, budget_usd)
     return 0
 
 
@@ -699,7 +782,118 @@ def _capture_environment_for(reader_transport: str, directory: Path) -> dict:
     return env
 
 
-def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
+def _ledger_ts() -> str:
+    """A per-invocation id for ledger lines (microsecond resolution so two
+    quick invocations never share one)."""
+    now = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)) + f".{int((now % 1) * 1e6):06d}"
+
+
+def _record_spend(entry: dict, budget_usd: float) -> None:
+    """Append the invocation's ledger line and say where the budget stands."""
+    reader = entry.get("reader_actual_usd") or 0.0
+    judge = entry.get("judge_actual_usd") or 0.0
+    entry["actual_usd"] = reader + judge
+    pricing.append(entry)
+    print(
+        f"actual API spend this run: ${entry['actual_usd']:.4f} "
+        f"(reader ${reader:.4f}, judge ${judge:.4f}) | {pricing.status_line(budget_usd)}",
+        file=sys.stderr,
+    )
+
+
+def _preflight_snapshot(client, model: str) -> str | None:
+    """Confirm the dated snapshot is served for this key, before any spend."""
+    import openai
+
+    try:
+        client.models.retrieve(model)
+    except openai.NotFoundError:
+        return (
+            f"snapshot {model!r} is not served for this API key (models.retrieve → 404). "
+            "A retired or mistyped snapshot cannot be the pinned reader; see "
+            "docs/DECISIONS.md for the pinned family."
+        )
+    except openai.AuthenticationError as exc:
+        return f"OpenAI rejected the API key while checking snapshot {model!r}: {exc}"
+    except openai.APIError as exc:  # fail closed: an unknown state is not a pass
+        return f"could not confirm snapshot {model!r} is served: {exc}"
+    return None
+
+
+def _ctx_progress(done: int, total: int, q, truncated: bool) -> None:
+    """Progress for the context-building pass (no reader call yet)."""
+    mark = "TRUNC" if truncated else "  ok "
+    print(f"[{done}/{total}] ctx  {mark}  {q.question_id} ({q.category})", file=sys.stderr)
+
+
+def _announce_and_gate(projection, budget_usd: float) -> str | None:
+    """Print the projection and the budget position; return a refusal or None."""
+    print(f"{projection.line()} | {pricing.status_line(budget_usd)}", file=sys.stderr)
+    return pricing.gate(projection.total_usd, budget_usd, projection.basis)
+
+
+def _predict_openai(
+    args, directory: Path, system, pins: dict, client, progress, *,
+    budget_usd: float, judge_calls_planned: int, entry: dict,
+):
+    """The gpt-4o family's predict stage: build every request first, project
+    and gate, then spend — synchronously or through the Batch API."""
+    from .runner import (
+        OpenAIReader,
+        PredictStats,
+        answer_items_sync,
+        build_batch_items,
+        predictions_from_batch,
+    )
+
+    if args.batch:
+        return _predict_batch(
+            args, directory, system, pins, client, progress,
+            budget_usd=budget_usd, judge_calls_planned=judge_calls_planned, entry=entry,
+        )
+    reader = OpenAIReader(args.model, num_ctx=args.num_ctx, client=client)
+    items = build_batch_items(
+        system, reader, limit=args.limit, dataset_file=args.dataset_file,
+        strategy=args.sample, sample_seed=args.sample_seed, progress=_ctx_progress,
+    )
+    projection = pricing.project(
+        model=args.model, items=items, batch=False,
+        judge_model=args.judge_model if judge_calls_planned else None,
+        judge_calls=judge_calls_planned,
+    )
+    refusal = _announce_and_gate(projection, budget_usd)
+    if refusal:
+        print(f"ERROR: {refusal}", file=sys.stderr)
+        return 2
+    entry["projected_usd"] = projection.total_usd
+
+    def read_progress(done: int, total: int, item) -> None:
+        mark = "TRUNC" if item.truncated else "  ok "
+        print(f"[{done}/{total}] read {mark}  {item.custom_id} ({item.category})", file=sys.stderr)
+
+    outputs = answer_items_sync(client, items, progress=read_progress)
+    stats = PredictStats()
+    predictions = predictions_from_batch(items, outputs, stats=stats)
+    artifacts.write_pins(directory, pins)
+    artifacts.write_predictions(directory, predictions)
+    reader_usd = pricing.estimate_usd(args.model, stats.prompt_tokens, stats.completion_tokens)
+    resolved = stats.as_resolved(args.reader_transport, args.model)
+    resolved["projected_usd"] = projection.total_usd
+    resolved["actual_usd"] = reader_usd
+    artifacts.write_reader_resolved(directory, resolved)
+    entry.update(
+        reader_prompt_tokens=stats.prompt_tokens,
+        reader_completion_tokens=stats.completion_tokens,
+        reader_actual_usd=reader_usd,
+    )
+    return predictions
+
+
+def _predict_batch(
+    args, directory: Path, system, pins: dict, client, progress, *,
+    budget_usd: float, judge_calls_planned: int, entry: dict,
+):
     """The predict stage through the Batch API. Returns the predictions, or an
     exit code.
 
@@ -749,8 +943,18 @@ def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
             dataset_file=args.dataset_file,
             strategy=args.sample,
             sample_seed=args.sample_seed,
-            progress=progress,
+            progress=_ctx_progress,
         )
+        projection = pricing.project(
+            model=args.model, items=items, batch=True,
+            judge_model=args.judge_model if judge_calls_planned else None,
+            judge_calls=judge_calls_planned,
+        )
+        refusal = _announce_and_gate(projection, budget_usd)
+        if refusal:
+            print(f"ERROR: {refusal}", file=sys.stderr)
+            return 2
+        entry["projected_usd"] = projection.total_usd
         requests_path = batch_mod.write_requests_jsonl(
             directory / artifacts.BATCH_REQUESTS_FILE, items
         )
@@ -772,6 +976,9 @@ def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
             "reader_model": args.model,
             "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "items": [_batch_item_meta(item) for item in items],
+            # The ledger line this submission is booked under, so the line the
+            # resume writes can supersede it instead of double counting.
+            "ledger_ts": entry["ts"],
         }
         artifacts.write_batch_state(directory, state)
         print(
@@ -786,6 +993,10 @@ def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
                 f"--run-dir {directory}",
                 file=sys.stderr,
             )
+            # Booked at its projection until the resume replaces this line.
+            entry["status"] = "submitted"
+            pricing.append(entry)
+            print(pricing.status_line(budget_usd), file=sys.stderr)
             return 0
 
     def on_change(batch_obj) -> None:
@@ -822,14 +1033,43 @@ def _predict_batch(args, directory: Path, system, pins: dict, client, progress):
     stats = PredictStats()
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_predictions(directory, predictions)
+    # Batch rate for the batch rows; the fallbacks were synchronous calls.
+    # Their usage is inside the same totals, so bill the fallback share at
+    # standard rate and the rest at batch rate.
+    fallback_prompt = fallback_completion = 0
+    for cid in fallbacks:
+        p_tok, c_tok = _usage_of(outputs[cid])
+        fallback_prompt += p_tok or 0
+        fallback_completion += c_tok or 0
+    reader_usd = pricing.estimate_usd(
+        args.model, stats.prompt_tokens - fallback_prompt,
+        stats.completion_tokens - fallback_completion, batch=True,
+    ) + pricing.estimate_usd(args.model, fallback_prompt, fallback_completion)
     resolved = stats.as_resolved(args.reader_transport, args.model)
     resolved.update(batch_mod.summary(final))
     resolved["sync_fallbacks"] = fallbacks
     resolved["batch_errors_by_id"] = errors
+    resolved["projected_usd"] = entry.get("projected_usd")
+    resolved["actual_usd"] = reader_usd
     artifacts.write_reader_resolved(directory, resolved)
     state["status"] = "done"
     artifacts.write_batch_state(directory, state)
+    if resuming and state.get("ledger_ts"):
+        entry["supersedes_ts"] = state["ledger_ts"]
+        entry.setdefault("projected_usd", None)
+    entry.update(
+        reader_prompt_tokens=stats.prompt_tokens,
+        reader_completion_tokens=stats.completion_tokens,
+        reader_actual_usd=reader_usd,
+        batch_id=final.id,
+    )
     return predictions
+
+
+def _usage_of(completion) -> tuple[int | None, int | None]:
+    from .runner import completion_usage
+
+    return completion_usage(completion)
 
 
 def _batch_item_meta(item) -> dict:

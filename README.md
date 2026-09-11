@@ -91,7 +91,9 @@ python -m evals --system no_memory --limit 500      # the full set
 
 # The gpt-4o family: the same harness with an API reader, through the Batch
 # API at half price. Resumable — re-running the same command in the same
-# --run-dir polls the submitted batch instead of paying again.
+# --run-dir polls the submitted batch instead of paying again. Every run
+# projects its cost before the first call and refuses above the budget;
+# `python -m evals.pricing` shows the spend ledger.
 python -m evals --system mnimi --limit 100 --reader-transport openai --batch
 ```
 

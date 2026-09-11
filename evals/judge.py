@@ -212,6 +212,11 @@ class Judge:
         # Optional JudgeCache; when present, identical (question_id, predicted)
         # pairs skip the API call. See evals/judge_cache.py.
         self.cache = cache
+        # Real API calls and the API's own token counts, for the spend ledger.
+        # Cache hits cost nothing and count nothing.
+        self.calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def is_correct(
         self,
@@ -234,6 +239,11 @@ class Judge:
             temperature=JUDGE_TEMPERATURE,
             messages=judge_messages(prompt),
         )
+        self.calls += 1
+        usage = getattr(completion, "usage", None)
+        if usage is not None:
+            self.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            self.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
         text = (completion.choices[0].message.content or "").strip().lower()
         verdict = "yes" in text
         if self.cache is not None:

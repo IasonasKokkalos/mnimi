@@ -1006,3 +1006,45 @@ measured N/100 (task 0.7) and not an assumption of stability.
 Also in this change: `pyproject.toml` `1.4.0 → 1.5.1` (the previous commit was
 titled v1.5.0 without bumping the file; this one is v1.5.1 and does); the library under `src/`
 is unchanged since v1.3.0.
+
+## The cost gate: project, then spend (2026-09-11)
+
+**Decision:** on the API family nothing is sent before it is priced,
+confirmed served, projected and gated. `evals/pricing.py` holds the dated
+price table (official pricing page, `PRICES_AS_OF`; a model with no row
+cannot be projected and therefore cannot run), the projection, the ledger and
+the gate. The `--limit > 100` guard and `--allow-large-run` are gone; the gate
+replaces them.
+
+**The projection is an upper bound, stated as such.** Input tokens at the
+trim gate's chars/4 convention (gpt-4o tokenises this dataset closer to 4.7
+chars per token, so the estimate runs high); output at `max_tokens` per
+request (actual answers run about a third of it); judge calls at ~600+10
+tokens each with no cache hit assumed. Computed from the real request bodies
+— the synchronous openai path now builds every item first, exactly like the
+batch path, so both project the same way and differ only in transport.
+
+**The snapshot preflight.** `models.retrieve(snapshot)` for the reader before
+any context is built, and for the judge before any verdict is asked. A retired
+or mistyped snapshot found out at question 1 would already have cost the
+ingest of the whole slice; `NotFoundError` and `AuthenticationError` refuse
+with the snapshot named, and any other API error fails closed.
+
+**The ledger.** `.cache/api_ledger.jsonl` (gitignored — a fact about this
+machine's key, not about the code; `MNIMI_API_LEDGER` redirects it, and the
+tests always do). One line per invocation: projected, actual from the API's
+own `usage` counts (reader at the rate it ran, judge at standard rate), token
+totals, the budget in force and whether it was overridden. A batch submitted
+with `--batch-no-wait` is booked at its projection until the resume writes
+the actual line, which names the submitted line it supersedes.
+`python -m evals.pricing` prints the ledger and the remaining budget.
+
+**The gate.** Projection + ledger spend > budget → refuse before any call,
+naming all three numbers. The budget is `API_BUDGET_USD = 50` — the programme
+cap from `mnimi docs/PLAN.md`. `--api-budget-usd` overrides it for one run,
+is echoed as `BUDGET OVERRIDE`, and is recorded in the ledger line. Changing
+the constant is a decision, not a flag.
+
+**Not a pin.** Projection, actual and ledger are diagnostics; `pins_hash` does
+not know what a run cost. The judge stage is gated too, on every family — the
+judge is API spend regardless of which reader produced the rows.
