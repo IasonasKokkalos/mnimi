@@ -213,7 +213,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   prompt tokens identical on every row, across a daemon restart, a reinstall of
   the server binary, 25 days, three commits and the schema /5 bump. Predictions
   changed: 0. Score delta: 0. Evidence:
-  `results/published/mnimi__100q_restart_2026-09-10/`. The 2026-07-30 n=20
+  `results/published/mnimi__100q_restart_2026-09-10/`, re-derived by
+  `python -m evals.drift` (v1.6.1; `--verify-drift <reference>` on the
+  predict stage writes `drift.json` beside fresh predictions — the N/n
+  changed count is the Tier 2 statement, and a pair whose shared pins differ
+  is refused). The 2026-07-30 n=20
   four-arm figure (0.32.5) is consistent but superseded — its build is refused
   now. No bit-identity claim across different GPUs, drivers or CUDA versions;
   a different Ollama build is refused, not tolerated. The
@@ -283,11 +287,13 @@ python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + 
 python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
 python -m evals.pricing                                     # the API spend ledger vs the $50 cap
+python -m evals.drift runs/a__100q runs/b__100q             # N/n changed between two predict runs of one configuration
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --verify-drift runs/mnimi__100q_gpt4o --run-dir runs/mnimi__100q_gpt4o_drift
 # the presentation pair (DECISIONS 2026-09-12): same arm, the other framing, its own run dir
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
 ```
 
-## Current state vs SPEC (as of v1.6.0; library = v1.3.0 @ 658f516 + the JSON render format)
+## Current state vs SPEC (as of v1.6.1; library = v1.3.0 @ 658f516 + the JSON render format)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is

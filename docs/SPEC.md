@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.6.0, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
+## v1 as built (v1.6.1, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1266,7 +1266,14 @@ reboots, three harness commits (`ae5da2b` → `511edd2`) and the pins schema
 as `results/published/mnimi__100q_restart_2026-09-10/` (predict-only: pins and
 predictions; the comparison is row-by-row, since `pins.json` differs by design
 on schema and sha). `elapsed_s` differed (3,700 s vs 2,136 s — the CPU-bound
-ingest ran slower for the first 20 questions); timing is not a pin.
+ingest ran slower for the first 20 questions); timing is not a pin. Since
+v1.6.1 the comparison is a harness command — `python -m evals.drift
+<reference> <fresh>`, or `--verify-drift <reference>` on the predict stage,
+which writes `drift.json` beside the fresh predictions — and a test re-derives
+this pair's 0/100 from the committed artifacts. The instrument judges a pair
+on its shared pins (schema tag and harness commit reported, not refused; any
+other shared pin that differs is a refusal), so "N/100 changed" is only ever
+said of one configuration.
 
 Previous figure, superseded (measured 2026-07-30 on Ollama 0.32.5, a build
 this harness now refuses): the n=20 prefix replayed byte-identical across a

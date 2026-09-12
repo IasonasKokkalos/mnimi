@@ -109,6 +109,7 @@ The two stages split, so neither half needs the other's dependency:
 python -m evals --system no_memory --limit 100 --stage predict   # Ollama, no API key
 python -m evals --system no_memory --limit 100 --stage judge     # API key, no GPU
 python -m evals.stats runs/mnimi__100q runs/naive_rag__100q      # paired McNemar + Holm
+python -m evals.drift runs/mnimi__100q runs/mnimi__100q_again    # N/n changed, one configuration
 ```
 
 Each run writes `pins.json`, `predictions.jsonl`, and `results.json` under
@@ -157,7 +158,8 @@ on every row, across a daemon restart, a reinstall of the server binary from
 the release zip, 25 days, three harness commits and the pins schema bump. The
 evidence is committed beside the published set as
 `results/published/mnimi__100q_restart_2026-09-10/`, and anyone can diff the
-two `predictions.jsonl` files.
+two `predictions.jsonl` files — or run `python -m evals.drift` on the two
+directories, which prints the same 0/100 (a test does exactly that).
 
 Across builds the reader binary is the whole error bar: the 0.32.5 → 0.32.13
 change, with pins, prompts and fed-token counts byte-identical on every row,
@@ -207,7 +209,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.6.0. The block above is the locked contract; what ships today is
+Pre-alpha, v1.6.1. The block above is the locked contract; what ships today is
 narrower. Built: per-round ingestion with an exact-match plus cosine dedup
 screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
 one shared context renderer (two framings, text and JSON, one pinned hash per

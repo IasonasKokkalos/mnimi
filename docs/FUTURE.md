@@ -348,6 +348,12 @@ before filing the divergence report that could trigger Tier 3.
 the next time a drift hunt starts — whichever comes first. Not blocking any
 current number.
 
+**Built 2026-09-12** (v1.6.1), ahead of the gpt-4o family's drift pair:
+`evals/drift.py`, `--verify-drift <reference>` on the predict stage and
+`python -m evals.drift <reference> <fresh>`; `drift.json` beside the fresh
+predictions. The published restart pair is checked by a test at 0/100.
+Closed — see `docs/DECISIONS.md` § "`--verify-drift` lands".
+
 ---
 
 ## Prohibited — do not file these here

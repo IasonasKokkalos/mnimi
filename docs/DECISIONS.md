@@ -1200,3 +1200,44 @@ place for that confound to grow back; a format flag on the one function keeps
 parity a property of the code. It is the third `MemoryConfig` field and the
 first that is not a threshold — a knob `get_context` reads, so it earns its
 place under the "no field nothing reads" rule.
+
+## `--verify-drift` lands: the N/n-changed count is a harness command (2026-09-12)
+
+**Decision:** the divergence count Tier 2 actually claims is now produced by
+the harness, not by hand. `evals/drift.py` compares two predict runs row by
+row on `question_id` and reports how many `predicted` strings changed, the
+UTF-8 byte offset of each first divergence, how many rows changed
+`reader_prompt_tokens`, and the served `system_fingerprint` classes on each
+side. Two entry points, one comparison: `--verify-drift <reference>` on the
+predict stage (sync, batch, or a batch resume — it fires when the fresh
+`predictions.jsonl` lands and leaves `drift.json` beside it), and
+`python -m evals.drift <reference> <fresh>` for two existing artifacts.
+FUTURE.md's trigger ("the next time a drift hunt starts") is the gpt-4o
+family's drift pair (PLAN 0.7), so it lands before that pair is run.
+
+**What a drift pair is.** The same configuration, twice. Both sides' pins
+are compared key by key over the keys they share; any difference is a
+refusal (`DriftPairError`), because a prediction that changes under changed
+pins is a configuration difference and calling it drift would launder it.
+Two shared pins are reported rather than refused: `artifact_schema` (a bump
+that only adds a pin is not a configuration change) and `harness_git_sha`
+(the published restart pair spans three commits and `/4 → /5`; a code change
+that moves nothing is exactly what a drift pair may show, and one that moves
+rows is named in the report so nobody quotes it as reader drift). Judging on
+shared pins rather than on `pins_hash` is what lets the published pair be
+checked: `tests/test_drift.py` now asserts
+`results/published/mnimi__100q` vs `mnimi__100q_restart_2026-09-10` is
+0/100 changed, 0/100 prompt-token changes, by the instrument — the same
+figure the 2026-09-10 hand comparison reported.
+
+**Not a pin.** `drift.json` is a diagnostic beside the artifact, like
+`reader_resolved.json`; it never enters `pins_hash` and is not one of the
+three promoted files. A refused pair still leaves the fresh run's own
+predictions on disk.
+
+**Also in this change:** the batch resume hint printed after
+`--batch-no-wait` now repeats every non-default flag the pins hash depends
+on. It omitted `--render-format`, so the hint for a JSON-renderer submission
+would have walked the user into the resume's own pins-hash refusal (found
+while submitting the presentation pair; the four pair submissions were
+resumed with the flag spelled out by hand).

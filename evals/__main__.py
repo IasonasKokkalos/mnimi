@@ -204,6 +204,34 @@ def ollama_context_length(model: str) -> int | None:
     return None
 
 
+def _resume_extras(args) -> str:
+    """The non-default flags a batch resume should repeat.
+
+    The resume refuses on a pins-hash mismatch, so a hint that dropped a
+    pin-bearing flag (``--render-format``) would send the user into that
+    refusal. ``--verify-drift`` is not a pin, but it only fires when the
+    predictions land, which on a no-wait submission is the resume.
+    """
+    extras = []
+    if args.render_format != "text":
+        extras.append(f"--render-format {args.render_format}")
+    if args.verify_drift:
+        extras.append(f"--verify-drift {args.verify_drift}")
+    return "".join(f"{flag} " for flag in extras)
+
+
+def _verify_drift(reference: str, directory: Path) -> int:
+    """``--verify-drift``: compare the fresh predictions, leave drift.json, 0 or 2."""
+    from . import drift
+
+    try:
+        drift.verify(Path(reference), directory)
+    except (drift.DriftPairError, FileNotFoundError) as exc:
+        print(f"ERROR: --verify-drift: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m evals",
@@ -308,6 +336,17 @@ def main(argv: list[str] | None = None) -> int:
         help="'predict' ingests + reads and writes predictions.jsonl (needs Ollama, "
         "no OpenAI key); 'judge' grades an existing predictions.jsonl (needs an "
         "OpenAI key, no Ollama); 'all' does both (default)",
+    )
+    parser.add_argument(
+        "--verify-drift",
+        default=None,
+        metavar="REFERENCE",
+        help="predict stage: after predictions.jsonl is written (sync, batch, "
+        "or a batch resume), compare it row by row against REFERENCE — a run "
+        "directory or a predictions.jsonl of the same pins — print N/n changed "
+        "with the first divergent byte of each row, and write drift.json beside "
+        "the fresh predictions. The count is the Tier 2 statement. "
+        "`python -m evals.drift A B` does the same for two existing artifacts.",
     )
     parser.add_argument(
         "--render-format",
@@ -620,6 +659,10 @@ def main(argv: list[str] | None = None) -> int:
                     directory, predict_stats.as_resolved(args.reader_transport, args.model)
                 )
         print(f"wrote {directory / 'predictions.jsonl'}", file=sys.stderr)
+        if args.verify_drift:
+            rc = _verify_drift(args.verify_drift, directory)
+            if rc:
+                return rc
     else:
         # Judge-only replay: the header and the rows both come off disk.
         try:
@@ -922,6 +965,10 @@ def _predict_openai(
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_pins(directory, pins)
     artifacts.write_predictions(directory, predictions)
+    if args.verify_drift:
+        rc = _verify_drift(args.verify_drift, directory)
+        if rc:
+            return rc
     reader_usd = pricing.estimate_usd(args.model, stats.prompt_tokens, stats.completion_tokens)
     resolved = stats.as_resolved(args.reader_transport, args.model)
     resolved["projected_usd"] = projection.total_usd
@@ -1035,7 +1082,7 @@ def _predict_batch(
                 "Resume later (polls the batch, then writes predictions.jsonl) with:\n"
                 f"  python -m evals --system {args.system} --limit {args.limit} "
                 f"--stage {args.stage} --reader-transport openai --batch "
-                f"--run-dir {directory}",
+                f"{_resume_extras(args)}--run-dir {directory}",
                 file=sys.stderr,
             )
             # Booked at its projection until the resume replaces this line.
@@ -1078,6 +1125,10 @@ def _predict_batch(
     stats = PredictStats()
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_predictions(directory, predictions)
+    if args.verify_drift:
+        rc = _verify_drift(args.verify_drift, directory)
+        if rc:
+            return rc
     # Batch rate for the batch rows; the fallbacks were synchronous calls.
     # Their usage is inside the same totals, so bill the fallback share at
     # standard rate and the rest at batch rate.

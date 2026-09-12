@@ -399,3 +399,49 @@ def test_batch_state_roundtrip(tmp_path):
     artifacts.write_batch_state(tmp_path, {"batch_id": "b", "status": "validating", "items": []})
     assert artifacts.read_batch_state_optional(tmp_path)["batch_id"] == "b"
     assert artifacts.read_batch_state_optional(tmp_path / "absent") is None
+
+
+def test_resume_hint_repeats_the_pin_bearing_flags(tmp_path, monkeypatch, capsys):
+    # A resume refuses on a pins-hash mismatch, so a hint that dropped
+    # --render-format would send the user straight into that refusal.
+    client = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, client)
+
+    rc, run_dir = _main(tmp_path, "--batch-no-wait", "--render-format", "json",
+                        "--verify-drift", str(tmp_path / "ref"))
+
+    assert rc == 0
+    hint = [x for x in capsys.readouterr().err.splitlines() if "python -m evals" in x][-1]
+    assert "--render-format json" in hint and f"--verify-drift {tmp_path / 'ref'}" in hint
+    assert hint.rstrip().endswith(f"--run-dir {run_dir}")
+
+
+def test_verify_drift_runs_when_the_batch_predictions_land(tmp_path, monkeypatch, capsys):
+    client = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, client)
+    rc, reference = _main(tmp_path)
+    assert rc == 0
+
+    monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: _FakeBatchClient())
+    fresh = tmp_path / "fresh"
+    rc = evals_main.main(["--system", "no_memory", "--limit", "2", "--stage", "predict",
+                          "--reader-transport", "openai", "--batch", "--batch-poll-seconds", "0",
+                          "--run-dir", str(fresh), "--verify-drift", str(reference)])
+
+    assert rc == 0, capsys.readouterr().err
+    report = json.loads((fresh / "drift.json").read_text(encoding="utf-8"))
+    assert (report["n"], report["changed"]) == (2, 0)
+    assert report["pins_checked"] is True
+    assert "drift: 0/2 predictions changed" in capsys.readouterr().err
+
+    # Different pins are not a drift pair: refused, and the run's own
+    # predictions are already on disk for a manual comparison.
+    monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: _FakeBatchClient())
+    other = tmp_path / "other"
+    rc = evals_main.main(["--system", "no_memory", "--limit", "2", "--stage", "predict",
+                          "--reader-transport", "openai", "--batch", "--batch-poll-seconds", "0",
+                          "--run-dir", str(other), "--render-format", "json",
+                          "--verify-drift", str(reference)])
+    assert rc == 2
+    assert "not a drift pair" in capsys.readouterr().err
+    assert (other / "predictions.jsonl").exists() and not (other / "drift.json").exists()
