@@ -143,6 +143,111 @@ value matches the published row for the same `question_id`, 100/100 — in fact
 `pins.json` differs from the published one on `artifact_schema`,
 `harness_git_sha` and the added `reader_transport_version` — by design.
 
+### The gpt-4o-era number: four arms + the cited `full_history` row, n=100, one sitting (2026-09-12)
+
+The second reader family (`docs/DECISIONS.md`, "The gpt-4o era begins",
+2026-09-11; pre-registered 2026-09-12 before any of these rows existed). Every
+value below is copied from the artifacts or printed by `python -m evals.stats`
+/ `python -m evals.drift` over these directories.
+
+**Provenance — the same for all four arms:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-12, one sitting: the presentation pair 12:58–15:13, `naive_rag` + `no_memory` 15:14–16:05, the drift re-run 16:05–16:51, all judge stages 16:50–16:57 |
+| harness commit | `dd737369b5995a09ae8e78005539abae988d6603` (v1.6.2) — **clean tree** on every run |
+| artifact schema | `mnimi-eval-artifact/6` |
+| `provisional` | `[]` on every directory of this set |
+| reader transport | **`openai`** — `gpt-4o-2024-08-06` over the OpenAI API, `num_ctx=128000`, temperature 0, `seed=0`, `max_tokens=800`; the six Ollama-only pins are `null` |
+| how it was served | Batch API, as 7–8 sub-batches per arm under the organization's 90,000 enqueued-token cap (`reader_resolved` in `run.environment`: every chunk `completed`, 0 failures, 0 synchronous fallbacks); `system_fingerprint` classes served across the sitting: `fp_1f51e06a13`, `fp_27008f43d1`, `fp_f923e16c69` (per-arm histograms in `run.environment.reader_resolved.system_fingerprints`) |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` — the **text** renderer, chosen by the presentation pair below |
+| run environment | system Python 3.14.4, `openai` SDK 2.44.0; the embedder ran on the NVIDIA RTX 1000 Ada Laptop GPU, driver 595.95, CUDA 13.2 (`run.environment`) |
+| dataset | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442` |
+| sampling | `stratified-round-robin`, seed 0, n=100 — the same 100 question ids as the 2026-08-16 local sitting, so every row has a local-family row beside it |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3`, temperature 0, `max_tokens=10` (the reader's own snapshot, as in the paper — disclosed) |
+| retrieval arms | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10`; mnimi `dedup_cosine_threshold=0.95`; library v1 (no extraction, no conflict, no decay) |
+| cost | reader $2.17 for the four arms + judge $0.35 (actual, from the API's `usage`; `.cache/api_ledger.jsonl`); the whole sitting including the pair's JSON arms and the drift re-run $5.04 of the $50 programme budget |
+
+**Scores** (Wilson 95% CI; fed tokens are the API's own `prompt_tokens`):
+
+| run | score | 95% CI | mean fed tokens | truncated | quotable? |
+| --- | --- | --- | --- | --- | --- |
+| `no_memory__100q_gpt4o` | 5/100 (5.0%) | [2.2, 11.2] | 135 | 0/100 | yes |
+| `full_history` | **cited: 64.0%** — LongMemEval Fig. 3b, GPT-4o with Chain-of-Note, the untruncated ~115k-token context, over the paper's ~500 questions | — | — | — | as a citation only: not run here (harness refuses the arm on this transport — `docs/DECISIONS.md` 2026-09-12), no artifact, no paired test |
+| `oracle__100q_gpt4o` | 90/100 (90.0%) | [82.6, 94.5] | 4,992 | 0/100 | yes |
+| `naive_rag__100q_gpt4o` | 80/100 (80.0%) | [71.1, 86.7] | 4,538 | 0/100 | yes |
+| `mnimi__100q_gpt4o` | 75/100 (75.0%) | [65.7, 82.5] | 4,537 | 0/100 | yes |
+
+**Paired tests** (exact McNemar, `python -m evals.stats` over the four
+directories; the parity guard passed):
+
+| comparison | b | c | discordant | p | p_holm |
+| --- | --- | --- | --- | --- | --- |
+| mnimi vs naive_rag (pre-registered primary, a pre-registered null at v1) | 1 | 6 | 7 | 0.1250 | — (uncorrected) |
+| mnimi vs no_memory | 71 | 1 | 72 | 0.0000 | 0.0000 |
+| mnimi vs oracle | 2 | 17 | 19 | 0.0007 | 0.0007 |
+
+**The presentation pair** (`oracle__100q_gpt4o_json`, `mnimi__100q_gpt4o_json`
+— same pins except `render_template_hash` `ea4e13068150…`, the JSON framing of
+the same blocks):
+
+| arm | text | JSON | JSON-only right (b) | text-only right (c) | p |
+| --- | --- | --- | --- | --- | --- |
+| oracle | 90/100 | 88/100 (fed 5,508) | 2 | 4 | 0.69 |
+| mnimi | 75/100 | 71/100 (fed 5,057) | 1 | 5 | 0.22 |
+
+Pre-registered rule: JSON becomes the era's renderer only if strictly higher
+on both arms. It is lower on both, so the text renderer stays and the headline
+rows above are the pair's text rows. The JSON directories are published as the
+evidence for that decision; they are not the headline.
+
+**The drift pair** (`mnimi__100q_gpt4o_drift_2026-09-12`: the mnimi arm
+predicted again, same pins, same `pins_hash`, 1h05 after the reference;
+`python -m evals.drift results/published/mnimi__100q_gpt4o results/published/mnimi__100q_gpt4o_drift_2026-09-12`):
+
+| level | changed |
+| --- | --- |
+| predicted text, byte for byte | **85/100** rows differ (first divergence: median byte 154 of ~860-char step-by-step answers, 13 rows inside the first 50 bytes) |
+| `reader_prompt_tokens` | 0/100 — the API saw identical prompts |
+| judged correctness | 6/100 rows flipped, 3 each way; score 75 → 75 |
+| fingerprints served | reference `fp_1f51e06a13` 13 / `fp_27008f43d1` 58 / `fp_f923e16c69` 29; re-run `fp_1f51e06a13` 34 / `fp_f923e16c69` 66 |
+
+**What this set claims, and what it does not:**
+
+- **Auditable on every row (Tier 1).** `python -m evals --stage judge
+  --predictions <dir>/predictions.jsonl` on any directory here.
+- **Reproducible within measured drift, not byte-identical (Tier 2 for this
+  family).** With `seed=0` and temperature 0 the API still rewrote 85/100
+  answers between two runs an hour apart, while the score held exactly and
+  the correctness flips (3 each way) sit inside judge instrument error. The
+  family's statement is therefore "score reproducible within 6/100 row flips;
+  text not reproducible" — the opposite profile from the local family, whose
+  restart pair was 0/100 at the byte level. A drift pair on this family is a
+  measurement of the API, not of the harness.
+- **The primary is a null, as pre-registered, and it leans the same way
+  twice.** mnimi vs naive_rag: b=1, c=6, p=0.125 — not significant, the
+  expected v1 outcome. Direction: six rows for naive_rag, one for mnimi, after
+  the local family's 0 / 6. 2 of the six are the same question ids
+  as the local family's six. The pre-registration names this as the input to
+  R3 (fix the dedup-cost rows without touching the threshold), not as a
+  capability claim.
+- **Oracle at 90 reproduces the paper's setup within its interval** (paper:
+  92.4 with Chain-of-Note on this snapshot); `no_memory` at 5 is the floor.
+  mnimi is significantly above the floor and significantly below the
+  evidence-availability bound.
+- **`full_history` is a citation, not a measurement.** The paper's 64.0 comes
+  from its own prompt, its own judge run and all ~500 questions; it enters no
+  paired test and sits in the table for orientation only.
+- **The headline carries a one-alternative renderer selection**, disclosed in
+  the pre-registration: the pair's winning mnimi and oracle rows are the
+  headline rows. The n=500 final in Phase 5 is free of it (renderer frozen).
+- **Absolute scores carry judge instrument error** on top of sampling error;
+  no per-category cell is quoted (16–17 questions each; in each
+  `results.json` `summary.by_category` for completeness).
+- The n=100 slice includes the 20-question dev slice the 0.95 dedup threshold
+  was selected on (on the local embedder, on evidence retention — unchanged
+  here).
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |

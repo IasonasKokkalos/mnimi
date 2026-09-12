@@ -1287,3 +1287,79 @@ not just Phase 0.
 requests and pins; the ledger keeps the record), and the pair was resubmitted
 at the harness commit that carries this change, since the harness sha is a
 resume pin and a parity field and the whole sitting must share one.
+
+## The presentation pair is read: the text renderer stays (2026-09-12)
+
+Pre-registered rule (above): JSON becomes the era's renderer only if strictly
+higher than text on both mnimi and oracle at n=100. Result, judged by the
+pinned judge, `provisional: []` on all four:
+
+| arm | text | JSON | b (JSON only) | c (text only) | p (exact McNemar) | fed tokens text / JSON |
+| --- | --- | --- | --- | --- | --- | --- |
+| oracle | 90/100 | 88/100 | 2 | 4 | 0.69 | 4,992 / 5,508 |
+| mnimi | 75/100 | 71/100 | 1 | 5 | 0.22 | 4,537 / 5,057 |
+
+JSON is lower on both arms, so **the text renderer is the era's renderer**;
+`MemoryConfig.render_format` keeps its `"text"` default and `RENDER_TEMPLATE`
+(hash `9c03ddae5c33…`) stays the pinned format for every arm through Phase 5.
+Neither difference is significant and none is claimed: what the rule decided
+is which of two framings to freeze, not that one is better. Two observations
+for the record, not for a claim: JSON costs ~10% more fed tokens for the same
+content (the indentation and quoting), and the paper's own finding (§5.5, Fig.
+6) was that JSON helps *with* Chain-of-Note on the paper's prompt — our
+`mnimi-con-v1` is that prompt with two deviations, and on this slice the
+effect did not appear. The JSON format stays in the library as an option;
+FUTURE.md's item closes with these numbers. The JSON arms are published as
+`results/published/{oracle,mnimi}__100q_gpt4o_json/` — the evidence for the
+decision, not the headline.
+
+## The gpt-4o-era number, and what this family can say about reproducibility (2026-09-12)
+
+**The sitting.** Four arms at n=100, harness `dd73736` clean, one day, $5.04
+of the $50 budget for everything (pair, sitting, drift pair, all judging):
+`no_memory` 5, `oracle` 90, `naive_rag` 80, **`mnimi` 75**; `full_history`
+cited from the paper at 64.0. Full provenance, the paired tests and every
+caveat: `results/published/README.md` § "The gpt-4o-era number". The
+pre-registration's primary — mnimi vs naive_rag — is **a null, as
+pre-registered**: b=1, c=6, p=0.125. Secondaries: mnimi vs no_memory b=71,
+c=1; mnimi vs oracle b=2, c=17, p_holm=0.0007. Oracle lands inside the
+paper's 92.4 for this snapshot with Chain-of-Note; the reader move did what it
+was meant to do — the bound is now 90, not 50, and the memory layer is what
+decides the number.
+
+**The direction of the primary, recorded as the pre-registration asked.** Six
+discordant rows for naive_rag against one for mnimi, after the local family's
+six against none; 2 of the six question ids are the same on both
+families (1cea1afa, c6853660). The categories where
+mnimi trails naive_rag are knowledge-update (11/16 vs 13/16) and
+temporal-reasoning (10/17 vs 12/17) — reported for completeness, no claim at
+these cell sizes. The v1 write side is a dedup screen and nothing else, and
+twice now the screen has cost rows it did not earn back. This is R3's input
+(PLAN 1.2: classify the rows with the retrieval probe, fix without touching
+the threshold) and, per the pre-registration, is not read as a harness
+asymmetry because it is not significant.
+
+**Tier 2 for this family, measured.** The drift pair — mnimi predicted twice
+under identical `pins_hash`, 65 minutes apart — changed **85/100 answers at
+the byte level** (median first divergence at byte 154 of ~860-character
+step-by-step answers; 13 rows diverge inside the first 50 bytes), with
+`reader_prompt_tokens` identical on all 100 rows and three `system_fingerprint`
+classes served across the sitting. The judged score held at 75 both times,
+with 3 rows flipping each way — inside the judge's own measured flip rate.
+`seed=0` and temperature 0 do not make gpt-4o deterministic, as OpenAI
+documents; the family's Tier 2 statement is therefore **"score reproducible
+within 6/100 row flips; predictions not reproducible as text"**, the mirror
+image of the local family's 0/100. Every artifact of this family carries that
+sentence wherever its score goes. The instrument that produced it is
+`python -m evals.drift results/published/mnimi__100q_gpt4o
+results/published/mnimi__100q_gpt4o_drift_2026-09-12` (the `--verify-drift`
+flag wrote the same report beside the fresh run).
+
+**What the era's first number changes in the plan.** 85 is now a real
+target: oracle is 90 on this slice, naive_rag 80, and published systems on
+this reader report 71–85. mnimi at 75 with a v1 write side is 10 rows short of
+the Wilson-lower-bound form of the criterion at n=100 (92/100) and 5 behind
+naive_rag on the same rows; the Phase 1 lifts (R3 first) and the extraction
+era are what the plan spends on next. Phase 0 closes at v1.7.0 with one item
+open: 0.8, pausing NVIDIA driver auto-updates, is a settings action on the
+development machine and is recorded here when done.

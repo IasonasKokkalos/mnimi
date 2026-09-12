@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.6.2, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
+## v1 as built (v1.7.0, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1276,6 +1276,18 @@ this pair's 0/100 from the committed artifacts. The instrument judges a pair
 on its shared pins (schema tag and harness commit reported, not refused; any
 other shared pin that differs is a refusal), so "N/100 changed" is only ever
 said of one configuration.
+
+**The gpt-4o family's figure (measured 2026-09-12, v1.6.2 @ `dd73736`):** the
+mnimi arm predicted twice under identical `pins_hash`, 65 minutes apart,
+through the Batch API — **85/100 predictions changed at the byte level**
+(median first divergence at byte 154 of ~860-character answers),
+`reader_prompt_tokens` identical on every row, three `system_fingerprint`
+classes served, judged score 75 both times with 3 rows flipping each way.
+Evidence: `results/published/mnimi__100q_gpt4o/` and
+`mnimi__100q_gpt4o_drift_2026-09-12/`. The family's Tier 2 statement is
+"score reproducible within 6/100 row flips; predictions not reproducible as
+text" — the API's own nondeterminism under `seed=0`, temperature 0, not a
+harness property. Nothing on this family is ever called byte-identical.
 
 Previous figure, superseded (measured 2026-07-30 on Ollama 0.32.5, a build
 this harness now refuses): the n=20 prefix replayed byte-identical across a

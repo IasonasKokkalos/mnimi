@@ -57,6 +57,50 @@ Read it with the caveats attached:
   scored 5 / 12 / 43 / 41 / 43 with byte-identical prompts — every point of
   movement was the reader binary. The build is now a harness pin (below).
 
+### The gpt-4o-era number — four arms + the cited `full_history` row, n=100, one sitting
+
+The same harness, the same 100 questions, the paper's reader and judge
+snapshot (`gpt-4o-2024-08-06`, 128K window, temperature 0, `seed=0`). Decided
+2026-09-11; pre-registered before the first row; run 2026-09-12.
+
+| System         | Score         | 95% CI (Wilson) | mean fed tokens | truncated |
+| -------------- | ------------: | --------------: | --------------: | --------: |
+| no_memory      |  5/100 (5%)   |     [2.2, 11.2] |             135 |     0/100 |
+| full_history   | *cited* 64.0% (paper Fig. 3b, GPT-4o + Chain-of-Note, ~500 q) | — | — | — |
+| oracle         | 90/100 (90%)  |    [82.6, 94.5] |           4,992 |     0/100 |
+| naive_rag      | 80/100 (80%)  |    [71.1, 86.7] |           4,538 |     0/100 |
+| **mnimi**      | 75/100 (75%)  |    [65.7, 82.5] |           4,537 |     0/100 |
+
+**Provenance:** sitting of 2026-09-12 · reader transport **openai**, snapshot
+`gpt-4o-2024-08-06` served through the Batch API in 7–8 sub-batches per arm ·
+harness commit `dd73736` (clean tree, v1.6.2) · prompt `mnimi-con-v1`, text
+renderer (chosen by the pre-registered presentation pair: JSON scored lower on
+both oracle, 88, and mnimi, 71) · judge `gpt-4o-2024-08-06` · stratified
+100-question slice, seed 0, the same ids as the local sitting ·
+`provisional: []` on every directory · $5.04 of API spend for the whole
+sitting. Artifacts, the full provenance table, the paired tests and the pair
+and drift evidence live in [`results/published/`](results/published/).
+
+Read it with the caveats attached:
+
+- **mnimi vs naive_rag — the pre-registered primary — is a null, as
+  pre-registered** (b=1, c=6, p=0.125), and it leans the same way as the local
+  family (there 0 / 6): the v1 dedup screen costs rows it never earns back.
+  That is the input to the next phase's R3, not a capability claim.
+- **mnimi is significantly above the floor** (vs `no_memory`: b=71, c=1) and
+  **significantly below the evidence-availability bound** (vs `oracle`: b=2,
+  c=17, p_holm=0.0007). Oracle at 90 sits inside the paper's 92.4.
+- **This family is reproducible within measured drift, not byte-identical.**
+  A second mnimi predict run an hour later, same pins: 85/100 answers rewritten
+  at the byte level, prompt tokens identical, score 75 → 75, 3 rows flipped
+  each way. The statement is "score within 6/100 flips"; the text is not
+  reproducible. (`python -m evals.drift` on the two published directories.)
+- **`full_history` is cited, not run**: at 128K it costs ~$15 per n=100 sitting
+  for a row the paper reports on this exact reader, so the harness refuses the
+  arm on this transport and the table carries the paper's number, marked.
+- Absolute scores carry judge instrument error on top of sampling error; no
+  per-category cell is quoted.
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked
@@ -64,8 +108,9 @@ provisional by the harness and are quoted nowhere.
 
 ## Running the harness
 
-The harness is the source of truth for every claim in this repo. The reader runs
-locally through Ollama; only the judge touches an API.
+The harness is the source of truth for every claim in this repo. Two reader
+families: the local one runs the reader through Ollama and only the judge
+touches an API; the gpt-4o one reads and judges over the OpenAI API.
 
 ```bash
 pip install -e ".[eval]"
@@ -211,7 +256,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.6.2. The block above is the locked contract; what ships today is
+Pre-alpha, v1.7.0. The block above is the locked contract; what ships today is
 narrower. Built: per-round ingestion with an exact-match plus cosine dedup
 screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
 one shared context renderer (two framings, text and JSON, one pinned hash per

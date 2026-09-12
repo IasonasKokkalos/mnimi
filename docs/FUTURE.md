@@ -237,8 +237,12 @@ current position, not a lock — reopening either needs a reason, not a vote.
   pre-registered presentation pair — mnimi + oracle at n=100 under both
   framings — decides whether it becomes the era's renderer; the decision
   rule and the numbers live in `docs/DECISIONS.md` ("Pre-registration for
-  the gpt-4o era", "The JSON render format lands, undecided"). This item
-  closes when the pair is read.
+  the gpt-4o era", "The JSON render format lands, undecided").
+  **Closed 2026-09-12:** JSON scored lower on both arms (oracle 88 vs 90,
+  mnimi 71 vs 75, neither significant) and cost ~10% more fed tokens; the
+  text renderer stays for the era. The format remains available as
+  `MemoryConfig.render_format="json"`. Evidence:
+  `results/published/{oracle,mnimi}__100q_gpt4o_json/`.
 
 ## Pattern recognition
 

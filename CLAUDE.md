@@ -169,7 +169,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   README for the full provenance), the predict-only restart-pair evidence
   `mnimi__100q_restart_2026-09-10` (100/100 rows identical to `mnimi__100q`),
   plus the two provisional n=20 `plain-prose-v2` smoke dirs. The 0.32.5 n=100
-  set (dirty tree) was never published.**
+  set (dirty tree) was never published. Since 2026-09-12 it also holds the
+  gpt-4o family's sitting — `<arm>__100q_gpt4o/` for the four arms at
+  `dd73736` clean (`no_memory` 5, `oracle` 90, `naive_rag` 80, `mnimi` 75;
+  `full_history` cited at 64.0), the two `_json` presentation-pair arms and
+  `mnimi__100q_gpt4o_drift_2026-09-12`, `provisional: []` throughout.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **A run that cannot be projected cannot spend.** On the API family the
@@ -219,7 +223,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   `python -m evals.drift` (v1.6.1; `--verify-drift <reference>` on the
   predict stage writes `drift.json` beside fresh predictions — the N/n
   changed count is the Tier 2 statement, and a pair whose shared pins differ
-  is refused). The 2026-07-30 n=20
+  is refused). **The gpt-4o family's measured Tier 2 (2026-09-12):** the
+  mnimi drift pair, identical `pins_hash`, changed 85/100 predictions at the
+  byte level with prompt tokens identical on every row, score 75 → 75, 3 rows
+  flipped each way — say "score reproducible within 6/100 flips; text not
+  reproducible", never "byte-identical", of this family. The 2026-07-30 n=20
   four-arm figure (0.32.5) is consistent but superseded — its build is refused
   now. No bit-identity claim across different GPUs, drivers or CUDA versions;
   a different Ollama build is refused, not tolerated. The
@@ -252,7 +260,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   is 5 points.
 - **W6 (Aug 7, 2026):** either a competitive LongMemEval number, or reframe the
   project as a zero-infra usability play (the "one file, no server" pitch) rather
-  than a state-of-the-art accuracy play.
+  than a state-of-the-art accuracy play. Superseded by the programme in
+  `mnimi docs/PLAN.md` (done = SPEC-complete or Wilson lower bound ≥ 85 on the
+  gpt-4o family). Phase 0 closed 2026-09-12: mnimi 75 / naive_rag 80 / oracle
+  90 at n=100 on gpt-4o; the primary is a pre-registered null (b=1, c=6).
 
 ## Scope rule
 
@@ -297,7 +308,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
 ```
 
-## Current state vs SPEC (as of v1.6.2; library = v1.3.0 @ 658f516 + the JSON render format)
+## Current state vs SPEC (as of v1.7.0; library = v1.3.0 @ 658f516 + the JSON render format)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
