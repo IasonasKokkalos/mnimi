@@ -1363,3 +1363,26 @@ naive_rag on the same rows; the Phase 1 lifts (R3 first) and the extraction
 era are what the plan spends on next. Phase 0 closes at v1.7.0 with one item
 open: 0.8, pausing NVIDIA driver auto-updates, is a settings action on the
 development machine and is recorded here when done.
+
+## NVIDIA driver auto-updates paused; the driver is the next unpinned layer (2026-09-12)
+
+**Decision (PLAN 0.8):** automatic driver updates are switched off in the
+NVIDIA app on the development machine, with the driver at **595.95** (CUDA
+13.2) — the value every published artifact records in `run.environment`.
+The reader no longer runs on this GPU on the gpt-4o family, but the embedder
+(`BAAI/bge-small-en-v1.5` through onnxruntime) does, and the extractor will
+(Phase 2, in-process llama-cpp-python with CUDA). A driver move is therefore
+a potential move in every vector and every retrieved set, on both families,
+and it is not a pin: `driver_version` is captured as resolved, never
+requested, because a driver cannot be asked for per run. The Ollama tray
+updater already moved the reader build three times under identical pins
+(2026-09-10); this is the same failure mode one layer down, closed the same
+way — the updater is off, the value is recorded, and a change shows up in
+`run.environment` before it shows up in a score.
+
+What this does not do: it does not make the driver reproducible for anyone
+else. A cross-machine reproduction runs on whatever driver that machine has
+and compares by `python -m evals.drift`; the embedder's vectors are the thing
+to check first if that pair diverges (ingest is deterministic given the ONNX
+graph and the driver, and `reader_prompt_tokens` identical on every row is
+the sign that retrieval did not move).
