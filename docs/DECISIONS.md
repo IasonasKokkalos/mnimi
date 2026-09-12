@@ -1460,3 +1460,38 @@ worsening; otherwise k=10 stays. No other k is ever run.
 misses: each miss is classified retrieval-miss (no evidence round in the
 top-k) or reading-miss (evidence present) from the probe, and the R7
 (hybrid FTS5: exact-term misses) / R8 (bge-base) triggers are read off it.
+
+## R3 gate amended before the R3 probe finished: cross-session losses (2026-09-12, 18:55)
+
+The rebuilt probe's baseline run (Task 2) reproduced the July retrieval on
+every count it could be checked on — ANY@k 50/77/91/92/94 of 95 at
+k=1/5/10/20/50, 24,747 rounds, 16 exact and 570 cosine drops, and the same
+five questions losing an evidence round to the cosine screen (`gpt4_31ff4165`,
+`67e0d0f2`, `dcfa8644`, `1cea1afa`, `cc6d1ec1`) — and measured one thing July
+could not: **which session the dropping neighbour came from.** Of the 570
+cosine drops only 27 (on 24 questions) are cross-session; the rest are
+within-session repeats. Of the five lost evidence rounds, four were dropped
+against a *different* session and one, `67e0d0f2` (cosine 0.955), against
+its own.
+
+The pre-registered R3 gate said "evidence rounds dropped by the cosine screen
+must fall to 0". Session scope leaves within-session drops untouched by
+construction, so that line was written on a fact not yet measurable and
+cannot be met by the mechanism the hypothesis names, whatever the probe says.
+**Amended, before `probe_mnimi_r3.json` exists and before any API spend:**
+the R3 gate is *evidence rounds lost to a cross-session drop must be 0*
+(expected: the four), *ALL@10 and ANY@10 must not fall*, and within-session
+losses are reported (expected: `67e0d0f2` alone). Disclosed plainly: because
+the probe is deterministic, the baseline data already implies the outcome;
+the amendment is recorded with its time so the sequence is auditable, and
+it narrows what R3 claims rather than widening it — R3 is a fix for the
+cross-session case, and `67e0d0f2` stays on the list of rows naive_rag wins
+that the next phase still owes an explanation for.
+
+**ALL@k is recorded, not matched.** The rebuilt probe reads ALL@10 74/95
+(July: 77/95) and naive_rag ALL@10 78 or thereabouts (July: 79) because it
+tags more evidence rounds on a few multi-evidence questions (`b46e15ed`: five
+rounds carry `has_answer` turns; July's table listed three ranks) and July's
+tagging script is lost. ANY@k, the drop counts and the lost rows are
+identical, so the retrieval is reproduced; the ALL denominator is this
+probe's from now on, and every Phase 1 ALL@k gate compares within it.
