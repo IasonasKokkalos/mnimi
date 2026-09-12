@@ -1524,3 +1524,46 @@ met), lifts ALL@20 85 → 86, ALL@50 89 → 91, ANY@1 50 → 51 and ALL@1 24 →
 27, and moves the best evidence rank up on 13 questions and down on 11 (gate:
 improved > worsened — met, by two). Admitted to the sitting as a marginal
 positive; whether it earns a point is the sitting's question.
+
+## R3 read: the dedup scope is the session (2026-09-12, 22:15)
+
+**Sitting:** two mnimi arms at `b259a4a` (clean), 100 questions, the Batch
+API in 7 sub-batches each, judged by the pinned judge, `provisional: []`:
+
+| arm | score | Wilson 95% | fed tokens |
+| --- | --- | --- | --- |
+| `mnimi__100q_gpt4o_r3base` (store scope) | 77/100 | [67.8, 84.2] | 4,537 |
+| `mnimi__100q_gpt4o_r3` (session scope) | 79/100 | [70.0, 85.8] | 4,546 |
+
+Variant pair (uncorrected, b = the variant's wins): **b=5, c=3**, p=0.73.
+Rule (Phase 1 pre-registration): probe gate passed (four cross-session
+evidence losses recovered, none lost, ALL@10 74 → 77) and b ≥ c — **adopted**.
+`MemoryConfig.dedup_scope` defaults to `"session"` from this commit; the
+harness and probe flags default to the library's value.
+
+**What the five wins were.** `1cea1afa` (knowledge-update) and `cc6d1ec1`
+(temporal-reasoning) are two of the four evidence rounds the probe said
+session scope recovers, and both were rows naive_rag won on the published
+sitting — the mechanism paid where it was predicted to. The other three
+(`b46e15ed`, `gpt4_c27434e8_abs`, `7405e8b1`) and the three losses
+(`1c0ddc50`, `a9f6b44c`, `8077ef71`) sit inside the family's measured drift
+(3 flips each way between identical runs), and nothing is claimed about
+them. Two points at n=100 is not significance and is not reported as such;
+the deterministic evidence is the probe's, the sitting says the change did
+not lose.
+
+**The baseline arm as a drift reading.** Identical pins to the published
+`mnimi__100q_gpt4o` except the harness commit: 61/100 predictions changed
+at the byte level, 0 prompt-token changes, score 77 against the published
+75 — a second sample of the family's drift, consistent with the first
+(85/100 changed, 0 score delta). The family's Tier 2 sentence stands.
+
+**Not a threshold change.** 0.95 is untouched; what changed is which
+neighbours the screen is allowed to look at. Cosine drops fell 570 → 536 and
+the cross-session share of them 27 → 0; 34 more records are stored per
+100-question corpus (24,161 → 24,195). The remaining within-session loss,
+`67e0d0f2`, is still on the list the next phase owes.
+
+**Reading against naive_rag** is deferred to the R4+R5 sitting, where
+naive_rag is re-run at the same commit (the published naive_rag arm is at
+`dd73736` and cannot be paired across commits).

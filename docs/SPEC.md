@@ -624,6 +624,19 @@ exact-normalize → cosine gate → negation screen → value-substitution scree
 The pipeline being deterministic + tunable + inspectable *is* the
 differentiator vs competitors' LLM-prompt merges — keep it that way.
 
+**v1 as built (R3, 2026-09-12): the cosine gate has a scope.**
+`MemoryConfig.dedup_scope` — `"session"` (default): a neighbour above the
+threshold counts as a duplicate only when it carries the incoming round's
+own session timestamp; `"store"`: any earlier record (the configuration the
+local family's published numbers were produced under). Measured: with store
+scope the gate had dropped an annotated evidence round on five LongMemEval
+questions, four against another session; session scope recovers those four,
+ALL-evidence recall@10 rises 74 → 77 of 95, and the paired sitting read 79
+vs 77 (b=5, c=3). The cross-session case is exactly the one steps 3–4 above
+are for — a repeat or an update — and until extraction lands (`valid_time`,
+supersede) the library keeps such rounds rather than dropping them. Steps
+3–5 remain unbuilt.
+
 **v1 as built: steps 1 and 2 only, and nothing else.** `add()` normalizes
 (lowercase → strip punctuation → collapse whitespace) against the user's
 existing content, then fires exactly one `k=1` vector probe and drops the

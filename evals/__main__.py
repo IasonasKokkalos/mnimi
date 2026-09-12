@@ -38,7 +38,7 @@ SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 def build_system(
     name: str,
     render_format: str = "text",
-    dedup_scope: str = "store",
+    dedup_scope: str | None = None,
     query_instruction: str = "",
     chunk_tokens: int = 0,
     chunk_overlap: int = 64,
@@ -61,11 +61,12 @@ def build_system(
 
     knobs = dict(
         render_format=render_format,
-        dedup_scope=dedup_scope,
         query_instruction=query_instruction,
         chunk_tokens=chunk_tokens,
         chunk_overlap=chunk_overlap,
     )
+    if dedup_scope is not None:  # else the library default (session since R3)
+        knobs["dedup_scope"] = dedup_scope
     if top_k is not None:  # the one pre-registered alternative to k=10 (R6)
         knobs["top_k"] = top_k
     config = MemoryConfig(**knobs)
@@ -238,7 +239,7 @@ def _resume_extras(args) -> str:
     extras = []
     if args.render_format != "text":
         extras.append(f"--render-format {args.render_format}")
-    if args.dedup_scope != "store":
+    if args.dedup_scope is not None:
         extras.append(f"--dedup-scope {args.dedup_scope}")
     if args.query_instruction:
         extras.append(f'--query-instruction "{args.query_instruction}"')
@@ -390,12 +391,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--dedup-scope",
-        default="store",
+        default=None,
         choices=["store", "session"],
         help="mnimi's cosine dedup scope (MemoryConfig.dedup_scope): 'store' drops "
         "an incoming round whose nearest stored neighbour clears the threshold "
         "(v1 as shipped); 'session' only when that neighbour carries the same "
-        "session timestamp. Pinned (schema /7). R3, DECISIONS 2026-09-12.",
+        "session timestamp. Default: the library's ('session' since R3). Pinned "
+        "(schema /7). R3, DECISIONS 2026-09-12.",
     )
     parser.add_argument(
         "--query-instruction",

@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dedup-threshold", type=float, default=MemoryConfig().dedup_cosine_threshold
     )
-    parser.add_argument("--dedup-scope", choices=["store", "session"], default="store")
+    parser.add_argument("--dedup-scope", choices=["store", "session"], default=None)
     parser.add_argument("--query-instruction", default="", help="'' | bge | a literal")
     parser.add_argument("--chunk-tokens", type=int, default=0)
     parser.add_argument("--chunk-overlap", type=int, default=64)
@@ -270,13 +270,15 @@ def main(argv: list[str] | None = None) -> int:
         from mnimi.embeddings import BGE_QUERY_INSTRUCTION
 
         instruction = BGE_QUERY_INSTRUCTION
-    config = MemoryConfig(
+    knobs = dict(
         dedup_cosine_threshold=args.dedup_threshold,
-        dedup_scope=args.dedup_scope,
         query_instruction=instruction,
         chunk_tokens=args.chunk_tokens,
         chunk_overlap=args.chunk_overlap,
     )
+    if args.dedup_scope is not None:
+        knobs["dedup_scope"] = args.dedup_scope
+    config = MemoryConfig(**knobs)
     run(args.system, args.limit, Path(args.out), config)
     return 0
 

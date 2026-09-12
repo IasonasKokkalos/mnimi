@@ -101,6 +101,14 @@ Read it with the caveats attached:
 - Absolute scores carry judge instrument error on top of sampling error; no
   per-category cell is quoted.
 
+**Phase 1 (in progress, same family, same 100 questions).** Each retrieval
+knob is probed for recall first, then measured as a pre-registered pair of
+mnimi arms at one commit. R3, the dedup scope: session scope recovers four
+annotated evidence rounds the store-wide screen had dropped and scored 79
+against 77 for the store-scope arm at the same commit (b=5, c=3, not
+significant, adopted by the pre-registered rule). Details and artifacts in
+[`results/published/`](results/published/) and `docs/DECISIONS.md`.
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked

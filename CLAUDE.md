@@ -318,10 +318,14 @@ ACTUAL" says why.
 
 **Shipped:**
 
-- `MemoryConfig` — three fields: `dedup_cosine_threshold = 0.95`,
-  `top_k = 10`, `render_format = "text"` (v1.6.0; `"json"` is the other
-  value, read by `get_context`). A knob no code reads is not present; the
-  rest land with the stage that uses them.
+- `MemoryConfig` — seven fields: `dedup_cosine_threshold = 0.95`,
+  `top_k = 10`, `dedup_scope = "session"` (R3, adopted 2026-09-12 — `"store"`
+  is the published local-family configuration), `query_instruction = ""`
+  (R5), `chunk_tokens = 0` / `chunk_overlap = 64` (R4; `k` counts rounds, not
+  windows — `Store.search_rounds`), `render_format = "text"` (v1.6.0). Every
+  one is a harness flag and a pin (schema /7); the chunk knobs are also
+  `memory_meta` keys. A knob no code reads is not present; the rest land with
+  the stage that uses them.
 - The real ONNX BGE embedder behind the `[embed]` extra, revision-pinned;
   `HashingEmbedder` (256-dim, numpy-only) stays the default and the CI path.
 - The `memory_meta` guard — 4 keys (`embedder_name`, `embedder_revision`,

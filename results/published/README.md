@@ -248,6 +248,17 @@ predicted again, same pins, same `pins_hash`, 1h05 after the reference;
   was selected on (on the local embedder, on evidence retention — unchanged
   here).
 
+### Phase 1 sittings (gpt-4o family, 2026-09-12 →): one knob per pair, same commit
+
+Each row is a pre-registered variant pair (`docs/DECISIONS.md` "Phase 1
+pre-registration"): two mnimi arms at one clean commit, judged, paired by
+`python -m evals.stats` (b = the variant's wins). The baseline arm doubles
+as a drift reading against the previous published mnimi run.
+
+| pair | commit | baseline | variant | b / c | verdict |
+| --- | --- | --- | --- | --- | --- |
+| R3 `dedup_scope` store → session (`mnimi__100q_gpt4o_r3base`, `mnimi__100q_gpt4o_r3`) | `b259a4a` | 77/100 | 79/100 | 5 / 3 | adopted (probe: 4 evidence rounds recovered, none lost); baseline drift vs `mnimi__100q_gpt4o`: 61/100 changed, score 75 → 77 |
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |
