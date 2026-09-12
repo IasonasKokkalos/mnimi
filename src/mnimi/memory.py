@@ -222,9 +222,19 @@ class Memory:
             )
             seen.add(normalized)
 
+    def _query_embedding(self, query: str) -> list[float]:
+        """The vector a query is searched with.
+
+        One place, so the retrieval probe (``evals/probes``) and the read path
+        cannot drift apart; a query-side change (the BGE instruction prefix,
+        R5) edits only this method.
+        """
+        (embedding,) = self.embedder.embed([query])
+        return embedding
+
     def recall(self, query: str, user_id: str) -> list[MemoryRecord]:
         """Raw retrieval: the nearest stored memories, no assembly."""
-        (query_embedding,) = self.embedder.embed([query])
+        query_embedding = self._query_embedding(query)
         hits = self.store.search(query_embedding, user_id=user_id, k=self.config.top_k)
         return [record for record, _cosine in hits]
 
