@@ -163,6 +163,7 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
         "embedder_revision": "v1",
         "embed_template_hash": embed_template_hash(),
         "k": 10,
+        "query_instruction": "",  # the query-side knob is shared with mnimi (R5)
     }
 
     mnimi = _mnimi(config=MemoryConfig(top_k=4, dedup_cosine_threshold=0.9)).retrieval_pins()

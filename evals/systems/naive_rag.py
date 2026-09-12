@@ -72,6 +72,7 @@ class NaiveRagSystem(MemorySystem):
             "embedder_revision": self._embedder.revision,
             "embed_template_hash": embed_template_hash(),
             "k": self._config.top_k,
+            "query_instruction": self._config.query_instruction,
         }
 
     def reset(self) -> None:
@@ -111,7 +112,7 @@ class NaiveRagSystem(MemorySystem):
         and the rendered format are held identical across the pair, so neither
         can become a second difference between them.
         """
-        (query_embedding,) = self._embedder.embed([query])
+        (query_embedding,) = self._embedder.embed([self._config.query_instruction + query])
         hits = self._store.search(query_embedding, user_id=EVAL_USER_ID, k=self._config.top_k)
         return render_records(
             _time_ordered([record for record, _cosine in hits]),

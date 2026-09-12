@@ -252,7 +252,7 @@ class Memory:
         cannot drift apart; a query-side change (the BGE instruction prefix,
         R5) edits only this method.
         """
-        (embedding,) = self.embedder.embed([query])
+        (embedding,) = self.embedder.embed([self.config.query_instruction + query])
         return embedding
 
     def recall(self, query: str, user_id: str) -> list[MemoryRecord]:

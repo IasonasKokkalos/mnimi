@@ -95,8 +95,8 @@ def _memory_of(system):
     if hasattr(system, "_memory"):  # MnimiSystem
         mem = system._memory
         return mem.store, mem.config, mem._query_embedding, True
-    store, emb = system._store, system._embedder  # NaiveRagSystem
-    return store, system._config, (lambda q: emb.embed([q])[0]), False
+    store, emb, config = system._store, system._embedder, system._config  # NaiveRagSystem
+    return store, config, (lambda q: emb.embed([config.query_instruction + q])[0]), False
 
 
 def _tag_rounds(session):
@@ -242,9 +242,17 @@ def main(argv: list[str] | None = None) -> int:
         "--dedup-threshold", type=float, default=MemoryConfig().dedup_cosine_threshold
     )
     parser.add_argument("--dedup-scope", choices=["store", "session"], default="store")
+    parser.add_argument("--query-instruction", default="", help="'' | bge | a literal")
     args = parser.parse_args(argv)
+    instruction = args.query_instruction
+    if instruction == "bge":
+        from mnimi.embeddings import BGE_QUERY_INSTRUCTION
+
+        instruction = BGE_QUERY_INSTRUCTION
     config = MemoryConfig(
-        dedup_cosine_threshold=args.dedup_threshold, dedup_scope=args.dedup_scope
+        dedup_cosine_threshold=args.dedup_threshold,
+        dedup_scope=args.dedup_scope,
+        query_instruction=instruction,
     )
     run(args.system, args.limit, Path(args.out), config)
     return 0

@@ -1243,3 +1243,20 @@ def test_dedup_scope_moves_the_pins_hash():
     assert build_system("no_memory", dedup_scope="session").retrieval_pins() == {}
     arm = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(dedup_scope="session"))
     assert arm.retrieval_pins()["dedup_scope"] == "session"
+
+
+def test_query_instruction_moves_the_pins_hash_and_reaches_both_retrieval_arms():
+    from evals.__main__ import build_system
+    from evals.systems.mnimi import MnimiSystem
+    from evals.systems.naive_rag import NaiveRagSystem
+
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import BGE_QUERY_INSTRUCTION, HashingEmbedder
+
+    assert artifacts.pins_hash(_pins(query_instruction="")) != artifacts.pins_hash(
+        _pins(query_instruction=BGE_QUERY_INSTRUCTION)
+    )
+    for cls in (MnimiSystem, NaiveRagSystem):
+        arm = cls(embedder=HashingEmbedder(), config=MemoryConfig(query_instruction="Q: "))
+        assert arm.retrieval_pins()["query_instruction"] == "Q: "
+    assert build_system("no_memory", query_instruction="bge").retrieval_pins() == {}

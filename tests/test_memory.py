@@ -470,3 +470,22 @@ def test_dedup_scope_session_keeps_cross_session_near_duplicates(tmp_path):
 
     with pytest.raises(ValueError, match="dedup_scope"):
         Memory(str(tmp_path / "x.db"), HashingEmbedder(), MemoryConfig(dedup_scope="user"))
+
+
+# -- query instruction (R5, 2026-09-12) -----------------------------------------
+
+
+def test_query_instruction_changes_the_query_vector_not_the_stored_ones(tmp_path):
+    from mnimi.embeddings import BGE_QUERY_INSTRUCTION
+
+    assert BGE_QUERY_INSTRUCTION == "Represent this sentence for searching relevant passages: "
+    plain = Memory(str(tmp_path / "p.db"), HashingEmbedder(), MemoryConfig())
+    prefixed = Memory(
+        str(tmp_path / "q.db"), HashingEmbedder(),
+        MemoryConfig(query_instruction=BGE_QUERY_INSTRUCTION),
+    )
+    for m in (plain, prefixed):
+        m.add([_message("I adopted a cat named Miso")], user_id="u")
+    assert plain.store.contents("u") == prefixed.store.contents("u")
+    assert plain._query_embedding("cat") != prefixed._query_embedding("cat")
+    assert prefixed._query_embedding("cat") == plain._query_embedding(BGE_QUERY_INSTRUCTION + "cat")

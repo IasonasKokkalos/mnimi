@@ -76,6 +76,13 @@ class HashingEmbedder:
         return vec.tolist()
 
 
+#: The query-side instruction BAAI/bge-*-en-v1.5's model card recommends for
+#: short-query-to-long-passage retrieval ("no instruction needed for passages";
+#: for v1.5 the instruction is optional but recommended for s2p). Verbatim.
+#: Applied only when ``MemoryConfig.query_instruction`` names it (R5).
+BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
+
+
 class BgeSmallEmbedder:
     """``BAAI/bge-small-en-v1.5`` via ONNX Runtime, revision-pinned.
 

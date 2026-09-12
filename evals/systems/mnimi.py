@@ -62,6 +62,7 @@ class MnimiSystem(MemorySystem):
             "k": self._config.top_k,
             "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
             "dedup_scope": self._config.dedup_scope,
+            "query_instruction": self._config.query_instruction,
         }
 
     def reset(self) -> None:

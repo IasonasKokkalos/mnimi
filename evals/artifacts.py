@@ -435,6 +435,7 @@ def build_pins(
     k: int | None = None,
     dedup_cosine_threshold: float | None = None,
     dedup_scope: str | None = None,
+    query_instruction: str | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -488,11 +489,15 @@ def build_pins(
     ``run.environment.ollama_version`` keeps holding the one that RESOLVED,
     and ``preflight_reader_transport`` refuses to run unless they agree.
 
-    Schema /7 (2026-09-12) added ``dedup_scope`` — ``"store"`` or
-    ``"session"``, the R3 knob (`MemoryConfig.dedup_scope`): which earlier
-    records the cosine dedup screen may declare an incoming round a duplicate
-    of. Declared by mnimi only (naive_rag never dedups); a knob that changes
-    the stored set must move the hash, as ``dedup_cosine_threshold`` taught
+    Schema /7 (2026-09-12, Phase 1) added the retrieval knobs the phase
+    experiments on, each a ``MemoryConfig`` field: ``dedup_scope`` —
+    ``"store"`` or ``"session"``, the R3 knob (which earlier records the
+    cosine dedup screen may declare an incoming round a duplicate of;
+    declared by mnimi only, naive_rag never dedups) — and
+    ``query_instruction`` — the literal text prepended to the query before
+    embedding, ``""`` as shipped, the BGE model-card instruction under R5
+    (declared by both retrieval arms). A knob that changes the stored set or
+    the query vector must move the hash, as ``dedup_cosine_threshold`` taught
     (schema /2).
 
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
@@ -558,6 +563,7 @@ def build_pins(
         "k": k,
         "dedup_cosine_threshold": dedup_cosine_threshold,
         "dedup_scope": dedup_scope,
+        "query_instruction": query_instruction,
     }
 
 

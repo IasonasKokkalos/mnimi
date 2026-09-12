@@ -35,7 +35,12 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 
 
-def build_system(name: str, render_format: str = "text", dedup_scope: str = "store"):
+def build_system(
+    name: str,
+    render_format: str = "text",
+    dedup_scope: str = "store",
+    query_instruction: str = "",
+):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
 
@@ -43,7 +48,12 @@ def build_system(name: str, render_format: str = "text", dedup_scope: str = "sto
     pins ``render_template_hash(render_format)``, and one value for all arms
     is what keeps that pin true (SPEC: one renderer). ``dedup_scope`` reaches
     the two retrieval arms through one ``MemoryConfig``; only mnimi reads it
-    and only mnimi pins it."""
+    and only mnimi pins it. ``query_instruction`` reaches both retrieval arms
+    (their query path must match); ``"bge"`` names the model-card text."""
+    if query_instruction == "bge":
+        from mnimi.embeddings import BGE_QUERY_INSTRUCTION
+
+        query_instruction = BGE_QUERY_INSTRUCTION
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -62,7 +72,11 @@ def build_system(name: str, render_format: str = "text", dedup_scope: str = "sto
         from .systems.naive_rag import NaiveRagSystem
 
         return NaiveRagSystem(
-            config=MemoryConfig(render_format=render_format, dedup_scope=dedup_scope)
+            config=MemoryConfig(
+                render_format=render_format,
+                dedup_scope=dedup_scope,
+                query_instruction=query_instruction,
+            )
         )
     if name == "mnimi":
         from mnimi import MemoryConfig
@@ -70,7 +84,11 @@ def build_system(name: str, render_format: str = "text", dedup_scope: str = "sto
         from .systems.mnimi import MnimiSystem
 
         return MnimiSystem(
-            config=MemoryConfig(render_format=render_format, dedup_scope=dedup_scope)
+            config=MemoryConfig(
+                render_format=render_format,
+                dedup_scope=dedup_scope,
+                query_instruction=query_instruction,
+            )
         )
     raise SystemExit(f"unknown system: {name}")
 
@@ -223,6 +241,8 @@ def _resume_extras(args) -> str:
         extras.append(f"--render-format {args.render_format}")
     if args.dedup_scope != "store":
         extras.append(f"--dedup-scope {args.dedup_scope}")
+    if args.query_instruction:
+        extras.append(f'--query-instruction "{args.query_instruction}"')
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -373,6 +393,14 @@ def main(argv: list[str] | None = None) -> int:
         "an incoming round whose nearest stored neighbour clears the threshold "
         "(v1 as shipped); 'session' only when that neighbour carries the same "
         "session timestamp. Pinned (schema /7). R3, DECISIONS 2026-09-12.",
+    )
+    parser.add_argument(
+        "--query-instruction",
+        default="",
+        help="text prepended to the query before it is embedded, for both retrieval "
+        "arms (MemoryConfig.query_instruction); '' as shipped, 'bge' for the "
+        "BAAI/bge model-card retrieval instruction, or a literal. Pinned "
+        "(schema /7). R5, DECISIONS 2026-09-12.",
     )
     parser.add_argument(
         "--render-format",
@@ -608,7 +636,10 @@ def main(argv: list[str] | None = None) -> int:
         # It also means a missing [embed] extra fails here, before the header,
         # rather than after it.
         system = build_system(
-            args.system, render_format=args.render_format, dedup_scope=args.dedup_scope
+            args.system,
+            render_format=args.render_format,
+            dedup_scope=args.dedup_scope,
+            query_instruction=args.query_instruction,
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),

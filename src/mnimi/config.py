@@ -40,6 +40,16 @@ class MemoryConfig:
     supersede, not a drop.
     """
 
+    query_instruction: str = ""
+    """Text prepended to every query before it is embedded; never to stored text.
+
+    ``""`` (v1 as shipped) embeds the bare question. The BGE v1.5 model card's
+    retrieval instruction is ``mnimi.embeddings.BGE_QUERY_INSTRUCTION``
+    (R5, 2026-09-12; 09-08_analysis §B11 found it absent). Query side only:
+    stored vectors, the dedup key and ``memory_meta`` do not move, so it is a
+    harness pin (``query_instruction``) and not a store guard.
+    """
+
     render_format: str = "text"
     """How ``get_context`` frames the recalled turns for a reader.
 
