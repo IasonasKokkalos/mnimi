@@ -1567,3 +1567,22 @@ the cross-session share of them 27 → 0; 34 more records are stored per
 **Reading against naive_rag** is deferred to the R4+R5 sitting, where
 naive_rag is re-run at the same commit (the published naive_rag arm is at
 `dd73736` and cannot be paired across commits).
+
+## R4+R5 sitting pre-registered from the probes (2026-09-13, automated)
+
+Corrected read path (`Store.search_rounds`), R3 scope throughout. Baseline =
+the R3 probe (ANY@10 91/95, ALL@10 77/95). R4 gate: ALL@10 >= 80
+and ANY@10 >= 91.
+
+| probe | ANY@10 | ALL@10 | ANY@20 | ALL@20 | stored | cosine drops |
+| --- | --- | --- | --- | --- | --- | --- |
+| R5 | 91 | 77 | 92 | 86 | 24195 | 536 |
+| R4 (corrected k) | 89 | 75 | 93 | 84 | 34489 | 840 |
+| R4+R5 (corrected k) | 89 | 75 | 93 | 86 | 34489 | 840 |
+
+**Admitted to the sitting: R5 alone (R4 failed its gate under the corrected k)** — flags `--query-instruction bge`. Arms at one clean
+commit: mnimi baseline (library defaults), mnimi variant, naive_rag variant.
+Rule: adopt iff b >= c on the variant pair; the mnimi-variant vs
+naive_rag-variant pair is the primary re-measured under this configuration
+(still a pre-registered null at v1). The line above was written by the gate
+script from the probe files before submission.
