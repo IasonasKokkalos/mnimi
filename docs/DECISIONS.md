@@ -1489,7 +1489,7 @@ cross-session case, and `67e0d0f2` stays on the list of rows naive_rag wins
 that the next phase still owes an explanation for.
 
 **ALL@k is recorded, not matched.** The rebuilt probe reads ALL@10 74/95
-(July: 77/95) and naive_rag ALL@10 78 or thereabouts (July: 79) because it
+(July: 77/95) and naive_rag ALL@10 77/95 (July: 79/95) because it
 tags more evidence rounds on a few multi-evidence questions (`b46e15ed`: five
 rounds carry `has_answer` turns; July's table listed three ranks) and July's
 tagging script is lost. ANY@k, the drop counts and the lost rows are
