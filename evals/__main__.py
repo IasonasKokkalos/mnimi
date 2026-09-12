@@ -42,6 +42,7 @@ def build_system(
     query_instruction: str = "",
     chunk_tokens: int = 0,
     chunk_overlap: int = 64,
+    top_k: int | None = None,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
@@ -56,6 +57,18 @@ def build_system(
         from mnimi.embeddings import BGE_QUERY_INSTRUCTION
 
         query_instruction = BGE_QUERY_INSTRUCTION
+    from mnimi import MemoryConfig
+
+    knobs = dict(
+        render_format=render_format,
+        dedup_scope=dedup_scope,
+        query_instruction=query_instruction,
+        chunk_tokens=chunk_tokens,
+        chunk_overlap=chunk_overlap,
+    )
+    if top_k is not None:  # the one pre-registered alternative to k=10 (R6)
+        knobs["top_k"] = top_k
+    config = MemoryConfig(**knobs)
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -69,33 +82,13 @@ def build_system(
 
         return OracleSystem(render_format=render_format)
     if name == "naive_rag":
-        from mnimi import MemoryConfig
-
         from .systems.naive_rag import NaiveRagSystem
 
-        return NaiveRagSystem(
-            config=MemoryConfig(
-                render_format=render_format,
-                dedup_scope=dedup_scope,
-                query_instruction=query_instruction,
-                chunk_tokens=chunk_tokens,
-                chunk_overlap=chunk_overlap,
-            )
-        )
+        return NaiveRagSystem(config=config)
     if name == "mnimi":
-        from mnimi import MemoryConfig
-
         from .systems.mnimi import MnimiSystem
 
-        return MnimiSystem(
-            config=MemoryConfig(
-                render_format=render_format,
-                dedup_scope=dedup_scope,
-                query_instruction=query_instruction,
-                chunk_tokens=chunk_tokens,
-                chunk_overlap=chunk_overlap,
-            )
-        )
+        return MnimiSystem(config=config)
     raise SystemExit(f"unknown system: {name}")
 
 
@@ -251,6 +244,8 @@ def _resume_extras(args) -> str:
         extras.append(f'--query-instruction "{args.query_instruction}"')
     if args.chunk_tokens:
         extras.append(f"--chunk-tokens {args.chunk_tokens} --chunk-overlap {args.chunk_overlap}")
+    if args.top_k is not None:
+        extras.append(f"--top-k {args.top_k}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -426,6 +421,14 @@ def main(argv: list[str] | None = None) -> int:
         default=64,
         help="tokens shared by consecutive windows when --chunk-tokens > 0 "
         "(MemoryConfig.chunk_overlap). Pinned with it.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="records both retrieval arms retrieve (MemoryConfig.top_k; pinned as k). "
+        "Default: the library's 10. 20 is the ONE pre-registered alternative (R6, "
+        "DECISIONS 2026-09-12); no other value is ever run against the benchmark.",
     )
     parser.add_argument(
         "--render-format",
@@ -667,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             query_instruction=args.query_instruction,
             chunk_tokens=args.chunk_tokens,
             chunk_overlap=args.chunk_overlap,
+            top_k=args.top_k,
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),

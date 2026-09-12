@@ -1278,3 +1278,28 @@ def test_chunking_moves_the_pins_hash_and_both_arms_declare_it():
         arm = cls(embedder=HashingEmbedder(), config=MemoryConfig(chunk_tokens=20, chunk_overlap=5))
         pins = arm.retrieval_pins()
         assert (pins["chunk_tokens"], pins["chunk_overlap"]) == (20, 5)
+
+
+def test_build_system_hands_every_knob_to_both_retrieval_arms(monkeypatch):
+    import evals.systems.mnimi as mnimi_mod
+    import evals.systems.naive_rag as naive_mod
+    from evals.__main__ import build_system
+
+    from mnimi.embeddings import BGE_QUERY_INSTRUCTION
+
+    captured = {}
+    monkeypatch.setattr(
+        mnimi_mod, "MnimiSystem", lambda config: captured.__setitem__("mnimi", config)
+    )
+    monkeypatch.setattr(
+        naive_mod, "NaiveRagSystem", lambda config: captured.__setitem__("naive", config)
+    )
+    for name in ("mnimi", "naive_rag"):
+        build_system(name, render_format="json", dedup_scope="session", query_instruction="bge",
+                     chunk_tokens=510, chunk_overlap=64, top_k=20)
+    for cfg in captured.values():
+        assert (cfg.render_format, cfg.dedup_scope, cfg.top_k) == ("json", "session", 20)
+        assert cfg.query_instruction == BGE_QUERY_INSTRUCTION
+        assert (cfg.chunk_tokens, cfg.chunk_overlap) == (510, 64)
+    build_system("mnimi")
+    assert captured["mnimi"].top_k == 10, "no --top-k: the library default, not a harness copy"
