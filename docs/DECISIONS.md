@@ -1241,3 +1241,49 @@ on. It omitted `--render-format`, so the hint for a JSON-renderer submission
 would have walked the user into the resume's own pins-hash refusal (found
 while submitting the presentation pair; the four pair submissions were
 resumed with the flag spelled out by hand).
+
+## The Batch API enqueued-token cap: a run is a sequence of sub-batches (2026-09-12)
+
+**What happened.** The four presentation-pair submissions (oracle and mnimi
+at n=100, text and JSON) all failed validation within minutes:
+`token_limit_exceeded` — "Enqueued token limit reached for gpt-4o-2024-08-06
+in organization … Limit: 90,000 enqueued tokens." Nothing ran and nothing
+was charged (the batches report 0/0). The cap is the organization's usage
+tier for the Batch API, per model; an n=100 arm is ~520–580k tokens, six
+times over it, and the 2-question smoke batch of task 0.2 was the only size
+that could ever have validated. The ledger had booked the four at their
+projections ($4.45); those lines are superseded by `void` lines at $0.
+
+**Decision.** The harness plans every batch run as **sub-batches under the
+cap** and submits them one at a time, each after the previous reached a
+terminal status: `evals/batch.py` `plan_chunks` (greedy, order-preserving;
+per-request cost = the trim gate's chars/4 input estimate + `max_tokens`,
+the same upper bound the cost gate uses), `ENQUEUED_TOKEN_LIMIT = 90_000`
+(`--batch-enqueued-tokens` overrides it for one run and is read back from
+the state file on resume), `batch_state.json` schema 2 with a `chunks` list
+(schema-1 files upgrade in place), per-chunk `batch_chunk_NN.jsonl` beside
+the full `batch_requests.jsonl`, and a chunk whose batch fails validation
+without enqueueing anything (the cap, while another batch is still in
+progress) is resubmitted up to three times. `--batch-no-wait` submits the
+first chunk only; the resume drives the rest. `reader_resolved.json` keeps
+the flat keys (ids joined, counts summed, worst status) plus a per-chunk
+`batches` list and the cap.
+
+**Not a pin.** Chunking changes nothing the reader sees: the request bodies
+are the ones already on disk, every chunk is a batch of the same
+configuration, and a chunked run and a single-batch run share a
+`pins_hash`. The cap is a fact about this key, recorded like the ledger.
+
+**What it costs.** Time, not money: at ~6.5k tokens per request a chunk is
+~13 requests, an n=100 arm is 8 chunks in series, and only one arm can be in
+flight per key. Small batches have returned in minutes so far; the plan's
+"up to 24 h per submission" now reads per chunk, in the worst case. The
+alternative — synchronous calls at standard rate — would have put the
+programme at ~$57 against the $50 cap (the n=500 final alone doubles from
+~$12 to ~$24), so chunking is the mechanism that keeps Phase 5 affordable,
+not just Phase 0.
+
+**Also:** the four dead run directories were deleted (they held only
+requests and pins; the ledger keeps the record), and the pair was resubmitted
+at the harness commit that carries this change, since the harness sha is a
+resume pin and a parity field and the whole sitting must share one.

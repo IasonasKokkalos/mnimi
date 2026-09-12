@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.6.1, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
+## v1 as built (v1.6.2, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1065,7 +1065,9 @@ gitignored scratch, `results/published/` is the record.
 A run directory may hold three more files that are **never promoted**: the
 Ollama family's `model_load.log`, and the gpt-4o family's
 `reader_resolved.json` (what the transport resolved to — served
-`system_fingerprint`s, and for Batch API runs the batch id, status, request
+`system_fingerprint`s, and for Batch API runs the batch id(s) — a run is a
+sequence of sub-batches under the organization's enqueued-token cap
+(`evals/batch.py`, 2026-09-12), each recorded — status, request
 counts and any synchronous fallbacks), `batch_requests.jsonl` (the exact
 lines uploaded) and `batch_state.json` (what makes an interrupted submission
 resumable without paying twice). Diagnostics, all of them; the three-file

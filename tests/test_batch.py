@@ -445,3 +445,99 @@ def test_verify_drift_runs_when_the_batch_predictions_land(tmp_path, monkeypatch
     assert rc == 2
     assert "not a drift pair" in capsys.readouterr().err
     assert (other / "predictions.jsonl").exists() and not (other / "drift.json").exists()
+
+
+# ------------------------------------------- sub-batches under the cap ---
+def test_plan_chunks_is_greedy_and_order_preserving():
+    def item(cid, chars):
+        return runner.BatchItem(custom_id=cid, body={"messages": [{"content": "x" * chars}],
+                                                     "max_tokens": 10},
+                                category="c", is_abstention=False, question="q", answer="a",
+                                truncated=False, tokens_dropped=0)
+
+    # 40 chars / 4 + 10 = 20 tokens each; cap 45 -> two per chunk.
+    items = [item(f"q{i}", 40) for i in range(5)]
+    chunks = batch.plan_chunks(items, 45, 4)
+    assert [[x.custom_id for x in c] for c in chunks] == [["q0", "q1"], ["q2", "q3"], ["q4"]]
+    # An item over the cap on its own still gets a chunk, never dropped.
+    big = [item("big", 400), item("small", 4)]
+    assert [[x.custom_id for x in c] for c in batch.plan_chunks(big, 45, 4)] == [["big"], ["small"]]
+    assert batch.enqueued_tokens({"messages": [{"content": "abcde"}], "max_tokens": 3}, 4) == 5
+
+
+def test_multi_chunk_run_submits_one_batch_at_a_time_and_merges(tmp_path, monkeypatch, capsys):
+    client = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, client)
+
+    # Each fake request is ~800+ tokens with max_tokens; a 900-token cap gives
+    # one request per chunk.
+    rc, run_dir = _main(tmp_path, "--batch-enqueued-tokens", "900")
+
+    assert rc == 0, capsys.readouterr().err
+    assert len(client.uploads) == 2 and len(client.created) == 2
+    assert [c["metadata"]["chunk"] for c in client.created] == ["1/2", "2/2"]
+    assert (run_dir / "batch_chunk_00.jsonl").exists()
+    assert (run_dir / "batch_chunk_01.jsonl").exists()
+    rows = _rows(run_dir)
+    assert [r["question_id"] for r in rows] == ["q1", "q2"]
+    assert [r["predicted"] for r in rows] == ["answer for q1", "answer for q2"]
+    resolved = json.loads((run_dir / "reader_resolved.json").read_text(encoding="utf-8"))
+    assert resolved["chunks"] == 2 and resolved["enqueued_token_limit"] == 900
+    assert resolved["batch_status"] == "completed"
+    assert resolved["request_counts"] == {"completed": 2, "failed": 0, "total": 2}
+    assert len(resolved["batches"]) == 2
+    state = json.loads((run_dir / "batch_state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "done" and state["batch_state_schema"] == 2
+    assert [c["custom_ids"] for c in state["chunks"]] == [["q1"], ["q2"]]
+    err = capsys.readouterr().err
+    assert "planned 2 requests as 2 sub-batch(es)" in err
+
+
+def test_no_wait_submits_only_the_first_chunk_and_resume_finishes(tmp_path, monkeypatch, capsys):
+    first = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, first)
+    rc, run_dir = _main(tmp_path, "--batch-no-wait", "--batch-enqueued-tokens", "900")
+    assert rc == 0
+    assert len(first.created) == 1
+    state = json.loads((run_dir / "batch_state.json").read_text(encoding="utf-8"))
+    assert [c["batch_id"] for c in state["chunks"]] == ["batch_1", None]
+
+    second = _FakeBatchClient()
+    second._requests = first._requests
+    monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: second)
+    rc, run_dir = _main(tmp_path)  # the cap is read back from the state file
+
+    assert rc == 0, capsys.readouterr().err
+    assert len(second.uploads) == 1, "only the second chunk is uploaded on resume"
+    assert [r["question_id"] for r in _rows(run_dir)] == ["q1", "q2"]
+    ledger = [json.loads(x) for x in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    assert [e["status"] for e in ledger] == ["submitted", "done"]
+
+
+def test_a_chunk_refused_before_running_is_resubmitted(tmp_path, monkeypatch, capsys):
+    class _CapHit(_FakeBatchClient):
+        def __init__(self):
+            super().__init__(statuses=("failed", "validating", "completed"))
+            self.first = True
+
+        def _batch(self, status, batch_id="batch_1"):
+            obj = super()._batch(status, batch_id=batch_id)
+            if status == "failed":
+                # What the API returned on 2026-09-12: failed, 0/0, cap message.
+                obj.request_counts = SimpleNamespace(completed=0, failed=0, total=0)
+                obj.errors = SimpleNamespace(data=[SimpleNamespace(
+                    code="token_limit_exceeded", message="Enqueued token limit reached",
+                    line=None)])
+            return obj
+
+    client = _CapHit()
+    _wire(monkeypatch, tmp_path, client)
+
+    rc, run_dir = _main(tmp_path)
+
+    assert rc == 0, capsys.readouterr().err
+    assert len(client.created) == 2, "the same chunk was submitted twice"
+    assert [r["question_id"] for r in _rows(run_dir)] == ["q1", "q2"]
+    state = json.loads((run_dir / "batch_state.json").read_text(encoding="utf-8"))
+    assert state["chunks"][0]["attempts"] == 2
+    assert "resubmitting chunk 1/1" in capsys.readouterr().err

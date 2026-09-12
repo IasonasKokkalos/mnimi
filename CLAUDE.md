@@ -113,7 +113,9 @@ resolution. Both roles are in extraction scope.
   within measured drift; every run projects its cost from the real request
   bodies before the first call and refuses above the remaining budget (the
   API budget is $50 for the whole programme, `mnimi docs/PLAN.md`;
-  `evals/pricing.py`). Both families: reader prompt =
+  `evals/pricing.py`); Batch API runs are sequences of sub-batches under the
+  org's 90,000 enqueued-token cap (`evals/batch.py`, 2026-09-12 — a whole
+  n=100 arm fails validation otherwise; not a pin). Both families: reader prompt =
   `mnimi-con-v1` (LongMemEval Fig 13 with exactly two deviations — one
   abstention sentence, the `${cache_bust}` prefix — so it is *not* the paper's
   prompt and is never named as one; `json-con-paper-v1` stays reserved for a
@@ -283,7 +285,9 @@ python -m evals --system <name> --limit 100 --stage judge    # needs OPENAI_API_
 python -m evals --stage judge --predictions <file>           # Tier 1 audit, read-only
 python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + Holm
 # gpt-4o family, through the Batch API (half price; resumable — the same
-# command in the same --run-dir polls the submitted batch, never resubmits):
+# command in the same --run-dir polls the submitted batch, never resubmits).
+# A run is planned as sub-batches under the org's 90k enqueued-token cap
+# (`--batch-enqueued-tokens`), submitted one at a time; one arm in flight per key:
 python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
 python -m evals.pricing                                     # the API spend ledger vs the $50 cap
@@ -293,7 +297,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
 ```
 
-## Current state vs SPEC (as of v1.6.1; library = v1.3.0 @ 658f516 + the JSON render format)
+## Current state vs SPEC (as of v1.6.2; library = v1.3.0 @ 658f516 + the JSON render format)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is

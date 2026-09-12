@@ -17,6 +17,18 @@ them is a valid drift measurement. What the batch resolved to — its id,
 status, counts, the served fingerprints — is recorded in
 ``reader_resolved.json``, never hashed.
 
+**Sub-batches under the enqueued-token cap (2026-09-12).** The Batch API
+enforces a per-model *enqueued tokens* limit on the organization — 90,000 for
+`gpt-4o` at this key's usage tier — and a batch that would exceed it fails
+validation outright (`token_limit_exceeded`, nothing charged). An n=100 arm
+is ~550k tokens, so a run is planned as sub-batches (chunks) of at most
+``ENQUEUED_TOKEN_LIMIT`` estimated tokens each — input at the trim gate's
+chars-per-token convention plus ``max_tokens`` per request, i.e. the same
+upper bound the cost gate uses — submitted one at a time, each after the
+previous reached a terminal status. Chunking is not a pin: the request
+bodies are unchanged and every chunk is a batch of the same configuration;
+the chunk ids and the cap are recorded in ``reader_resolved.json``.
+
 Only the injected client touches the network; everything here is testable
 with a fake.
 """
@@ -34,6 +46,77 @@ TERMINAL = frozenset({"completed", "expired", "failed", "cancelled"})
 #: Terminal statuses that carry an output file. ``expired`` delivers whatever
 #: finished inside the window; the rest of the items are filled synchronously.
 WITH_OUTPUT = frozenset({"completed", "expired"})
+#: The organization's per-model enqueued-token cap for the Batch API at this
+#: key's usage tier (measured 2026-09-12: four n=100 batches failed validation
+#: with "Limit: 90,000 enqueued tokens"). A fact about the key, like the
+#: ledger; ``--batch-enqueued-tokens`` overrides it for one run.
+ENQUEUED_TOKEN_LIMIT = 90_000
+#: A chunk whose batch failed validation without running anything (the cap,
+#: usually because another batch was still in progress) is resubmitted this
+#: many times before the run gives up.
+CHUNK_RETRIES = 3
+BATCH_STATE_SCHEMA = 2
+
+
+def chunk_file(index: int) -> str:
+    """The per-chunk requests file uploaded for chunk ``index`` (0-based)."""
+    return f"batch_chunk_{index:02d}.jsonl"
+
+
+def enqueued_tokens(body: dict, chars_per_token: int) -> int:
+    """Upper-bound tokens one request enqueues: input at chars/N plus max_tokens."""
+    chars = sum(len(m.get("content") or "") for m in body.get("messages", []))
+    return -(-chars // chars_per_token) + int(body.get("max_tokens") or 0)
+
+
+def plan_chunks(items, limit: int, chars_per_token: int) -> list[list]:
+    """Greedy, order-preserving split of ``items`` into chunks under ``limit``.
+
+    An item that alone exceeds the limit still gets its own chunk — the API
+    will refuse it and the run reports that, rather than silently dropping it.
+    """
+    chunks: list[list] = []
+    current: list = []
+    load = 0
+    for item in items:
+        cost = enqueued_tokens(item.body, chars_per_token)
+        if current and load + cost > limit:
+            chunks.append(current)
+            current, load = [], 0
+        current.append(item)
+        load += cost
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def chunk_states(chunks: list[list]) -> list[dict]:
+    """The ``chunks`` entries of ``batch_state.json`` for freshly planned chunks."""
+    return [
+        {"index": i, "custom_ids": [item.custom_id for item in chunk],
+         "batch_id": None, "status": None, "input_file_id": None, "attempts": 0}
+        for i, chunk in enumerate(chunks)
+    ]
+
+
+def upgrade_state(state: dict) -> dict:
+    """A schema-1 state (one batch for the whole run) as a one-chunk schema 2."""
+    if state.get("chunks") is not None:
+        return state
+    ids = [meta["custom_id"] for meta in state.get("items", [])]
+    state["chunks"] = [{
+        "index": 0, "custom_ids": ids, "batch_id": state.get("batch_id"),
+        "status": state.get("status"), "input_file_id": state.get("input_file_id"),
+        "attempts": 1,
+    }]
+    state["batch_state_schema"] = BATCH_STATE_SCHEMA
+    return state
+
+
+def never_ran(batch_obj) -> bool:
+    """A terminal batch that enqueued nothing (validation failed): resubmittable."""
+    counts = request_counts(batch_obj)
+    return batch_obj.status in TERMINAL and not counts.get("total")
 
 
 def request_line(item) -> dict:
@@ -164,6 +247,38 @@ def complete_outputs(client, items, outputs: dict) -> tuple[dict, list[str]]:
         filled[item.custom_id] = completion
         fallbacks.append(item.custom_id)
     return filled, fallbacks
+
+
+def merged_summary(batch_objs: list, *, enqueued_token_limit: int) -> dict:
+    """The run's batches as recorded in ``reader_resolved.json``.
+
+    One chunk keeps the flat schema-1 keys exactly; several chunks carry the
+    same keys aggregated (ids joined, counts summed, the worst status) plus a
+    per-chunk ``batches`` list.
+    """
+    summaries = [summary(b) for b in batch_objs]
+    if len(summaries) == 1:
+        merged = dict(summaries[0])
+    else:
+        statuses = [s["batch_status"] for s in summaries]
+        counts = {"completed": 0, "failed": 0, "total": 0}
+        for s in summaries:
+            for key in counts:
+                counts[key] += s["request_counts"].get(key) or 0
+        merged = {
+            "batch_id": ",".join(str(s["batch_id"]) for s in summaries),
+            "batch_status": "completed" if all(x == "completed" for x in statuses)
+            else next(x for x in statuses if x != "completed"),
+            "request_counts": counts,
+            "output_file_id": None,
+            "error_file_id": None,
+            "batch_errors": [e for s in summaries for e in s["batch_errors"]],
+            "completion_window": COMPLETION_WINDOW,
+        }
+    merged["batches"] = summaries
+    merged["chunks"] = len(summaries)
+    merged["enqueued_token_limit"] = enqueued_token_limit
+    return merged
 
 
 def summary(batch_obj) -> dict:

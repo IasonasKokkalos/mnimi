@@ -286,6 +286,15 @@ def main(argv: list[str] | None = None) -> int:
         "command and exit 0 instead of polling.",
     )
     parser.add_argument(
+        "--batch-enqueued-tokens",
+        type=int,
+        default=None,
+        help="with --batch: the organization's per-model enqueued-token cap the "
+        "run is chunked under (default 90,000, this key's usage tier; a batch "
+        "over it fails validation). Sub-batches are submitted one at a time. "
+        "Recorded in reader_resolved.json, never a pin.",
+    )
+    parser.add_argument(
         "--batch-poll-seconds",
         type=float,
         default=60.0,
@@ -998,6 +1007,7 @@ def _predict_batch(
     """
     from . import batch as batch_mod
     from .runner import (
+        _CHARS_PER_TOKEN,
         BatchItem,
         OpenAIReader,
         PredictStats,
@@ -1008,6 +1018,11 @@ def _predict_batch(
     pins_hash = artifacts.pins_hash(pins)
     state = artifacts.read_batch_state_optional(directory)
     resuming = state is not None and not (directory / "predictions.jsonl").exists()
+    enqueued_limit = (
+        args.batch_enqueued_tokens
+        if args.batch_enqueued_tokens is not None
+        else batch_mod.ENQUEUED_TOKEN_LIMIT
+    )
 
     if resuming:
         if state.get("pins_hash") != pins_hash:
@@ -1019,11 +1034,14 @@ def _predict_batch(
                 file=sys.stderr,
             )
             return 2
+        state = batch_mod.upgrade_state(state)
+        enqueued_limit = state.get("enqueued_token_limit", enqueued_limit)
         bodies = batch_mod.read_requests_jsonl(directory / artifacts.BATCH_REQUESTS_FILE)
         items = [BatchItem(body=bodies[meta["custom_id"]], **meta) for meta in state["items"]]
+        submitted_n = sum(1 for c in state["chunks"] if c.get("batch_id"))
         print(
-            f"resuming batch {state['batch_id']} (last seen {state.get('status')}) "
-            f"from {directory}",
+            f"resuming {directory}: {submitted_n}/{len(state['chunks'])} chunk(s) submitted, "
+            f"last seen {state.get('status')}",
             file=sys.stderr,
         )
     else:
@@ -1047,49 +1065,67 @@ def _predict_batch(
             print(f"ERROR: {refusal}", file=sys.stderr)
             return 2
         entry["projected_usd"] = projection.total_usd
-        requests_path = batch_mod.write_requests_jsonl(
-            directory / artifacts.BATCH_REQUESTS_FILE, items
-        )
+        batch_mod.write_requests_jsonl(directory / artifacts.BATCH_REQUESTS_FILE, items)
         artifacts.write_pins(directory, pins)
-        submitted = batch_mod.submit(
-            client,
-            requests_path,
-            metadata={
-                "run_dir": str(directory)[:512],
-                "system": str(args.system),
-                "pins_hash": pins_hash[:64],
-            },
+        chunks = batch_mod.plan_chunks(items, enqueued_limit, _CHARS_PER_TOKEN)
+        print(
+            f"planned {len(items)} requests as {len(chunks)} sub-batch(es) under the "
+            f"{enqueued_limit:,} enqueued-token cap, submitted one at a time",
+            file=sys.stderr,
         )
         state = {
-            "batch_id": submitted.id,
-            "status": submitted.status,
-            "input_file_id": getattr(submitted, "input_file_id", None),
+            "batch_state_schema": batch_mod.BATCH_STATE_SCHEMA,
+            "batch_id": None,
+            "status": "planned",
             "pins_hash": pins_hash,
             "reader_model": args.model,
             "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "enqueued_token_limit": enqueued_limit,
             "items": [_batch_item_meta(item) for item in items],
+            "chunks": batch_mod.chunk_states(chunks),
             # The ledger line this submission is booked under, so the line the
             # resume writes can supersede it instead of double counting.
             "ledger_ts": entry["ts"],
         }
         artifacts.write_batch_state(directory, state)
+
+    by_id = {item.custom_id: item for item in items}
+    n_chunks = len(state["chunks"])
+
+    def submit_chunk(chunk: dict) -> None:
+        chunk_items = [by_id[cid] for cid in chunk["custom_ids"]]
+        path = batch_mod.write_requests_jsonl(
+            directory / batch_mod.chunk_file(chunk["index"]), chunk_items
+        )
+        submitted = batch_mod.submit(
+            client,
+            path,
+            metadata={
+                "run_dir": str(directory)[:512],
+                "system": str(args.system),
+                "pins_hash": pins_hash[:64],
+                "chunk": f"{chunk['index'] + 1}/{n_chunks}",
+            },
+        )
+        chunk.update(
+            batch_id=submitted.id,
+            status=submitted.status,
+            input_file_id=getattr(submitted, "input_file_id", None),
+            attempts=chunk.get("attempts", 0) + 1,
+        )
+        state["batch_id"] = ",".join(c["batch_id"] for c in state["chunks"] if c.get("batch_id"))
+        # The run-level status mirrors the chunk in flight; "done" at the end.
+        state["status"] = submitted.status
+        artifacts.write_batch_state(directory, state)
+        tokens = sum(
+            batch_mod.enqueued_tokens(item.body, _CHARS_PER_TOKEN) for item in chunk_items
+        )
         print(
-            f"submitted batch {submitted.id}: {len(items)} requests, status {submitted.status}",
+            f"submitted chunk {chunk['index'] + 1}/{n_chunks} as batch {submitted.id}: "
+            f"{len(chunk_items)} requests (~{tokens:,} enqueued tokens), status "
+            f"{submitted.status}",
             file=sys.stderr,
         )
-        if args.batch_no_wait:
-            print(
-                "Resume later (polls the batch, then writes predictions.jsonl) with:\n"
-                f"  python -m evals --system {args.system} --limit {args.limit} "
-                f"--stage {args.stage} --reader-transport openai --batch "
-                f"{_resume_extras(args)}--run-dir {directory}",
-                file=sys.stderr,
-            )
-            # Booked at its projection until the resume replaces this line.
-            entry["status"] = "submitted"
-            pricing.append(entry)
-            print(pricing.status_line(budget_usd), file=sys.stderr)
-            return 0
 
     def on_change(batch_obj) -> None:
         counts = batch_mod.request_counts(batch_obj)
@@ -1099,22 +1135,73 @@ def _predict_batch(
             file=sys.stderr,
         )
 
-    final = batch_mod.wait(
-        client, state["batch_id"], poll_seconds=args.batch_poll_seconds, progress=on_change
-    )
-    state["status"] = final.status
-    artifacts.write_batch_state(directory, state)
-    if final.status not in batch_mod.WITH_OUTPUT:
-        errors = batch_mod.summary(final)["batch_errors"]
-        print(
-            f"ERROR: batch {final.id} ended {final.status}; nothing written."
-            + (f" Batch errors: {errors}." if errors else "")
-            + " The state file is kept for the record; resubmit into a fresh --run-dir.",
-            file=sys.stderr,
-        )
-        return 2
+    finals: list = []
+    outputs: dict = {}
+    errors: dict = {}
+    for chunk in state["chunks"]:
+        while True:
+            if not chunk.get("batch_id"):
+                if chunk.get("attempts", 0) >= batch_mod.CHUNK_RETRIES:
+                    print(
+                        f"ERROR: chunk {chunk['index'] + 1}/{n_chunks} failed validation "
+                        f"{chunk['attempts']} times; nothing written. The state file is kept; "
+                        "re-run the same command later (the cap is shared by every batch "
+                        "in progress on this key).",
+                        file=sys.stderr,
+                    )
+                    return 2
+                submit_chunk(chunk)
+                if args.batch_no_wait:
+                    print(
+                        "Resume later (polls the batch, submits the remaining chunks, then "
+                        "writes predictions.jsonl) with:\n"
+                        f"  python -m evals --system {args.system} --limit {args.limit} "
+                        f"--stage {args.stage} --reader-transport openai --batch "
+                        f"{_resume_extras(args)}--run-dir {directory}",
+                        file=sys.stderr,
+                    )
+                    if not resuming:
+                        # Booked at its projection until the resume replaces this line.
+                        entry["status"] = "submitted"
+                        pricing.append(entry)
+                        print(pricing.status_line(budget_usd), file=sys.stderr)
+                    return 0
+            final = batch_mod.wait(
+                client, chunk["batch_id"], poll_seconds=args.batch_poll_seconds,
+                progress=on_change,
+            )
+            chunk["status"] = state["status"] = final.status
+            artifacts.write_batch_state(directory, state)
+            if final.status in batch_mod.WITH_OUTPUT:
+                break
+            reasons = batch_mod.summary(final)["batch_errors"]
+            if batch_mod.never_ran(final):
+                # Validation refused it and nothing was enqueued or charged —
+                # typically the enqueued-token cap while an earlier batch was
+                # still in progress. Resubmit the same chunk after a pause.
+                print(
+                    f"batch {final.id} ended {final.status} before running "
+                    f"({reasons}); resubmitting chunk {chunk['index'] + 1}/{n_chunks} "
+                    f"(attempt {chunk.get('attempts', 0) + 1}/{batch_mod.CHUNK_RETRIES})",
+                    file=sys.stderr,
+                )
+                chunk["batch_id"] = None
+                artifacts.write_batch_state(directory, state)
+                if args.batch_poll_seconds > 0:
+                    time.sleep(args.batch_poll_seconds)
+                continue
+            print(
+                f"ERROR: batch {final.id} ended {final.status}; nothing written."
+                + (f" Batch errors: {reasons}." if reasons else "")
+                + " The state file is kept for the record; resubmit into a fresh --run-dir.",
+                file=sys.stderr,
+            )
+            return 2
+        finals.append(final)
+        chunk_outputs, chunk_errors = batch_mod.fetch_outputs(client, final)
+        outputs.update(chunk_outputs)
+        errors.update(chunk_errors)
 
-    outputs, errors = batch_mod.fetch_outputs(client, final)
     outputs, fallbacks = batch_mod.complete_outputs(client, items, outputs)
     if fallbacks:
         print(
@@ -1142,7 +1229,7 @@ def _predict_batch(
         stats.completion_tokens - fallback_completion, batch=True,
     ) + pricing.estimate_usd(args.model, fallback_prompt, fallback_completion)
     resolved = stats.as_resolved(args.reader_transport, args.model)
-    resolved.update(batch_mod.summary(final))
+    resolved.update(batch_mod.merged_summary(finals, enqueued_token_limit=enqueued_limit))
     resolved["sync_fallbacks"] = fallbacks
     resolved["batch_errors_by_id"] = errors
     resolved["projected_usd"] = entry.get("projected_usd")
@@ -1157,7 +1244,7 @@ def _predict_batch(
         reader_prompt_tokens=stats.prompt_tokens,
         reader_completion_tokens=stats.completion_tokens,
         reader_actual_usd=reader_usd,
-        batch_id=final.id,
+        batch_id=resolved["batch_id"],
     )
     return predictions
 

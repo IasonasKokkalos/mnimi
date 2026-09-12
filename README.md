@@ -90,7 +90,9 @@ python -m evals --system mnimi --limit 100          # predict + judge, local fam
 python -m evals --system no_memory --limit 500      # the full set
 
 # The gpt-4o family: the same harness with an API reader, through the Batch
-# API at half price. Resumable — re-running the same command in the same
+# API at half price, as a sequence of sub-batches under the organization's
+# enqueued-token cap (90k at this key's tier; a whole n=100 arm would fail
+# validation). Resumable — re-running the same command in the same
 # --run-dir polls the submitted batch instead of paying again. Every run
 # projects its cost before the first call and refuses above the budget;
 # `python -m evals.pricing` shows the spend ledger.
@@ -209,7 +211,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.6.1. The block above is the locked contract; what ships today is
+Pre-alpha, v1.6.2. The block above is the locked contract; what ships today is
 narrower. Built: per-round ingestion with an exact-match plus cosine dedup
 screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
 one shared context renderer (two framings, text and JSON, one pinned hash per
