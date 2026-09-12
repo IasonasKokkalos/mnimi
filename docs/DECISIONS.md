@@ -1386,3 +1386,77 @@ and compares by `python -m evals.drift`; the embedder's vectors are the thing
 to check first if that pair diverges (ingest is deterministic given the ONNX
 graph and the driver, and `reader_prompt_tokens` identical on every row is
 the sign that retrieval did not move).
+
+## Phase 1 pre-registration: the probe gates, the paired-sitting protocol (2026-09-12)
+
+Recorded before any Phase 1 run. Baseline for the phase: `mnimi__100q_gpt4o`
+(75/100) and `naive_rag__100q_gpt4o` (80/100), harness `dd73736`, the same
+100 question ids throughout.
+
+**Protocol for every experiment (R3, R4+R5, R6).**
+1. The knob is a `MemoryConfig` field with a harness flag and a pin
+   (`retrieval_pins()` + `build_pins`, artifact schema bumped), so baseline
+   and variant are the same code at the same commit.
+2. The retrieval probe (`python -m evals.probes.retrieval`) runs first, on
+   the n=100 slice, for baseline and variant: deterministic, CPU, no API.
+   The probe gate is stated per experiment below; a variant that fails it is
+   not sent to the API.
+3. One sitting per experiment: baseline arm and variant arm(s) predicted
+   through the Batch API at one clean commit, judged, paired with
+   `python -m evals.stats`. The baseline re-run doubles as a drift
+   measurement against `mnimi__100q_gpt4o` (`python -m evals.drift`).
+4. Adoption: the probe gate must pass AND the paired score must not lose
+   (b ≥ c on variant-vs-baseline). No significance is required to adopt —
+   n=100 cannot detect a 3-point gap — and none is claimed; the direction
+   plus the probe's deterministic evidence is the decision. A variant that
+   loses on the paired run is reverted regardless of the probe.
+5. The family's reader drift (6/100 flips between identical runs, measured
+   2026-09-12) is the noise floor on every paired result here; a delta
+   inside it is reported as "within drift".
+
+**R3 — dedup scope.** Three of the six rows naive_rag won on this family
+(`1cea1afa`, `67e0d0f2`, `cc6d1ec1`) are three of the five rows where the
+0.95 screen dropped an annotated evidence round (RETRIEVAL §4); the local
+family's `dcfa8644` is a fourth. Hypothesis: a near-duplicate from a
+*different session* is a repeat or an update, not a duplicate — the date is
+information — so the cosine screen should apply within a session only.
+Probe gate: the number of evidence rounds dropped by the cosine screen must
+fall to 0 on the slice, ALL-evidence recall@10 must not fall, ANY@10 must
+not fall. Prediction: cosine drops fall from 570 to a small within-session
+residue; mnimi's retrieved sets become identical to naive_rag's on every
+question without a within-session near-duplicate. If adopted,
+`dedup_scope="session"` becomes the default and the SPEC's dedup section
+gains a "v1 as built" note that cross-session dedup is deferred to the
+extraction era (where `valid_time` makes it a supersede, not a drop).
+
+**R5 — query instruction.** BGE v1.5's model card recommends the prefix
+"Represent this sentence for searching relevant passages: " on the query
+for short-query-to-long-passage retrieval; mnimi embeds the bare question.
+Probe gate: ANY@10 and ALL@10 both ≥ baseline, and the rank of the best
+evidence round improves on more questions than it worsens. Stored vectors
+do not move (query side only), so no `memory_meta` change.
+
+**R4 — chunking clipped rounds.** 41.95% of rounds exceed BGE's 512-token
+window and are truncated at embed time (09-08 §C13); the evidence in the
+tail of a long round is invisible to retrieval. Rounds over
+`chunk_tokens` are embedded as overlapping windows, one record per window,
+all windows sharing one `round_key` so the reader sees the round once.
+Probe gate: ALL@10 must rise by ≥ 3 questions and ANY@10 must not fall;
+the dedup drop rate is reported (the 0.95 threshold is not re-selected —
+if it behaves differently on chunks, that is reported, not tuned). R4 and
+R5 are probed separately (four probe runs: base, +R5, +R4, +both) and sent
+to the API once, as the combination the probe admits; `naive_rag` is
+re-run under the same knobs because ingestion granularity must match.
+
+**R6 — `top_k=20`, the one pre-registered alternative.** The paper (§5.2)
+shows GPT-4o still improving past 20k retrieved tokens where weak readers
+do not. Probe: ANY@20 and ALL@20 are read off the existing k=50 search
+(RETRIEVAL §1: 92/95 and 83/95 at k=20 vs 91 and 77 at k=10 on the old
+configuration). Sitting: k=10 vs k=20 at the then-current configuration.
+Adoption requires b > c AND Holm-significance of mnimi-vs-naive_rag not
+worsening; otherwise k=10 stays. No other k is ever run.
+
+**Error analysis (1.5)** runs after the sittings, on the era's mnimi
+misses: each miss is classified retrieval-miss (no evidence round in the
+top-k) or reading-miss (evidence present) from the probe, and the R7
+(hybrid FTS5: exact-term misses) / R8 (bge-base) triggers are read off it.
