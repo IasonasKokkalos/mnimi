@@ -7,8 +7,9 @@ code the eval runs: ``MnimiSystem`` / ``NaiveRagSystem`` are driven exactly as
 the haystack's file order — batch composition changes the tokenizer's padding
 and therefore the vectors), the dedup screens are counted at the store call
 site by wrapping ``search`` and ``insert`` on the live store (delegating,
-never replacing), and the query is searched once at k=50 so every k <= 50 is
-read off one result. A retrieved record maps back to ``(session_id,
+never replacing), and the query is searched once at k=50 rounds through the
+read path's own ``Store.search_rounds`` so every k <= 50 is read off one
+result. A retrieved record maps back to ``(session_id,
 round_index)`` by re-deriving the rounds with the same ``_messages_to_rounds``.
 
 Definitions (RETRIEVAL §0): an *evidence round* is an ingested round holding a
@@ -187,7 +188,9 @@ def probe_question(system, q: Question) -> QuestionProbe:
                     lost_evidence.append([session.session_id, i, last_screen])
             if probe_cursor != len(observed.probes) or insert_cursor != len(observed.inserted):
                 raise AssertionError("the walk did not mirror the system's dedup/insert calls")
-        hits = store.search(query_embedding(q.question), user_id=EVAL_USER_ID, k=SEARCH_K)
+        # The read path's own search: k counts rounds, windows of one round
+        # collapse to their best-ranked window (Store.search_rounds).
+        hits = store.search_rounds(query_embedding(q.question), user_id=EVAL_USER_ID, k=SEARCH_K)
     finally:
         observed.restore()
     ranked = [id_to_round[r.id] for r, _cos in hits]

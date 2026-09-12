@@ -223,6 +223,35 @@ class Store:
             (self._row_to_record(row), 1.0 - (row["distance"] ** 2) / 2.0) for row in rows[:k]
         ]
 
+    def search_rounds(
+        self, embedding: list[float], user_id: str, k: int
+    ) -> list[tuple[MemoryRecord, float]]:
+        """The ``k`` nearest *rounds*: windows of one round count once.
+
+        A round embedded as several windows (``round_key`` set, R4) can put
+        several records into a top-k that the reader then sees as one round;
+        left uncollapsed, a long round crowds other rounds out of the context
+        (the R4 probe: ANY@10 fell 91 → 86 with windows counted separately).
+        ``k`` is defined over rounds, so this over-fetches windows and keeps
+        each round's best-ranked window until ``k`` distinct rounds are in
+        hand or the store is exhausted. With no windowed records the result is
+        exactly :meth:`search` — the v1 read path, byte for byte.
+        """
+        fetch = k
+        while True:
+            hits = self.search(embedding, user_id=user_id, k=fetch)
+            seen: set = set()
+            distinct: list[tuple[MemoryRecord, float]] = []
+            for record, cosine in hits:
+                key = record.round_key if record.round_key is not None else ("id", record.id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                distinct.append((record, cosine))
+            if len(distinct) >= k or len(hits) < fetch:
+                return distinct[:k]
+            fetch *= 4
+
     def contents(self, user_id: str) -> list[str]:
         """All stored content strings for a user — feeds dedup's exact screen."""
         rows = self.db.execute(

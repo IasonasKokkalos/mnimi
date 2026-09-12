@@ -216,3 +216,31 @@ def test_meta_guard_rejects_chunking_mismatch(tmp_path):
         Store(str(tmp_path / "s.db"), chunk_tokens=64, **kwargs)
     with pytest.raises(MemoryMetaError, match="chunk_overlap"):
         Store(str(tmp_path / "s.db"), chunk_overlap=8, **kwargs)
+
+
+def test_search_rounds_collapses_windows_of_one_round_and_equals_search_otherwise(tmp_path):
+    from mnimi.memory import embed_template_hash
+
+    store = Store(str(tmp_path / "r.db"), dim=3, embedder_name="e", embedder_revision="r",
+                  embed_template_hash=embed_template_hash())
+    def rec(content, vec, key=None):
+        return MemoryRecord(user_id="u", content=content, embedding=vec, created_at="2023-05-20",
+                            round_key=key)
+    # Three windows of round A sit nearest the query; rounds B and C follow.
+    store.insert(rec("A1", [1.0, 0.0, 0.0], "A"))
+    store.insert(rec("A2", [0.99, 0.1, 0.0], "A"))
+    store.insert(rec("A3", [0.98, 0.15, 0.0], "A"))
+    store.insert(rec("B", [0.7, 0.7, 0.0]))
+    store.insert(rec("C", [0.0, 1.0, 0.0]))
+    q = [1.0, 0.0, 0.0]
+    windows = [r.content for r, _ in store.search(q, "u", k=3)]
+    assert windows == ["A1", "A2", "A3"], "window-level search: one round fills k"
+    rounds = [r.content for r, _ in store.search_rounds(q, "u", k=3)]
+    assert rounds == ["A1", "B", "C"], "round-level search: A once, at its best window"
+    assert [r.content for r, _ in store.search_rounds(q, "u", k=10)] == ["A1", "B", "C"]
+
+    plain = Store(str(tmp_path / "p.db"), dim=3, embedder_name="e", embedder_revision="r",
+                  embed_template_hash=embed_template_hash())
+    for content, vec in (("x", [1.0, 0.0, 0.0]), ("y", [0.0, 1.0, 0.0]), ("z", [0.0, 0.0, 1.0])):
+        plain.insert(rec(content, vec))
+    assert plain.search_rounds(q, "u", k=2) == plain.search(q, "u", k=2), "no windows: identical"

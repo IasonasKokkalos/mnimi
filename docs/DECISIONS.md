@@ -1495,3 +1495,32 @@ rounds carry `has_answer` turns; July's table listed three ranks) and July's
 tagging script is lost. ANY@k, the drop counts and the lost rows are
 identical, so the retrieval is reproduced; the ALL denominator is this
 probe's from now on, and every Phase 1 ALL@k gate compares within it.
+
+## R4 corrected before its sitting: `k` counts rounds, not windows (2026-09-12, 22:00)
+
+The R4 probe (chunking at 510 tokens, overlap 64, on the R3 session scope)
+read ANY@10 **86**/95 against 91 and ALL@10 **70** against 77 — a loss,
+where the pre-registration expected a gain — with 34,489 stored records
+against 24,195. The mechanism is in the stored count: a long round embedded
+as several windows puts several records into the top-10, the reader sees
+that round once (its windows share a `round_key`), and the other slots are
+gone. `k` was being counted over windows while the reader, the renderer and
+every recall number count rounds.
+
+**Correction, before any R4 sitting and before the R4+R5 probe is read:**
+`Store.search_rounds` — the read path over-fetches windows and keeps each
+round's best-ranked window until `k` distinct rounds are in hand; with no
+windowed records it is `Store.search` exactly, so every non-chunked
+configuration (and every published artifact) is byte-for-byte unchanged.
+`Memory.recall`, `naive_rag` and the probe's k=50 search all go through it.
+The probe is re-run for R4 and R4+R5 under the corrected read path; the R4
+gate (ALL@10 ≥ baseline + 3, ANY@10 not lower) is unchanged. This is a
+design correction the probe caught for $0 — the reason the probe exists —
+not a tuning step: no threshold, no `k`, no prompt moved.
+
+**R5 read (same probe run, before the sitting):** on the R3 scope the BGE
+query instruction leaves ANY@10 at 91 and ALL@10 at 77 (gate: not lower —
+met), lifts ALL@20 85 → 86, ALL@50 89 → 91, ANY@1 50 → 51 and ALL@1 24 →
+27, and moves the best evidence rank up on 13 questions and down on 11 (gate:
+improved > worsened — met, by two). Admitted to the sitting as a marginal
+positive; whether it earns a point is the sitting's question.

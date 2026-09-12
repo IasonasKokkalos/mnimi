@@ -517,3 +517,16 @@ def test_chunked_rounds_embed_pieces_and_render_once(tmp_path):
         Memory(
             str(tmp_path / "x.db"), HashingEmbedder(), MemoryConfig(chunk_tokens=8, chunk_overlap=8)
         )
+
+
+def test_recall_counts_rounds_not_windows_when_chunking(tmp_path):
+    long_turn = " ".join(f"fact{i}" for i in range(60))
+    m = Memory(
+        str(tmp_path / "k.db"), HashingEmbedder(),
+        MemoryConfig(chunk_tokens=20, chunk_overlap=5, top_k=2),
+    )
+    m.add([_message(long_turn), _message("ok", role="assistant")], user_id="u")
+    m.add([_message("something else entirely, about gardening", ts="2023-05-21")], user_id="u")
+    recalled = m.recall("fact3 fact4 fact5", "u")
+    assert len(recalled) == 2 and len({r.round_key for r in recalled}) == 2
+    assert m.get_context("fact3", "u").count("[Session date:") == 2, "two rounds, both rendered"

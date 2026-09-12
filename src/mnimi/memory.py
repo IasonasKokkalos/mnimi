@@ -281,7 +281,7 @@ class Memory:
     def recall(self, query: str, user_id: str) -> list[MemoryRecord]:
         """Raw retrieval: the nearest stored memories, no assembly."""
         query_embedding = self._query_embedding(query)
-        hits = self.store.search(query_embedding, user_id=user_id, k=self.config.top_k)
+        hits = self.store.search_rounds(query_embedding, user_id=user_id, k=self.config.top_k)
         return [record for record, _cosine in hits]
 
     def get_context(self, query: str, user_id: str) -> str:
