@@ -1182,3 +1182,46 @@ def test_results_artifact_carries_header_and_provisionality(tmp_path):
     assert payload["pins"]["dataset_sha256"] == "abc"
     assert payload["pins_hash"] == artifacts.pins_hash(pins)
     assert payload["provisional"] == ["reader prompt is plain-prose-v1"]
+
+
+# -- --render-format (gpt-4o era presentation pair, 2026-09-12) ----------------
+
+
+def test_every_context_bearing_arm_takes_the_harness_render_format():
+    import json
+
+    from evals.__main__ import build_system
+    from evals.systems.mnimi import MnimiSystem
+    from evals.systems.naive_rag import NaiveRagSystem
+
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+
+    session = [
+        {"role": "user", "content": "I adopted a cat named Miso", "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "assistant", "content": "Lovely — what breed?", "ts": "2023/05/20 (Sat) 02:21"},
+    ]
+    for name in ("full_history", "oracle"):
+        arm = build_system(name, render_format="json")
+        arm.reset()
+        arm.add(session)
+        assert json.loads(arm.get_context("cat"))[0]["turns"][0]["role"] == "user"
+        assert build_system(name).get_context("cat") == ""  # text is still the default
+    # The retrieval arms read the same knob from MemoryConfig; injected
+    # embedder so the test never loads the ONNX model.
+    for cls in (MnimiSystem, NaiveRagSystem):
+        arm = cls(embedder=HashingEmbedder(), config=MemoryConfig(render_format="json"))
+        arm.add(session)
+        assert json.loads(arm.get_context("cat"))[0]["session_date"] == "2023/05/20 (Sat) 02:21"
+
+
+def test_render_format_moves_the_pins_hash_through_the_template_hash():
+    from mnimi.memory import render_template_hash
+
+    text = _pins(render_template_hash=render_template_hash("text"))
+    as_json = _pins(render_template_hash=render_template_hash("json"))
+    assert artifacts.pins_hash(text) != artifacts.pins_hash(as_json)
+    # ...and the parity gate refuses to pair them, as it does for any renderer change.
+    from evals.stats import HARNESS_PARITY_FIELDS
+
+    assert "render_template_hash" in HARNESS_PARITY_FIELDS

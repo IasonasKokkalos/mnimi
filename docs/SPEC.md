@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.5.2, 2026-09-12; library unchanged since v1.3.0 @ 658f516)
+## v1 as built (v1.6.0, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -233,8 +233,10 @@ Tunable parameters, passed at construction. Never hardcoded in write-path
 logic — every threshold below must read from here.
 
 **v1 as built: two of these nine fields exist** —
-`dedup_cosine_threshold = 0.95` and `top_k = 10`. The rest describe stages that
-are not written yet, and `config.py` deliberately carries no field that no code
+`dedup_cosine_threshold = 0.95` and `top_k = 10` — **plus one this list did
+not foresee, `render_format = "text"`** (v1.6.0: `"text"` or `"json"`, read by
+`get_context`; see §Public API "v1.6.0"). The rest describe stages that are
+not written yet, and `config.py` deliberately carries no field that no code
 reads (a config knob nothing consumes is dead weight that reads as capability).
 They land with the stage that uses them.
 
@@ -744,6 +746,19 @@ through this one code path (`render_turns` / `render_records` in
 full_history renders sessions. Not built: the token budget, `raw` in the
 block, and the salience-0 exclusion (nothing sets salience to 0 yet).
 
+**v1.6.0 (2026-09-12): the one renderer has two formats.** `render_turns` /
+`render_records` take `fmt`; `MemoryConfig.render_format` (`"text"`, the
+default, or `"json"`) is what `get_context` reads. Both render the same
+blocks — one per timestamp change, the verbatim turns inside — and differ
+only in framing: text as above, JSON as
+`[{"session_date", "turns": [{"role", "content"}]}]` (`json.dumps`,
+`ensure_ascii=False`, indent 2; the paper's §5.5 structured presentation,
+whose schema the paper does not print). Each format has its own template
+string and its own `render_template_hash(fmt)`; the text hash did not move.
+The harness's `--render-format` hands one value to every arm. Which format
+the gpt-4o era runs is decided by the pre-registered presentation pair
+(DECISIONS 2026-09-12), not here.
+
 The session DATE fold (`[Session date: YYYY-MM-DD] …`) remains in the
 embedded string and the dedup key at **write** time — that is the frozen
 embed text (`EMBED_TEMPLATE`, hashed into `memory_meta`), split from this
@@ -905,7 +920,9 @@ identically for every system so results are comparable.
   self-marks provisional. The hash covers the unsubstituted template plus the
   message roles and the (absent) system slot.
 - `render_template_hash` — the canonical context format every arm renders
-  through (`mnimi.memory.RENDER_TEMPLATE`). The embedded text and the
+  through (`mnimi.memory.RENDER_TEMPLATE`, or `RENDER_JSON_TEMPLATE` when
+  the harness ran `--render-format json`; the hash is per format, so the two
+  never share a pins hash and never pair). The embedded text and the
   rendered text are distinct artifacts with distinct hashes. An edit to the
   render template changes reader context and no vectors; an edit to the embed
   template changes every vector, every retrieval and the dedup key, and

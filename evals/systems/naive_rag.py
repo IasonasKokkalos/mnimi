@@ -113,7 +113,10 @@ class NaiveRagSystem(MemorySystem):
         """
         (query_embedding,) = self._embedder.embed([query])
         hits = self._store.search(query_embedding, user_id=EVAL_USER_ID, k=self._config.top_k)
-        return render_records(_time_ordered([record for record, _cosine in hits]))
+        return render_records(
+            _time_ordered([record for record, _cosine in hits]),
+            fmt=self._config.render_format,
+        )
 
     # -- diagnostics, not part of the MemorySystem contract --------------------
 

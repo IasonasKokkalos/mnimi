@@ -207,10 +207,11 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.4.0. The block above is the locked contract; what ships today is
+Pre-alpha, v1.6.0. The block above is the locked contract; what ships today is
 narrower. Built: per-round ingestion with an exact-match plus cosine dedup
 screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
-one shared context renderer, the `memory_meta` guard that refuses a store built
+one shared context renderer (two framings, text and JSON, one pinned hash per
+framing), the `memory_meta` guard that refuses a store built
 by a different embedder or embed template, the real `BAAI/bge-small-en-v1.5`
 embedder behind the `[embed]` extra (the default import path is a numpy hashing
 placeholder), and the full five-arm eval harness. Not built: extraction (the

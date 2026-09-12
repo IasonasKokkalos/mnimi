@@ -231,6 +231,14 @@ current position, not a lock — reopening either needs a reason, not a vote.
   arms where a render-format change can ride along without costing an extra
   run — never mid-phase, since it moves `render_template_hash` and every
   cross-arm comparison with prior artifacts.
+  **Trigger fired 2026-09-12** with the gpt-4o era (the API reader is that
+  re-run). The format is built (v1.6.0: `--render-format json`,
+  `MemoryConfig.render_format`, per-format `render_template_hash`) and the
+  pre-registered presentation pair — mnimi + oracle at n=100 under both
+  framings — decides whether it becomes the era's renderer; the decision
+  rule and the numbers live in `docs/DECISIONS.md` ("Pre-registration for
+  the gpt-4o era", "The JSON render format lands, undecided"). This item
+  closes when the pair is read.
 
 ## Pattern recognition
 

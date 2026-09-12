@@ -145,7 +145,13 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   `mnimi.memory.render_turns` / `render_records`. Per-arm item granularity
   differs (mnimi renders rounds, `full_history` renders sessions); the format
   does not. Date granularity and speaker labels were a measured cross-arm
-  confound before this, not cosmetics.
+  confound before this, not cosmetics. The renderer has two *formats*
+  (v1.6.0, `--render-format text|json`, `MemoryConfig.render_format`) that
+  frame the same blocks; the harness hands one value to every arm and pins
+  `render_template_hash(fmt)`, so a text run and a JSON run never share a
+  pins hash and never pair. Which format the gpt-4o era runs is the
+  pre-registered presentation pair's call (DECISIONS 2026-09-12) — do not
+  flip the default on taste.
 - **Sampling is stratified.** The dataset is category-clustered, so a file-order
   `--limit` slice is single-category and not comparable across systems.
 - **Run artifacts.** Every run writes `pins.json` / `predictions.jsonl` /
@@ -277,9 +283,11 @@ python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + 
 python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
 python -m evals.pricing                                     # the API spend ledger vs the $50 cap
+# the presentation pair (DECISIONS 2026-09-12): same arm, the other framing, its own run dir
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
 ```
 
-## Current state vs SPEC (as of v1.5.2; library unchanged since v1.3.0 @ 658f516)
+## Current state vs SPEC (as of v1.6.0; library = v1.3.0 @ 658f516 + the JSON render format)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -289,9 +297,10 @@ ACTUAL" says why.
 
 **Shipped:**
 
-- `MemoryConfig` — two fields only: `dedup_cosine_threshold = 0.95`,
-  `top_k = 10`. A knob no code reads is not present; the rest land with the
-  stage that uses them.
+- `MemoryConfig` — three fields: `dedup_cosine_threshold = 0.95`,
+  `top_k = 10`, `render_format = "text"` (v1.6.0; `"json"` is the other
+  value, read by `get_context`). A knob no code reads is not present; the
+  rest land with the stage that uses them.
 - The real ONNX BGE embedder behind the `[embed]` extra, revision-pinned;
   `HashingEmbedder` (256-dim, numpy-only) stays the default and the CI path.
 - The `memory_meta` guard — 4 keys (`embedder_name`, `embedder_revision`,

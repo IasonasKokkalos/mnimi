@@ -9,6 +9,7 @@ public surface stays at four methods regardless.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from string import Template
 from typing import NamedTuple
@@ -35,6 +36,16 @@ _DEFAULT_CONFIG = MemoryConfig()
 # RENDER_TEMPLATE builds the text a reader sees. It may evolve — an edit here
 # changes reader context and not a single vector — and its hash is pinned in
 # the harness artifact header so a format change is loud there instead.
+#
+# Two render FORMATS share one code path (2026-09-12, the gpt-4o era's
+# presentation pair — DECISIONS "Pre-registration for the gpt-4o era"): the
+# same blocks (one per timestamp change, the turns inside it), framed either
+# as the labelled text below or as a JSON array (LongMemEval §5.5). Only the
+# framing differs; the information content is identical by construction. Each
+# format has its own template string and therefore its own hash, and the
+# harness pins the hash of the format it ran — so the two are never confused
+# in an artifact, and the default format's hash is exactly what it was before
+# the second format existed.
 # ---------------------------------------------------------------------------
 
 EMBED_TEMPLATE = "[Session date: ${date}] ${text}"
@@ -46,18 +57,66 @@ _EMBED_T = Template(EMBED_TEMPLATE)
 RENDER_TEMPLATE = "[Session date: ${ts}]\n${role}: ${content}"
 _RENDER_HEADER_T, _RENDER_TURN_T = (Template(part) for part in RENDER_TEMPLATE.split("\n"))
 
+# The JSON framing of the same blocks. The string is a descriptor of the shape
+# (it is what gets hashed), not a template that is substituted into: the
+# rendered output is ``json.dumps`` of ``[{"session_date", "turns": [{"role",
+# "content"}]}]`` with ``ensure_ascii=False`` and a two-space indent.
+RENDER_JSON_TEMPLATE = (
+    '[{"session_date": "${ts}", "turns": [{"role": "${role}", "content": "${content}"}]}]'
+)
+_RENDER_JSON_INDENT = 2
+
+RENDER_FORMAT_TEXT = "text"
+RENDER_FORMAT_JSON = "json"
+RENDER_FORMATS = (RENDER_FORMAT_TEXT, RENDER_FORMAT_JSON)
+_RENDER_TEMPLATES = {
+    RENDER_FORMAT_TEXT: RENDER_TEMPLATE,
+    RENDER_FORMAT_JSON: RENDER_JSON_TEMPLATE,
+}
+
+
+def _check_render_format(fmt: str) -> str:
+    if fmt not in _RENDER_TEMPLATES:
+        raise ValueError(f"unknown render format {fmt!r}; expected one of {RENDER_FORMATS}")
+    return fmt
+
 
 def embed_template_hash() -> str:
     """Digest of the embed-text template, pinned in ``memory_meta``."""
     return hashlib.sha256(EMBED_TEMPLATE.encode("utf-8")).hexdigest()
 
 
-def render_template_hash() -> str:
-    """Digest of the render template, pinned in the harness artifact header."""
-    return hashlib.sha256(RENDER_TEMPLATE.encode("utf-8")).hexdigest()
+def render_template_hash(fmt: str = RENDER_FORMAT_TEXT) -> str:
+    """Digest of the render template for ``fmt``, pinned in the harness header.
+
+    The default (text) digest is unchanged by the JSON format's existence: it
+    hashes the same ``RENDER_TEMPLATE`` string it always did.
+    """
+    return hashlib.sha256(_RENDER_TEMPLATES[_check_render_format(fmt)].encode("utf-8")).hexdigest()
 
 
-def render_turns(turns: list[dict]) -> str:
+def _render_blocks(turns: list[dict]) -> list[dict]:
+    """Group turns into ``{"session_date", "turns"}`` blocks, one per ``ts`` change.
+
+    This is the one grouping both formats render — the text format emits a
+    header where a block starts, the JSON format emits an object — so the two
+    framings can never disagree about where a session boundary falls.
+    """
+    blocks: list[dict] = []
+    current_ts = None
+    for turn in turns:
+        ts = turn.get("ts")
+        if (ts and ts != current_ts) or not blocks:
+            blocks.append({"session_date": ts, "turns": []})
+            if ts:
+                current_ts = ts
+        blocks[-1]["turns"].append(
+            {"role": turn.get("role", ""), "content": turn.get("content", "")}
+        )
+    return blocks
+
+
+def render_turns(turns: list[dict], fmt: str = RENDER_FORMAT_TEXT) -> str:
     """Render ``{"role", "content", "ts"}`` turns into reader context.
 
     A dated header is emitted whenever ``ts`` changes, so the session boundary
@@ -66,7 +125,13 @@ def render_turns(turns: list[dict]) -> str:
     timestamp per turn. Every turn carries its speaker label — the dataset's
     single-session-assistant questions ask about assistant turns, which are
     unattributable without one.
+
+    ``fmt`` selects the framing: ``"text"`` (the default, byte-identical to
+    the pre-split renderer) or ``"json"`` (the same blocks as a JSON array).
     """
+    _check_render_format(fmt)
+    if fmt == RENDER_FORMAT_JSON:
+        return json.dumps(_render_blocks(turns), ensure_ascii=False, indent=_RENDER_JSON_INDENT)
     lines: list[str] = []
     current_ts = None
     for turn in turns:
@@ -82,7 +147,7 @@ def render_turns(turns: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_records(records: list[MemoryRecord]) -> str:
+def render_records(records: list[MemoryRecord], fmt: str = RENDER_FORMAT_TEXT) -> str:
     """Render stored records (already ordered) through :func:`render_turns`.
 
     Flattens each record's verbatim turns, stamping the record's ``created_at``
@@ -101,7 +166,7 @@ def render_records(records: list[MemoryRecord]) -> str:
                     "ts": record.created_at,
                 }
             )
-    return render_turns(turns)
+    return render_turns(turns, fmt=fmt)
 
 
 class Memory:
@@ -177,7 +242,7 @@ class Memory:
         is the embed text and stays frozen when this format evolves.
         """
         records = _time_ordered(self.recall(query, user_id))
-        return render_records(records)
+        return render_records(records, fmt=self.config.render_format)
 
     def consolidate(self, user_id: str) -> None:
         """Merge duplicates, resolve conflicts, decay stale memories.

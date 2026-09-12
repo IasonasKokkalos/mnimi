@@ -35,9 +35,13 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 
 
-def build_system(name: str):
+def build_system(name: str, render_format: str = "text"):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
-    need the embedder, and the other three must stay runnable without it."""
+    need the embedder, and the other three must stay runnable without it.
+
+    ``render_format`` is handed to every context-bearing arm — the harness
+    pins ``render_template_hash(render_format)``, and one value for all arms
+    is what keeps that pin true (SPEC: one renderer)."""
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -45,19 +49,23 @@ def build_system(name: str):
     if name == "full_history":
         from .systems.full_history import FullHistorySystem
 
-        return FullHistorySystem()
+        return FullHistorySystem(render_format=render_format)
     if name == "oracle":
         from .systems.oracle import OracleSystem
 
-        return OracleSystem()
+        return OracleSystem(render_format=render_format)
     if name == "naive_rag":
+        from mnimi import MemoryConfig
+
         from .systems.naive_rag import NaiveRagSystem
 
-        return NaiveRagSystem()
+        return NaiveRagSystem(config=MemoryConfig(render_format=render_format))
     if name == "mnimi":
+        from mnimi import MemoryConfig
+
         from .systems.mnimi import MnimiSystem
 
-        return MnimiSystem()
+        return MnimiSystem(config=MemoryConfig(render_format=render_format))
     raise SystemExit(f"unknown system: {name}")
 
 
@@ -302,6 +310,16 @@ def main(argv: list[str] | None = None) -> int:
         "OpenAI key, no Ollama); 'all' does both (default)",
     )
     parser.add_argument(
+        "--render-format",
+        default="text",
+        choices=["text", "json"],
+        help="how every context-bearing arm frames the reader's context: 'text' "
+        "(the default: dated header + role-labelled lines) or 'json' (the same "
+        "blocks as a JSON array, LongMemEval §5.5). Pinned as "
+        "render_template_hash, so the two never pair. The gpt-4o era's "
+        "presentation pair decides the era's value (DECISIONS 2026-09-12).",
+    )
+    parser.add_argument(
         "--run-dir",
         default=None,
         help="where staged artifacts live (default runs/<system>__<limit>q). "
@@ -524,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         # actually run — a retrieving system contributes its own pins below.
         # It also means a missing [embed] extra fails here, before the header,
         # rather than after it.
-        system = build_system(args.system)
+        system = build_system(args.system, render_format=args.render_format)
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
             dataset_sha256=file_sha256(dataset_path),
@@ -550,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
             reader_prompt_hash=reader_prompt_hash(),
             # The canonical context format every arm renders through. Pinned
             # from the library constant so a format edit is loud in the header.
-            render_template_hash=render_template_hash(),
+            render_template_hash=render_template_hash(args.render_format),
             **reader_trim_pins(),
             # A retrieving system declares the knobs that move its score;
             # everything else returns {} and the fields stay None.
@@ -725,6 +743,9 @@ def main(argv: list[str] | None = None) -> int:
     dropped_total = sum(r.tokens_dropped for r in results)
     run_meta = {
         "stage": args.stage,
+        # Which framing the pinned render_template_hash names, for a human
+        # reading results.json; the hash in pins.json is the pin.
+        "render_format": args.render_format if do_predict else None,
         "elapsed_s": round(elapsed, 1),
         "n": len(results),
         "reader_mean_prompt_tokens": round(sum(fed) / len(fed)) if fed else None,
@@ -1194,6 +1215,10 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
             "(verified at preflight)",
             file=sys.stderr,
         )
+    print(
+        f"render template:  {str(pins.get('render_template_hash'))[:12]}...",
+        file=sys.stderr,
+    )
     print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
     print("------------", file=sys.stderr)
 

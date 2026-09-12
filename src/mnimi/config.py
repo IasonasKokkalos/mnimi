@@ -25,3 +25,15 @@ class MemoryConfig:
 
     top_k: int = 10
     """How many records ``recall`` retrieves."""
+
+    render_format: str = "text"
+    """How ``get_context`` frames the recalled turns for a reader.
+
+    ``"text"`` (default): one ``[Session date: …]`` header per timestamp
+    change, then ``role: content`` lines. ``"json"``: the same blocks as a JSON
+    array (LongMemEval §5.5's structured presentation). The framing is the
+    only difference; neither touches a vector or the dedup key. The eval
+    harness pins ``render_template_hash(render_format)`` so a format change is
+    a different configuration, never a silent edit. The default is decided by
+    the gpt-4o era's presentation pair (``docs/DECISIONS.md``, 2026-09-12).
+    """

@@ -1154,3 +1154,49 @@ presentation pair $3.5; the remaining arms of the sitting (naive_rag,
 no_memory) + judge for all four ≈ $3.5; drift pair $1 — **≈ $8**, against
 the $22.5 the plan carried before `full_history` was cut. Every submission
 still prints its projection and refuses over the remaining cap.
+
+## The JSON render format lands, undecided (2026-09-12)
+
+**Decision:** the one renderer gains a second *format*. `render_turns` /
+`render_records` take `fmt="text" | "json"`; `MemoryConfig.render_format`
+(default `"text"`) is the knob `get_context` reads; the harness has
+`--render-format` and hands one value to every context-bearing arm
+(`build_system`), so `render_template_hash(fmt)` — now hashed per format —
+is true for all of them. The text format's hash is byte-for-byte what the
+published local artifacts carry (`9c03ddae5c33…`, asserted by a test), so
+nothing already published moved. `run.render_format` in `results.json`
+names the framing for a human; the hash in `pins.json` is the pin, and it
+sits in `HARNESS_PARITY_FIELDS`, so `evals.stats` refuses to pair a text run
+with a JSON run — exactly right, since the presentation pair is decided on
+scores, not on a paired test.
+
+**The shape.** Both formats render the same blocks: one block per timestamp
+change, the verbatim turns inside it. Text emits `[Session date: <ts>]` and
+`role: content` lines; JSON emits
+`[{"session_date": <ts>, "turns": [{"role", "content"}, …]}, …]` via
+`json.dumps(ensure_ascii=False, indent=2)`. Same dates, same roles, same
+content, nothing added — the block grouping is one function both formats
+call, so the two framings cannot disagree about where a session boundary
+falls. The paper does not print its JSON schema (§5.5 names the idea and
+cites Yin et al. 2023); this is mnimi's own, recorded here as
+`RENDER_JSON_TEMPLATE`, the descriptor string that is hashed. The two-space
+indent is a readability choice for the reader model and costs tokens (a
+mnimi context of ~4.7k tokens grows by roughly a fifth); the pair measures
+the whole package, not the indent.
+
+**What is not decided.** Which format the era runs. That is the
+presentation pair's job (pre-registration above: JSON is adopted iff
+strictly higher than text on both mnimi and oracle at n=100; otherwise text
+stays). Until the pair is read, the library default stays `"text"`; if JSON
+wins, the default flips in one commit and FUTURE.md's item closes with the
+numbers either way. The FUTURE.md trigger ("a planned full re-run of all
+five arms") fired with the gpt-4o era, which is why the format lands now and
+not mid-phase.
+
+**Why a config field and not a second renderer.** SPEC's invariant is one
+renderer for every arm, because date granularity and speaker labels were a
+measured cross-arm confound. A second render *function* would be a second
+place for that confound to grow back; a format flag on the one function keeps
+parity a property of the code. It is the third `MemoryConfig` field and the
+first that is not a threshold — a knob `get_context` reads, so it earns its
+place under the "no field nothing reads" rule.

@@ -6,7 +6,7 @@ from __future__ import annotations
 # shared by every context-bearing arm (full_history, oracle via inheritance,
 # mnimi and naive_rag through their record render path), and the only way
 # format parity survives edits is for all of them to run the same code.
-from mnimi.memory import render_turns
+from mnimi.memory import RENDER_FORMAT_TEXT, render_turns
 
 from ..base import MemorySystem
 
@@ -20,8 +20,12 @@ class FullHistorySystem(MemorySystem):
 
     name = "full_history"
 
-    def __init__(self) -> None:
+    def __init__(self, render_format: str = RENDER_FORMAT_TEXT) -> None:
         self._turns: list[dict] = []
+        # The same knob mnimi and naive_rag read from MemoryConfig; the harness
+        # passes one value to every arm so the pinned render hash is the truth
+        # for all of them.
+        self._render_format = render_format
 
     def reset(self) -> None:
         self._turns = []
@@ -30,4 +34,4 @@ class FullHistorySystem(MemorySystem):
         self._turns.extend(messages)
 
     def get_context(self, query: str) -> str:
-        return render_turns(self._turns)
+        return render_turns(self._turns, fmt=self._render_format)

@@ -356,3 +356,86 @@ def test_dedup_threshold_is_read_from_config_not_hardcoded(tmp_path):
     for text in near_pair:
         permissive.add([_message(text)], user_id="u1")
     assert permissive.store.count("u1") == 1, "0.90 is below the pair's 0.923: merge"
+
+
+# -- the JSON render format (gpt-4o era presentation pair, 2026-09-12) ---------
+
+
+def _pair_of_sessions():
+    return [
+        {"role": "user", "content": "what should I cook?", "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "assistant", "content": "a mushroom risotto", "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "user", "content": "I moved to Lyon — “enfin”", "ts": "2023/06/01 (Thu) 09:00"},
+    ]
+
+
+def test_json_render_format_frames_the_same_blocks_as_text():
+    import json
+
+    from mnimi.memory import render_turns
+
+    text = render_turns(_pair_of_sessions())
+    rendered = render_turns(_pair_of_sessions(), fmt="json")
+    blocks = json.loads(rendered)
+    assert [b["session_date"] for b in blocks] == [
+        "2023/05/20 (Sat) 02:21",
+        "2023/06/01 (Thu) 09:00",
+    ]
+    assert [len(b["turns"]) for b in blocks] == [2, 1]
+    assert blocks[0]["turns"][1] == {"role": "assistant", "content": "a mushroom risotto"}
+    # Same information, only the framing differs: every date, role and content
+    # the text format carries is in the JSON, and nothing else is.
+    assert set(blocks[0]) == {"session_date", "turns"}
+    assert set(blocks[0]["turns"][0]) == {"role", "content"}
+    assert text.count("[Session date:") == len(blocks)
+    # Non-ASCII survives unescaped (ensure_ascii=False) so the reader sees the
+    # same characters the text format shows it.
+    assert "“enfin”" in rendered and "\\u201c" not in rendered
+
+
+def test_text_render_format_is_the_default_and_unchanged():
+    from mnimi.memory import RENDER_FORMATS, render_turns
+
+    assert RENDER_FORMATS == ("text", "json")
+    assert render_turns(_pair_of_sessions()) == render_turns(_pair_of_sessions(), fmt="text")
+    with pytest.raises(ValueError):
+        render_turns(_pair_of_sessions(), fmt="yaml")
+
+
+def test_render_template_hash_is_per_format_and_the_default_did_not_move():
+    from mnimi.memory import RENDER_JSON_TEMPLATE, render_template_hash
+
+    # The value the local family's published artifacts carry. The JSON format
+    # existing must not move it — the whole point of hashing per format.
+    assert render_template_hash().startswith("9c03ddae5c33")
+    assert render_template_hash("text") == render_template_hash()
+    assert render_template_hash("json") != render_template_hash("text")
+    assert len(render_template_hash("json")) == 64
+    assert RENDER_JSON_TEMPLATE == (
+        '[{"session_date": "${ts}", "turns": [{"role": "${role}", "content": "${content}"}]}]'
+    )
+    with pytest.raises(ValueError):
+        render_template_hash("yaml")
+
+
+def test_get_context_reads_render_format_from_config(tmp_path):
+    import json
+
+    from mnimi import Memory, MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+
+    messages = [
+        {"role": "user", "content": "what should I cook?", "ts": "2023/05/20 (Sat) 02:21"},
+        {"role": "assistant", "content": "a mushroom risotto", "ts": "2023/05/20 (Sat) 02:21"},
+    ]
+    as_json = Memory(
+        str(tmp_path / "j.db"), HashingEmbedder(), MemoryConfig(render_format="json")
+    )
+    as_json.add(messages, user_id="u")
+    blocks = json.loads(as_json.get_context("cook", "u"))
+    assert blocks[0]["session_date"] == "2023/05/20 (Sat) 02:21"
+    assert [t["role"] for t in blocks[0]["turns"]] == ["user", "assistant"]
+
+    as_text = Memory(str(tmp_path / "t.db"), HashingEmbedder(), MemoryConfig())
+    as_text.add(messages, user_id="u")
+    assert as_text.get_context("cook", "u").startswith("[Session date: 2023/05/20")
