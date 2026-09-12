@@ -160,7 +160,14 @@ def render_records(records: list[MemoryRecord], fmt: str = RENDER_FORMAT_TEXT) -
     string — degraded (no speaker attribution) but never silently dropped.
     """
     turns: list[dict] = []
+    rendered_rounds: set[str] = set()
     for record in records:
+        # A round embedded as several windows (R4) is several records with one
+        # round_key; the reader sees the round once, at its first window.
+        if record.round_key is not None:
+            if record.round_key in rendered_rounds:
+                continue
+            rendered_rounds.add(record.round_key)
         source_turns = record.turns or [{"role": record.source, "content": record.content}]
         for turn in source_turns:
             turns.append(
@@ -185,12 +192,20 @@ class Memory:
             raise ValueError(
                 f"unknown dedup_scope {config.dedup_scope!r}; expected one of {DEDUP_SCOPES}"
             )
+        if config.chunk_tokens < 0 or (
+            config.chunk_tokens and not 0 <= config.chunk_overlap < config.chunk_tokens
+        ):
+            raise ValueError(
+                "chunk_tokens must be >= 0 and chunk_overlap must be in [0, chunk_tokens)"
+            )
         self.store = Store(
             db_path,
             dim=embedder.dim,
             embedder_name=embedder.name,
             embedder_revision=embedder.revision,
             embed_template_hash=embed_template_hash(),
+            chunk_tokens=config.chunk_tokens,
+            chunk_overlap=config.chunk_overlap,
         )
 
     def add(self, messages, user_id: str) -> None:
@@ -210,9 +225,16 @@ class Memory:
         if not rounds:
             return
         seen = {_normalize(content) for content in self.store.contents(user_id)}
-        embeddings = self.embedder.embed([r.content for r in rounds])
-        for round_, embedding in zip(rounds, embeddings, strict=True):
-            normalized = _normalize(round_.content)
+        # One embed batch per add(), as before; with chunking off every round
+        # is its own single piece and the batch is byte-identical to v1's.
+        pieces = [
+            (round_, piece)
+            for round_ in rounds
+            for piece in round_pieces(round_, self.embedder, self.config)
+        ]
+        embeddings = self.embedder.embed([piece.content for _r, piece in pieces])
+        for (round_, piece), embedding in zip(pieces, embeddings, strict=True):
+            normalized = _normalize(piece.content)
             if normalized in seen:
                 continue
             hits = self.store.search(embedding, user_id=user_id, k=1)
@@ -225,11 +247,12 @@ class Memory:
             self.store.insert(
                 MemoryRecord(
                     user_id=user_id,
-                    content=round_.content,
+                    content=piece.content,
                     embedding=embedding,
                     created_at=round_.ts,
                     source=round_.roles,
                     turns=round_.turns,
+                    round_key=piece.round_key,
                 )
             )
             seen.add(normalized)
@@ -310,6 +333,46 @@ class Round(NamedTuple):
     roles: str  # provenance summary, e.g. "user+assistant"
     ts: str | None  # the round's session timestamp, verbatim
     turns: list[dict]  # verbatim {"role", "content"} turns, for rendering only
+
+
+class Piece(NamedTuple):
+    """One embedded string of a round: the whole round, or one window of it."""
+
+    content: str  # templated exactly like Round.content
+    round_key: str | None  # shared by the windows of one round; None when whole
+
+
+def _round_text(round_: Round) -> str:
+    """The un-templated turn text a round's embed content was built from."""
+    return "\n".join(str(t.get("content", "")).strip() for t in round_.turns)
+
+
+def round_key(ts: str | None, text: str) -> str:
+    """Identity of a round across its windows: its timestamp and its text."""
+    return f"{ts}|{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+
+
+def round_pieces(round_: Round, embedder: Embedder, config: MemoryConfig) -> list[Piece]:
+    """What gets embedded for one round under ``config`` (R4).
+
+    ``chunk_tokens == 0``: the round whole, ``round_key`` None — v1's shape.
+    Otherwise the round's text is split by the embedder's own tokenizer into
+    overlapping windows and each window is templated like a whole round (the
+    date fold is on every window, so ``EMBED_TEMPLATE`` is unchanged); a
+    round that fits in one window is still whole and unkeyed. Both retrieval
+    arms of the eval call this, so their embedded units stay identical.
+    """
+    if config.chunk_tokens <= 0:
+        return [Piece(round_.content, None)]
+    text = _round_text(round_)
+    windows = embedder.split(text, config.chunk_tokens, config.chunk_overlap)
+    if len(windows) <= 1:
+        return [Piece(round_.content, None)]
+    key = round_key(round_.ts, text)
+    return [
+        Piece(_EMBED_T.substitute(date=_date_of(round_.ts), text=w) if round_.ts else w, key)
+        for w in windows
+    ]
 
 
 def _messages_to_rounds(messages) -> list[Round]:

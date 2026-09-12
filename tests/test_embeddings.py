@@ -71,3 +71,33 @@ def test_bge_embeddings_are_unit_norm_and_semantically_sane():
     # Paraphrases must sit closer than unrelated text — the hashing embedder
     # cannot do this; it is the reason the ONNX model exists.
     assert _cosine(vectors[0], vectors[1]) > _cosine(vectors[0], vectors[2])
+
+
+# -- split (R4, 2026-09-12) ------------------------------------------------------
+
+
+def test_split_covers_the_text_with_overlapping_windows():
+    words = [f"w{i}" for i in range(25)]
+    text = " ".join(words)
+    pieces = HashingEmbedder().split(text, max_tokens=10, overlap=3)
+    assert pieces[0].split() == words[:10]
+    assert pieces[1].split() == words[7:17]
+    assert pieces[2].split() == words[14:24]
+    assert pieces[3].split() == words[21:25], "the tail is covered, never dropped"
+    assert HashingEmbedder().split("short text", max_tokens=10, overlap=3) == ["short text"]
+    with pytest.raises(ValueError):
+        HashingEmbedder().split(text, max_tokens=10, overlap=10)
+
+
+@pytest.mark.bge
+def test_bge_split_respects_the_real_tokenizer():
+    if not _has_embed_deps():
+        pytest.skip("[embed] extra not installed")
+    from mnimi.embeddings import BgeSmallEmbedder
+
+    e = BgeSmallEmbedder()
+    text = "hello " * 700
+    pieces = e.split(text, max_tokens=510, overlap=64)
+    assert len(pieces) >= 2
+    assert all(len(e._splitter.encode(p, add_special_tokens=False).ids) <= 510 for p in pieces)
+    assert sum(p.count("hello") for p in pieces) >= 700

@@ -436,6 +436,8 @@ def build_pins(
     dedup_cosine_threshold: float | None = None,
     dedup_scope: str | None = None,
     query_instruction: str | None = None,
+    chunk_tokens: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -496,8 +498,11 @@ def build_pins(
     declared by mnimi only, naive_rag never dedups) — and
     ``query_instruction`` — the literal text prepended to the query before
     embedding, ``""`` as shipped, the BGE model-card instruction under R5
-    (declared by both retrieval arms). A knob that changes the stored set or
-    the query vector must move the hash, as ``dedup_cosine_threshold`` taught
+    (declared by both retrieval arms) — and ``chunk_tokens`` /
+    ``chunk_overlap``, the R4 knobs (a round longer than ``chunk_tokens``
+    embedder tokens is embedded as overlapping windows; ``0`` = whole rounds
+    as shipped; both arms). A knob that changes the stored set or the query
+    vector must move the hash, as ``dedup_cosine_threshold`` taught
     (schema /2).
 
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
@@ -564,6 +569,8 @@ def build_pins(
         "dedup_cosine_threshold": dedup_cosine_threshold,
         "dedup_scope": dedup_scope,
         "query_instruction": query_instruction,
+        "chunk_tokens": chunk_tokens,
+        "chunk_overlap": chunk_overlap,
     }
 
 

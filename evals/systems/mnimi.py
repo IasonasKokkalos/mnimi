@@ -63,6 +63,8 @@ class MnimiSystem(MemorySystem):
             "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
             "dedup_scope": self._config.dedup_scope,
             "query_instruction": self._config.query_instruction,
+            "chunk_tokens": self._config.chunk_tokens,
+            "chunk_overlap": self._config.chunk_overlap,
         }
 
     def reset(self) -> None:

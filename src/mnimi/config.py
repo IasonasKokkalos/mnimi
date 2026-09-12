@@ -50,6 +50,21 @@ class MemoryConfig:
     harness pin (``query_instruction``) and not a store guard.
     """
 
+    chunk_tokens: int = 0
+    """Embed a round longer than this many embedder tokens as overlapping
+    windows, one record per window (R4, 2026-09-12). ``0`` (v1 as shipped)
+    embeds each round once and lets the embedder truncate it — 41.95% of
+    LongMemEval rounds exceed BGE's 512-token window (09-08_analysis §C13),
+    so their tails are invisible to retrieval. Every window of a round shares
+    its ``round_key`` and the reader still sees the round once. Changes which
+    strings are embedded, so it is a ``memory_meta`` key and a harness pin;
+    the ``EMBED_TEMPLATE`` is unchanged (each window is templated the same
+    way). ``510`` leaves BGE room for ``[CLS]``/``[SEP]``."""
+
+    chunk_overlap: int = 64
+    """Tokens shared by consecutive windows when ``chunk_tokens`` > 0. In
+    ``memory_meta`` and the pins beside ``chunk_tokens``."""
+
     render_format: str = "text"
     """How ``get_context`` frames the recalled turns for a reader.
 

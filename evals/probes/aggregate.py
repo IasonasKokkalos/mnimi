@@ -27,7 +27,7 @@ def summarize(rows: list[QuestionProbe]) -> dict:
         c["any10"] += _hit(r.evidence_ranks, 10, False)
         c["all10"] += _hit(r.evidence_ranks, 10, True)
     drops = Counter(d.screen for r in rows for d in r.drops)
-    evidence_lost = [(r.question_id, d.screen) for r in rows for d in r.drops if d.is_evidence]
+    evidence_lost = [(r.question_id, lost[2]) for r in rows for lost in r.lost_evidence]
     cross_session = sum(
         1
         for r in rows

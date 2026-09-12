@@ -489,3 +489,31 @@ def test_query_instruction_changes_the_query_vector_not_the_stored_ones(tmp_path
     assert plain.store.contents("u") == prefixed.store.contents("u")
     assert plain._query_embedding("cat") != prefixed._query_embedding("cat")
     assert prefixed._query_embedding("cat") == plain._query_embedding(BGE_QUERY_INSTRUCTION + "cat")
+
+
+# -- chunking (R4, 2026-09-12) -------------------------------------------------
+
+
+def test_chunked_rounds_embed_pieces_and_render_once(tmp_path):
+    long_turn = " ".join(f"fact{i}" for i in range(60))
+    m = Memory(
+        str(tmp_path / "c.db"), HashingEmbedder(),
+        MemoryConfig(chunk_tokens=20, chunk_overlap=5),
+    )
+    m.add([_message(long_turn), _message("ok", role="assistant")], user_id="u")
+    assert m.store.count("u") == 4, "one record per window of the 60-word round"
+    hits = m.store.search(m._query_embedding("fact1"), "u", k=10)
+    assert {r.round_key for r, _ in hits} == {hits[0][0].round_key} and hits[0][0].round_key
+    assert all(r.turns == hits[0][0].turns for r, _ in hits)
+    context = m.get_context("fact59", "u")
+    assert context.count("fact0 ") == 1, "the round renders once, whole"
+    assert "fact59" in context and context.count("[Session date:") == 1
+
+    whole = Memory(str(tmp_path / "w.db"), HashingEmbedder(), MemoryConfig())
+    whole.add([_message("a short round")], user_id="u")
+    (record,) = [r for r, _ in whole.store.search(whole._query_embedding("short"), "u", k=1)]
+    assert record.round_key is None, "chunking off: v1's shape, no key"
+    with pytest.raises(ValueError):
+        Memory(
+            str(tmp_path / "x.db"), HashingEmbedder(), MemoryConfig(chunk_tokens=8, chunk_overlap=8)
+        )

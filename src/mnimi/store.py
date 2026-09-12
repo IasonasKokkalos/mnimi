@@ -36,11 +36,18 @@ class Store:
         embedder_name: str,
         embedder_revision: str,
         embed_template_hash: str,
+        chunk_tokens: int = 0,
+        chunk_overlap: int = 64,
     ) -> None:
         self.dim = dim
         self.embedder_name = embedder_name
         self.embedder_revision = embedder_revision
         self.embed_template_hash = embed_template_hash
+        # Which strings were embedded: a round whole, or windows of it. Two
+        # stores built under different chunking hold different vectors for
+        # the same input, so the pair is guarded like the template hash.
+        self.chunk_tokens = int(chunk_tokens)
+        self.chunk_overlap = int(chunk_overlap)
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
         self._load_extension()
@@ -83,6 +90,10 @@ class Store:
                 # vector while leaving the embedder pins untouched, which is
                 # exactly the silent mismatch this guard exists to refuse.
                 ("embed_template_hash", self.embed_template_hash),
+                # The chunking under which the vectors were built (R4). A v1
+                # store has no such keys and is refused on open, by design.
+                ("chunk_tokens", str(self.chunk_tokens)),
+                ("chunk_overlap", str(self.chunk_overlap)),
             ],
         )
         self.db.commit()
@@ -97,6 +108,8 @@ class Store:
             "embedder_revision": self.embedder_revision,
             "embedder_dim": str(self.dim),
             "embed_template_hash": self.embed_template_hash,
+            "chunk_tokens": str(self.chunk_tokens),
+            "chunk_overlap": str(self.chunk_overlap),
         }
         mismatches = [
             f"{key}: store has {stored.get(key)!r}, caller provided {value!r}"
@@ -121,7 +134,8 @@ class Store:
                 salience   REAL    NOT NULL DEFAULT 1.0,
                 source     TEXT    NOT NULL DEFAULT 'message',
                 supersedes INTEGER,
-                turns      TEXT
+                turns      TEXT,
+                round_key  TEXT
             )
             """
         )
@@ -155,8 +169,8 @@ class Store:
         cur = self.db.execute(
             """
             INSERT INTO memories
-                (user_id, content, created_at, salience, source, supersedes, turns)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (user_id, content, created_at, salience, source, supersedes, turns, round_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.user_id,
@@ -166,6 +180,7 @@ class Store:
                 record.source,
                 record.supersedes,
                 json.dumps(record.turns) if record.turns is not None else None,
+                record.round_key,
             ),
         )
         record.id = int(cur.lastrowid)
@@ -196,7 +211,7 @@ class Store:
                 WHERE embedding MATCH ? AND k = ?
             )
             SELECT m.id, m.user_id, m.content, m.created_at, m.salience,
-                   m.source, m.supersedes, m.turns, knn.distance
+                   m.source, m.supersedes, m.turns, m.round_key, knn.distance
             FROM knn
             JOIN memories m ON m.id = knn.memory_id
             WHERE m.user_id = ?
@@ -241,4 +256,5 @@ class Store:
             source=row["source"],
             supersedes=row["supersedes"],
             turns=json.loads(row["turns"]) if row["turns"] else None,
+            round_key=row["round_key"] if "round_key" in row.keys() else None,
         )

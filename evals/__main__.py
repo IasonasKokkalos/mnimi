@@ -40,6 +40,8 @@ def build_system(
     render_format: str = "text",
     dedup_scope: str = "store",
     query_instruction: str = "",
+    chunk_tokens: int = 0,
+    chunk_overlap: int = 64,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
@@ -76,6 +78,8 @@ def build_system(
                 render_format=render_format,
                 dedup_scope=dedup_scope,
                 query_instruction=query_instruction,
+                chunk_tokens=chunk_tokens,
+                chunk_overlap=chunk_overlap,
             )
         )
     if name == "mnimi":
@@ -88,6 +92,8 @@ def build_system(
                 render_format=render_format,
                 dedup_scope=dedup_scope,
                 query_instruction=query_instruction,
+                chunk_tokens=chunk_tokens,
+                chunk_overlap=chunk_overlap,
             )
         )
     raise SystemExit(f"unknown system: {name}")
@@ -243,6 +249,8 @@ def _resume_extras(args) -> str:
         extras.append(f"--dedup-scope {args.dedup_scope}")
     if args.query_instruction:
         extras.append(f'--query-instruction "{args.query_instruction}"')
+    if args.chunk_tokens:
+        extras.append(f"--chunk-tokens {args.chunk_tokens} --chunk-overlap {args.chunk_overlap}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -401,6 +409,23 @@ def main(argv: list[str] | None = None) -> int:
         "arms (MemoryConfig.query_instruction); '' as shipped, 'bge' for the "
         "BAAI/bge model-card retrieval instruction, or a literal. Pinned "
         "(schema /7). R5, DECISIONS 2026-09-12.",
+    )
+    parser.add_argument(
+        "--chunk-tokens",
+        type=int,
+        default=0,
+        help="embed a round longer than this many embedder tokens as overlapping "
+        "windows, one record per window, rendered once (MemoryConfig.chunk_tokens; "
+        "0 = whole rounds as shipped; 510 leaves BGE its two special tokens). Both "
+        "retrieval arms. Pinned (schema /7) and a memory_meta key. R4, DECISIONS "
+        "2026-09-12.",
+    )
+    parser.add_argument(
+        "--chunk-overlap",
+        type=int,
+        default=64,
+        help="tokens shared by consecutive windows when --chunk-tokens > 0 "
+        "(MemoryConfig.chunk_overlap). Pinned with it.",
     )
     parser.add_argument(
         "--render-format",
@@ -640,6 +665,8 @@ def main(argv: list[str] | None = None) -> int:
             render_format=args.render_format,
             dedup_scope=args.dedup_scope,
             query_instruction=args.query_instruction,
+            chunk_tokens=args.chunk_tokens,
+            chunk_overlap=args.chunk_overlap,
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),

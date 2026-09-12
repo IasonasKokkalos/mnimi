@@ -1260,3 +1260,21 @@ def test_query_instruction_moves_the_pins_hash_and_reaches_both_retrieval_arms()
         arm = cls(embedder=HashingEmbedder(), config=MemoryConfig(query_instruction="Q: "))
         assert arm.retrieval_pins()["query_instruction"] == "Q: "
     assert build_system("no_memory", query_instruction="bge").retrieval_pins() == {}
+
+
+def test_chunking_moves_the_pins_hash_and_both_arms_declare_it():
+    from evals.systems.mnimi import MnimiSystem
+    from evals.systems.naive_rag import NaiveRagSystem
+
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+
+    whole = artifacts.pins_hash(_pins(chunk_tokens=0, chunk_overlap=64))
+    assert artifacts.pins_hash(_pins(chunk_tokens=510, chunk_overlap=64)) != whole
+    assert artifacts.pins_hash(_pins(chunk_tokens=510, chunk_overlap=32)) != artifacts.pins_hash(
+        _pins(chunk_tokens=510, chunk_overlap=64)
+    )
+    for cls in (MnimiSystem, NaiveRagSystem):
+        arm = cls(embedder=HashingEmbedder(), config=MemoryConfig(chunk_tokens=20, chunk_overlap=5))
+        pins = arm.retrieval_pins()
+        assert (pins["chunk_tokens"], pins["chunk_overlap"]) == (20, 5)

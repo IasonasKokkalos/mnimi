@@ -203,3 +203,16 @@ def test_search_is_scoped_to_user(tmp_path):
 
     assert results
     assert all(record.user_id == "alice" for record, _ in results)
+
+
+def test_meta_guard_rejects_chunking_mismatch(tmp_path):
+    from mnimi.memory import embed_template_hash
+
+    kwargs = dict(dim=4, embedder_name="e", embedder_revision="r",
+                  embed_template_hash=embed_template_hash())
+    Store(str(tmp_path / "s.db"), **kwargs).close()
+    Store(str(tmp_path / "s.db"), **kwargs).close()  # same chunking reopens
+    with pytest.raises(MemoryMetaError, match="chunk_tokens"):
+        Store(str(tmp_path / "s.db"), chunk_tokens=64, **kwargs)
+    with pytest.raises(MemoryMetaError, match="chunk_overlap"):
+        Store(str(tmp_path / "s.db"), chunk_overlap=8, **kwargs)

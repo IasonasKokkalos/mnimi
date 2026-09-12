@@ -40,6 +40,32 @@ class Embedder(Protocol):
         """Embed a batch of texts into unit-length vectors."""
         ...
 
+    def split(self, text: str, max_tokens: int, overlap: int) -> list[str]:
+        """Windows of at most ``max_tokens`` of THIS embedder's tokens, consecutive
+        windows overlapping by ``overlap`` tokens, covering the whole text;
+        ``[text]`` when it fits. The unit is the embedder's own tokenizer, so
+        a window is what the model actually sees (R4)."""
+        ...
+
+
+def _windows(n: int, max_tokens: int, overlap: int) -> list[tuple[int, int]]:
+    """``(start, end)`` token index ranges covering ``n`` tokens."""
+    if max_tokens <= 0:
+        raise ValueError("max_tokens must be positive")
+    if not 0 <= overlap < max_tokens:
+        raise ValueError("overlap must be non-negative and smaller than max_tokens")
+    if n <= max_tokens:
+        return [(0, n)]
+    step = max_tokens - overlap
+    windows: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        end = min(start + max_tokens, n)
+        windows.append((start, end))
+        if end == n:
+            return windows
+        start += step
+
 
 class HashingEmbedder:
     """Deterministic signed-feature-hashing embedder, numpy-only.
@@ -62,6 +88,12 @@ class HashingEmbedder:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [self._embed_one(text) for text in texts]
+
+    def split(self, text: str, max_tokens: int, overlap: int) -> list[str]:
+        # Whitespace words stand in for tokens: the same windowing contract as
+        # the BGE tokenizer's, on the CI path.
+        words = text.split()
+        return [" ".join(words[i:j]) for i, j in _windows(len(words), max_tokens, overlap)]
 
     def _embed_one(self, text: str) -> list[float]:
         vec = np.zeros(self._dim, dtype=np.float32)
@@ -117,10 +149,23 @@ class BgeSmallEmbedder:
         self._tokenizer = Tokenizer.from_file(tokenizer_path)
         self._tokenizer.enable_truncation(max_length=self._MAX_TOKENS)
         self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+        # A second, untruncated tokenizer for splitting: the windows must be
+        # measured in the model's own tokens over the WHOLE text.
+        self._splitter = Tokenizer.from_file(tokenizer_path)
 
     @property
     def dim(self) -> int:
         return 384
+
+    def split(self, text: str, max_tokens: int, overlap: int) -> list[str]:
+        encoding = self._splitter.encode(text, add_special_tokens=False)
+        offsets = encoding.offsets
+        if not offsets:
+            return [text]
+        return [
+            text[offsets[i][0] : offsets[j - 1][1]]
+            for i, j in _windows(len(offsets), max_tokens, overlap)
+        ]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:

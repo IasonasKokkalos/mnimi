@@ -17,6 +17,7 @@ from mnimi.memory import (
     _time_ordered,
     embed_template_hash,
     render_records,
+    round_pieces,
 )
 from mnimi.models import MemoryRecord
 from mnimi.store import Store
@@ -73,6 +74,8 @@ class NaiveRagSystem(MemorySystem):
             "embed_template_hash": embed_template_hash(),
             "k": self._config.top_k,
             "query_instruction": self._config.query_instruction,
+            "chunk_tokens": self._config.chunk_tokens,
+            "chunk_overlap": self._config.chunk_overlap,
         }
 
     def reset(self) -> None:
@@ -84,6 +87,8 @@ class NaiveRagSystem(MemorySystem):
             embedder_name=self._embedder.name,
             embedder_revision=self._embedder.revision,
             embed_template_hash=embed_template_hash(),
+            chunk_tokens=self._config.chunk_tokens,
+            chunk_overlap=self._config.chunk_overlap,
         )
 
     def add(self, messages: list[dict]) -> None:
@@ -91,16 +96,22 @@ class NaiveRagSystem(MemorySystem):
         rounds = _messages_to_rounds(messages)
         if not rounds:
             return
-        embeddings = self._embedder.embed([r.content for r in rounds])
-        for round_, embedding in zip(rounds, embeddings, strict=True):
+        pieces = [
+            (round_, piece)
+            for round_ in rounds
+            for piece in round_pieces(round_, self._embedder, self._config)
+        ]
+        embeddings = self._embedder.embed([piece.content for _r, piece in pieces])
+        for (round_, piece), embedding in zip(pieces, embeddings, strict=True):
             self._store.insert(
                 MemoryRecord(
                     user_id=EVAL_USER_ID,
-                    content=round_.content,
+                    content=piece.content,
                     embedding=embedding,
                     created_at=round_.ts,
                     source=round_.roles,
                     turns=round_.turns,
+                    round_key=piece.round_key,
                 )
             )
 

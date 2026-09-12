@@ -52,3 +52,7 @@ class MemoryRecord:
 
     supersedes: int | None = None
     """Id of a memory this one replaces (conflict resolution / updates)."""
+    round_key: str | None = None
+    """Set only when a round was embedded as several windows (R4): every
+    window of one round carries the same key, so rendering shows the round
+    once. ``None`` for a round embedded whole — the v1 shape, byte for byte."""
