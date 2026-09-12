@@ -394,6 +394,19 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    if do_predict and is_api and args.system == "full_history":
+        # Decided 2026-09-12 (DECISIONS, "Pre-registration for the gpt-4o
+        # era"): the gpt-4o family cites the paper's full-context row instead
+        # of running one. At the 128K window an n=100 sitting is ~$15 of the
+        # $50 programme budget for a number the paper already reports.
+        print(
+            "ERROR: full_history is not run on the openai transport. The gpt-4o "
+            "family cites the paper's untruncated full-context row instead "
+            "(GPT-4o, Chain-of-Note, LongMemEval-S: 64.0%, Fig. 3b) - see "
+            "docs/DECISIONS.md, 'Pre-registration for the gpt-4o era' (2026-09-12).",
+            file=sys.stderr,
+        )
+        return 2
     if not do_predict and not auditing and not args.system and not args.run_dir:
         print(
             "ERROR: judging needs somewhere to read from - pass --predictions "

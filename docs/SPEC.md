@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.5.1, 2026-09-11; library unchanged since v1.3.0 @ 658f516)
+## v1 as built (v1.5.2, 2026-09-12; library unchanged since v1.3.0 @ 658f516)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1130,7 +1130,11 @@ API-level (the `openai` transport, pins schema /6, 2026-09-11): the dated
 snapshot `gpt-4o-2024-08-06` (recorded as both `reader_model` and
 `reader_transport_version` — the build that served *is* the snapshot),
 `temperature=0`, `seed=0`, `max_tokens=800`, `num_ctx=128000`. The six
-Ollama-only pins are `None` on this family. The response's
+Ollama-only pins are `None` on this family. `full_history` is not run on
+this family: at 128K it is ~$15 per n=100 sitting for the row the paper
+already reports on this reader (Fig. 3b, Chain-of-Note, 64.0%), so the
+harness refuses the arm on the openai transport and the paper's number is
+cited, marked as such (DECISIONS, 2026-09-12). The response's
 `system_fingerprint` is the API's own statement of which backend build
 served; it is **recorded** (`reader_resolved.json`, `run.environment`) and
 never pinned, because it cannot be requested. `reader_transport` is a pin and a

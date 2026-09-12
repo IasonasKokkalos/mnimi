@@ -377,6 +377,24 @@ def test_batch_on_the_ollama_transport_is_refused(tmp_path, monkeypatch, capsys)
     assert client.uploads == [] and not (tmp_path / "r").exists()
 
 
+def test_full_history_on_the_openai_transport_is_refused(tmp_path, monkeypatch, capsys):
+    # Decided 2026-09-12: the gpt-4o family cites the paper's full-context
+    # row; a 128K full_history sitting is never submitted, batch or sync.
+    client = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, client)
+
+    for extra in ([], ["--batch"]):
+        rc = evals_main.main(["--system", "full_history", "--limit", "2", "--stage", "predict",
+                              "--reader-transport", "openai", *extra,
+                              "--run-dir", str(tmp_path / "r")])
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "full_history is not run on the openai transport" in err
+        assert "64.0%" in err
+    assert client.uploads == [] and not (tmp_path / "r").exists()
+    assert not (tmp_path / "ledger.jsonl").exists()
+
+
 def test_batch_state_roundtrip(tmp_path):
     artifacts.write_batch_state(tmp_path, {"batch_id": "b", "status": "validating", "items": []})
     assert artifacts.read_batch_state_optional(tmp_path)["batch_id"] == "b"

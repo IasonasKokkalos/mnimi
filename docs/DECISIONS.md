@@ -1048,3 +1048,109 @@ the constant is a decision, not a flag.
 **Not a pin.** Projection, actual and ledger are diagnostics; `pins_hash` does
 not know what a run cost. The judge stage is gated too, on every family — the
 judge is API spend regardless of which reader produced the rows.
+
+## Pre-registration for the gpt-4o era; `full_history` is cited, not run (2026-09-12)
+
+Recorded before the family's first scored run. The only API calls on this
+family so far are the three smoke checks behind tasks 0.1–0.3 (one question
+sync, two questions batch, one question through the cost gate): $0.0211 of
+the $50 programme budget, all in the ledger. Nothing below was written with a
+gpt-4o-era score in hand.
+
+**What the era's first sitting is.** Four arms — `no_memory`, `oracle`,
+`naive_rag`, `mnimi` — at n=100, the same stratified seed-0 slice as the
+published local sitting, so every question has a local-family row beside it.
+The library is v1 (v1.3.0 @ `658f516`: verbatim rounds, exact-normalize
+collapse, one cosine dedup probe at 0.95, no extraction, no conflict, no
+decay). Reader `gpt-4o-2024-08-06`, prompt `mnimi-con-v1` (hash
+`50c6fe10…`, unchanged), `k=10`, `num_ctx=128000`, judge
+`gpt-4o-2024-08-06` / `longmemeval-paper-v3`. The renderer is decided by the
+presentation pair below, before the sitting.
+
+**`full_history` is cited from the paper, not run.** Decided 2026-09-12
+(PLAN §7.3). At the 128K window the arm feeds ~119k tokens per question — ≈
+$15 per n=100 sitting by batch, 30% of the programme budget — for a baseline
+that never changes across the programme (same reader, same harness) and that
+the paper already reports on this exact reader. The harness now refuses
+`--system full_history --reader-transport openai` at the predict stage,
+batch or sync, before any client is built (`tests/test_batch.py`); the local
+family's `full_history` arm is untouched. The cited row is **Fig. 3b,
+LongMemEval-S, GPT-4o, with Chain-of-Note: 64.0%** (its oracle column: 92.4%).
+The non-CoN row is 60.6% / 87.0%. `mnimi-con-v1` is the Fig. 13 CoN prompt
+with two deviations (one abstention sentence, the `${cache_bust}` prefix), so
+the CoN row is the comparator. Caveats that travel with the citation: it is
+over all ~500 questions, under the paper's own prompt and its own judge run;
+it is a point estimate from another lab, enters no paired test, and the
+harness produces no `predictions.jsonl` for it. The README table carries it
+in its own row marked *cited (paper Fig. 3b)*, never beside a Wilson
+interval of ours. Consequence: mnimi vs `full_history` is **not** a
+pre-registered comparison in this era, and the local family's "truncated
+baseline" reading of the arm does not carry over — on this family the arm
+would have been the paper's untruncated one, which is exactly why the
+paper's number stands in for it.
+
+**Primary: mnimi vs `naive_rag`**, exact McNemar, alpha 0.05, one test. It
+stays a **pre-registered NULL at v1**, for the reason given on 2026-07-30:
+the v1 write side is a near-inert dedup screen on a benchmark built without
+conflicting facts. A non-significant result is the expected outcome and not
+a negative finding. Directional note, recorded now: the local family
+observed b=0, c=6 against mnimi, all six on rows where the dedup screen
+changed the retrieved set. If the discordance on this family again runs
+against mnimi, that is the input to R3 (PLAN 1.2: fix the six without
+touching the threshold) and is reported as such; a *significant* result in
+either direction is first investigated as a harness asymmetry between the
+two arms before it is reported as a capability difference. Power: at n=100
+and the observed discordance (0.06–0.10) only a gap of ~8 points or more is
+detectable; the era's primary is decided at n=500 in Phase 5.
+
+**Secondary family**, Holm-corrected together: mnimi vs `no_memory`
+(expected large — the paper's floor on this reader is single digits) and
+mnimi vs `oracle` (a bound on evidence availability, not on presentation:
+mnimi at or above oracle is not a defect and is not reported as one). No
+other pair is tested. Per-category scores are reported for completeness and
+support no claim at n=100 (cells of 14–17). Absolute scores carry judge
+instrument error (9 flips in 140 re-gradings on one borderline row, measured
+2026-07-30); no absolute difference smaller than that rate is interpreted.
+The n=100 headline includes the 20-question dev slice on which 0.95 was
+selected, as before.
+
+**The 85 criterion** (PLAN §4.4, decided 2026-09-11): read off the Phase 5
+n=500 sitting, mnimi arm, this reader, the era's frozen prompt and renderer;
+the **Wilson 95% lower bound must be ≥ 85.0%**, i.e. 441/500 (88.2%, interval
+[85.1, 90.7]) computed with `evals.stats.wilson`. A point estimate of 85.0
+does not meet it. Every n=100 sitting before that is a working number, not a
+verdict. If the verdict lands short the write-up reports the gap by category
+and the unspent bucket-2 items; criterion (a), SPEC-complete, stands on its
+own.
+
+**The presentation pair (R1) and what it decides.** FUTURE.md's trigger for
+JSON context presentation (paper §5.5: "a planned full re-run of all five
+arms") fires — the API era is that re-run — so the format rides along
+without costing a run of its own. Before anything is submitted, a second
+renderer is committed beside `RENDER_TEMPLATE` (current hash
+`9c03ddae5c33…`): a JSON array, one object per rendered item, carrying the
+same three fields the current format carries (session date, role, content),
+the same item granularity per arm (rounds for the retrieval arms, sessions
+for oracle), and nothing else — only the framing changes, and its hash is
+the pin. mnimi and oracle run at n=100 under both renderers, by batch. **The
+JSON renderer becomes the era's renderer iff its score is strictly higher
+than the current renderer's on both arms; a tie or a split on either arm
+keeps the current renderer.** That is the one pre-registered alternative for
+this knob; no further renderer variant is tried against the benchmark. The
+winning renderer's mnimi and oracle rows *are* the sitting's rows, so the
+Phase 0 headline carries a one-alternative selection on the renderer,
+disclosed here and in the write-up; `naive_rag` and `no_memory` run under
+the chosen renderer afterwards, and the n=500 final is free of the
+selection because the renderer is frozen before Phase 1.
+
+**The drift pair.** After the sitting, mnimi n=100 is re-run once with the
+same pins; `N/100 changed` becomes the family's Tier 2 statement
+("reproducible within N/100 measured drift") and the served
+`system_fingerprint` classes are reported beside it. Nothing is re-selected
+on the pair; the first run's rows stay the published ones.
+
+**Budget for Phase 0 after this decision (estimate, batch where possible):**
+presentation pair $3.5; the remaining arms of the sitting (naive_rag,
+no_memory) + judge for all four ≈ $3.5; drift pair $1 — **≈ $8**, against
+the $22.5 the plan carried before `full_history` was cut. Every submission
+still prints its projection and refuses over the remaining cap.

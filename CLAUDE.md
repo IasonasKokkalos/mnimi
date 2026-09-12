@@ -84,7 +84,10 @@ resolution. Both roles are in extraction scope.
   `oracle` (the **evidence-availability bound**, the paper's §5.5 choice — it
   bounds what evidence reaches the reader, not how well it is presented, so a
   focused retriever handing fewer, cleaner tokens can match or exceed it and
-  being at or above oracle is not prima facie a bug); `naive_rag` (the paper's
+  being at or above oracle is not prima facie a bug; **on the gpt-4o family
+  `full_history` is cited from the paper — Fig. 3b, GPT-4o with Chain-of-Note,
+  64.0% — never run: the harness refuses it on the openai transport, decided
+  2026-09-12**); `naive_rag` (the paper's
   strong K=V baseline, ingestion granularity identical to mnimi's — and
   **pre-registered as a NULL at v1**: v1's only write-side delta is a near-inert
   dedup screen on a benchmark constructed without conflicting facts, so the
@@ -102,8 +105,9 @@ resolution. Both roles are in extraction scope.
   (`--reader-transport openai`, decided 2026-09-11): reader =
   `gpt-4o-2024-08-06` over the OpenAI API — the paper's reader and judge
   snapshot — temperature 0, `seed=0`, `max_tokens=800`, `num_ctx=128000`
-  (the model's window, so `full_history` is the paper's untruncated
-  baseline); the six Ollama-only pins are `None`; the served
+  (the model's window; `full_history` is not run on this family — its
+  128K sitting is ~$15 for a row the paper reports, so the 64.0% is cited
+  and the harness refuses the arm); the six Ollama-only pins are `None`; the served
   `system_fingerprint` is recorded per call in `reader_resolved.json` and
   `run.environment`, never pinned, so this family is reproducible only
   within measured drift; every run projects its cost from the real request
@@ -275,7 +279,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals.pricing                                     # the API spend ledger vs the $50 cap
 ```
 
-## Current state vs SPEC (as of v1.5.1; library unchanged since v1.3.0 @ 658f516)
+## Current state vs SPEC (as of v1.5.2; library unchanged since v1.3.0 @ 658f516)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
