@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from evals.dataset import Question, Session
 from evals.probes import aggregate, retrieval
 from evals.systems.mnimi import MnimiSystem
@@ -85,3 +87,33 @@ def test_aggregate_reports_recall_at_k_and_drop_counts(tmp_path):
     assert summary["evidence_lost_rows"] == [("a", "exact")]
     text = aggregate.format_summary(summary)
     assert "ANY@10 1/2" in text and "evidence lost: a (exact)" in text
+
+
+def test_misses_classify_retrieval_vs_reading(tmp_path):
+    from evals.probes import misses
+
+    rows = [
+        retrieval.QuestionProbe("a", "multi-session", False, 5, 2, 5, [3, 7], ["s"] * 5),
+        retrieval.QuestionProbe("b", "temporal-reasoning", False, 5, 2, 5, [-1, 12], ["s"] * 5),
+        retrieval.QuestionProbe("c", "single-session-user", False, 5, 1, 5, [1], ["s"] * 5),
+        retrieval.QuestionProbe("d_abs", "temporal-reasoning", True, 5, 0, 5, [], ["s"] * 5),
+    ]
+    correct = {"a": False, "b": False, "c": True, "d_abs": False}
+    entries = misses.classify(rows, correct, k=10)
+    assert [(e["question_id"], e["kind"]) for e in entries] == [
+        ("a", "reading-miss"), ("b", "retrieval-miss"), ("d_abs", "reading-miss"),
+    ]
+    assert entries[0]["evidence_in_top_k"] == 2
+    misses.annotate(entries, "naive", {"a": False, "b": True, "d_abs": False})
+    text = misses.format_table(entries, 10, ["naive"])
+    assert "1 retrieval-miss" in text and "2 reading-miss" in text
+    assert "naive right on: 1 of the retrieval misses, 0 of the reading misses" in text
+
+    probe_path = tmp_path / "probe.json"
+    retrieval.write_rows(probe_path, rows)
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({
+        "pins": {"k": 10},
+        "results": [{"question_id": q, "correct": ok} for q, ok in correct.items()],
+    }), encoding="utf-8")
+    assert misses.main([str(probe_path), str(results)]) == 0
