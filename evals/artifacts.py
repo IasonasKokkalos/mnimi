@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/6"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/7"
 
 
 def fingerprint(text: str) -> str:
@@ -434,6 +434,7 @@ def build_pins(
     extractor_model: str | None = None,
     k: int | None = None,
     dedup_cosine_threshold: float | None = None,
+    dedup_scope: str | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -486,6 +487,13 @@ def build_pins(
     the build the harness REQUESTED (``runner.READER_TRANSPORT_VERSION``),
     ``run.environment.ollama_version`` keeps holding the one that RESOLVED,
     and ``preflight_reader_transport`` refuses to run unless they agree.
+
+    Schema /7 (2026-09-12) added ``dedup_scope`` — ``"store"`` or
+    ``"session"``, the R3 knob (`MemoryConfig.dedup_scope`): which earlier
+    records the cosine dedup screen may declare an incoming round a duplicate
+    of. Declared by mnimi only (naive_rag never dedups); a knob that changes
+    the stored set must move the hash, as ``dedup_cosine_threshold`` taught
+    (schema /2).
 
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
@@ -549,6 +557,7 @@ def build_pins(
         "extractor_model": extractor_model,
         "k": k,
         "dedup_cosine_threshold": dedup_cosine_threshold,
+        "dedup_scope": dedup_scope,
     }
 
 

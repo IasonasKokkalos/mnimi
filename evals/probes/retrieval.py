@@ -241,8 +241,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dedup-threshold", type=float, default=MemoryConfig().dedup_cosine_threshold
     )
+    parser.add_argument("--dedup-scope", choices=["store", "session"], default="store")
     args = parser.parse_args(argv)
-    config = MemoryConfig(dedup_cosine_threshold=args.dedup_threshold)
+    config = MemoryConfig(
+        dedup_cosine_threshold=args.dedup_threshold, dedup_scope=args.dedup_scope
+    )
     run(args.system, args.limit, Path(args.out), config)
     return 0
 

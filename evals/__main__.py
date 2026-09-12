@@ -35,13 +35,15 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 
 
-def build_system(name: str, render_format: str = "text"):
+def build_system(name: str, render_format: str = "text", dedup_scope: str = "store"):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
 
     ``render_format`` is handed to every context-bearing arm — the harness
     pins ``render_template_hash(render_format)``, and one value for all arms
-    is what keeps that pin true (SPEC: one renderer)."""
+    is what keeps that pin true (SPEC: one renderer). ``dedup_scope`` reaches
+    the two retrieval arms through one ``MemoryConfig``; only mnimi reads it
+    and only mnimi pins it."""
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -59,13 +61,17 @@ def build_system(name: str, render_format: str = "text"):
 
         from .systems.naive_rag import NaiveRagSystem
 
-        return NaiveRagSystem(config=MemoryConfig(render_format=render_format))
+        return NaiveRagSystem(
+            config=MemoryConfig(render_format=render_format, dedup_scope=dedup_scope)
+        )
     if name == "mnimi":
         from mnimi import MemoryConfig
 
         from .systems.mnimi import MnimiSystem
 
-        return MnimiSystem(config=MemoryConfig(render_format=render_format))
+        return MnimiSystem(
+            config=MemoryConfig(render_format=render_format, dedup_scope=dedup_scope)
+        )
     raise SystemExit(f"unknown system: {name}")
 
 
@@ -215,6 +221,8 @@ def _resume_extras(args) -> str:
     extras = []
     if args.render_format != "text":
         extras.append(f"--render-format {args.render_format}")
+    if args.dedup_scope != "store":
+        extras.append(f"--dedup-scope {args.dedup_scope}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -356,6 +364,15 @@ def main(argv: list[str] | None = None) -> int:
         "with the first divergent byte of each row, and write drift.json beside "
         "the fresh predictions. The count is the Tier 2 statement. "
         "`python -m evals.drift A B` does the same for two existing artifacts.",
+    )
+    parser.add_argument(
+        "--dedup-scope",
+        default="store",
+        choices=["store", "session"],
+        help="mnimi's cosine dedup scope (MemoryConfig.dedup_scope): 'store' drops "
+        "an incoming round whose nearest stored neighbour clears the threshold "
+        "(v1 as shipped); 'session' only when that neighbour carries the same "
+        "session timestamp. Pinned (schema /7). R3, DECISIONS 2026-09-12.",
     )
     parser.add_argument(
         "--render-format",
@@ -590,7 +607,9 @@ def main(argv: list[str] | None = None) -> int:
         # actually run — a retrieving system contributes its own pins below.
         # It also means a missing [embed] extra fails here, before the header,
         # rather than after it.
-        system = build_system(args.system, render_format=args.render_format)
+        system = build_system(
+            args.system, render_format=args.render_format, dedup_scope=args.dedup_scope
+        )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
             dataset_sha256=file_sha256(dataset_path),

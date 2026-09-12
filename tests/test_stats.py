@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from evals.stats import (
     HARNESS_PARITY_FIELDS,
+    _format,
     analyse,
     assert_harness_parity,
     discordance,
@@ -184,3 +185,21 @@ def test_pairing_refuses_across_reader_transports():
         assert_harness_parity(identities)
     assert "ollama" in str(excinfo.value) and "openai" in str(excinfo.value)
 
+
+
+def test_two_arms_of_one_system_pair_as_a_variant_pair():
+    """Phase 1 protocol: a baseline and a variant of one pinned knob, run at
+    one commit, are named by run dir and paired on their own; the primary and
+    secondary tables skip a system that appears twice."""
+    arms = {
+        "mnimi@base": {"q1": True, "q2": False, "q3": False, "q4": True},
+        "mnimi@variant": {"q1": True, "q2": True, "q3": True, "q4": False},
+        "naive_rag": {"q1": True, "q2": True, "q3": False, "q4": False},
+    }
+    report = analyse(arms)
+    (label, entry), = report["variants"].items()
+    assert label == "mnimi@variant vs mnimi@base"
+    assert (entry["result"].b, entry["result"].c) == (2, 1), "b counts the variant's wins"
+    assert report["primary"] is None and report["secondary"] == {}
+    text = _format(report)
+    assert "variant pair" in text and "mnimi@variant vs mnimi@base" in text

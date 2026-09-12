@@ -61,6 +61,7 @@ class MnimiSystem(MemorySystem):
             "embed_template_hash": embed_template_hash(),
             "k": self._config.top_k,
             "dedup_cosine_threshold": self._config.dedup_cosine_threshold,
+            "dedup_scope": self._config.dedup_scope,
         }
 
     def reset(self) -> None:

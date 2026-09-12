@@ -23,6 +23,10 @@ _PUNCT_RE = re.compile(r"[^\w\s]")
 
 _DEFAULT_CONFIG = MemoryConfig()
 
+DEDUP_SCOPE_STORE = "store"
+DEDUP_SCOPE_SESSION = "session"
+DEDUP_SCOPES = (DEDUP_SCOPE_STORE, DEDUP_SCOPE_SESSION)
+
 # ---------------------------------------------------------------------------
 # The embed/render split.
 #
@@ -177,6 +181,10 @@ class Memory:
     ) -> None:
         self.embedder = embedder
         self.config = config
+        if config.dedup_scope not in DEDUP_SCOPES:
+            raise ValueError(
+                f"unknown dedup_scope {config.dedup_scope!r}; expected one of {DEDUP_SCOPES}"
+            )
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -208,7 +216,11 @@ class Memory:
             if normalized in seen:
                 continue
             hits = self.store.search(embedding, user_id=user_id, k=1)
-            if hits and hits[0][1] >= self.config.dedup_cosine_threshold:
+            if (
+                hits
+                and hits[0][1] >= self.config.dedup_cosine_threshold
+                and self._in_dedup_scope(hits[0][0], round_)
+            ):
                 continue
             self.store.insert(
                 MemoryRecord(
@@ -221,6 +233,17 @@ class Memory:
                 )
             )
             seen.add(normalized)
+
+    def _in_dedup_scope(self, neighbour: MemoryRecord, round_: Round) -> bool:
+        """Whether a neighbour at or above the threshold counts as a duplicate.
+
+        ``store`` scope: always. ``session`` scope: only when the neighbour
+        carries the round's own ``ts`` — the library has no session id, and
+        the session timestamp is the one clock every record carries.
+        """
+        if self.config.dedup_scope == DEDUP_SCOPE_STORE:
+            return True
+        return neighbour.created_at == round_.ts
 
     def _query_embedding(self, query: str) -> list[float]:
         """The vector a query is searched with.

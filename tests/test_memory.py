@@ -439,3 +439,34 @@ def test_get_context_reads_render_format_from_config(tmp_path):
     as_text = Memory(str(tmp_path / "t.db"), HashingEmbedder(), MemoryConfig())
     as_text.add(messages, user_id="u")
     assert as_text.get_context("cook", "u").startswith("[Session date: 2023/05/20")
+
+
+# -- dedup scope (R3, 2026-09-12) ------------------------------------------------
+
+
+def test_dedup_scope_session_keeps_cross_session_near_duplicates(tmp_path):
+    # Under HashingEmbedder with the date fold in the embed text: same-date
+    # cosine 0.973, cross-date 0.865 (measured), so 0.85 brackets both.
+    a = "every saturday morning I hike the coastal trail with my dog before work"
+    b = a + " again"
+
+    store_scope = Memory(
+        str(tmp_path / "s.db"), HashingEmbedder(),
+        MemoryConfig(dedup_cosine_threshold=0.85, dedup_scope="store"),
+    )
+    store_scope.add([_message(a, ts="2023-05-20")], user_id="u")
+    store_scope.add([_message(b, ts="2023-06-01")], user_id="u")
+    assert store_scope.store.count("u") == 1, "store scope: cross-session near-duplicate dropped"
+
+    session_scope = Memory(
+        str(tmp_path / "t.db"), HashingEmbedder(),
+        MemoryConfig(dedup_cosine_threshold=0.85, dedup_scope="session"),
+    )
+    session_scope.add([_message(a, ts="2023-05-20")], user_id="u")
+    session_scope.add([_message(b, ts="2023-06-01")], user_id="u")
+    assert session_scope.store.count("u") == 2, "session scope: another session is a repeat, kept"
+    session_scope.add([_message(b + " really", ts="2023-06-01")], user_id="u")
+    assert session_scope.store.count("u") == 2, "same session: still a duplicate, dropped"
+
+    with pytest.raises(ValueError, match="dedup_scope"):
+        Memory(str(tmp_path / "x.db"), HashingEmbedder(), MemoryConfig(dedup_scope="user"))

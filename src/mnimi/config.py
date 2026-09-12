@@ -26,6 +26,20 @@ class MemoryConfig:
     top_k: int = 10
     """How many records ``recall`` retrieves."""
 
+    dedup_scope: str = "store"
+    """Where the cosine dedup screen looks for a duplicate.
+
+    ``"store"``: any earlier record of the user (v1 as shipped). ``"session"``:
+    only a record carrying the same ``ts`` — a near-duplicate from another
+    session is a repeat or an update, and the date it carries is information
+    the reader needs. R3 (2026-09-12): on the gpt-4o family three of the six
+    rows naive_rag won were rows where the store-scope screen had dropped an
+    annotated evidence round. The exact-normalize collapse is unaffected by
+    the scope (its key already folds the session date in). The extraction era
+    revisits this with ``valid_time``: a cross-session duplicate becomes a
+    supersede, not a drop.
+    """
+
     render_format: str = "text"
     """How ``get_context`` frames the recalled turns for a reader.
 

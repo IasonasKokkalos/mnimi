@@ -330,12 +330,30 @@ def analyse(
     """
     if identities is not None:
         assert_harness_parity({name: identities[name] for name in arms})
-    report: dict = {"arms": {}, "primary": None, "secondary": {}}
+    report: dict = {"arms": {}, "primary": None, "secondary": {}, "variants": {}}
     for name, verdicts in sorted(arms.items()):
         report["arms"][name] = wilson(sum(verdicts.values()), len(verdicts), alpha)
 
-    if all(name in arms for name in PRIMARY):
-        first, second = PRIMARY
+    # Two arms of ONE system (``mnimi@<run dir>`` twice: a baseline and a
+    # variant of a pinned knob, run at one commit) are a pre-registered pair
+    # of their own — the Phase 1 protocol (DECISIONS 2026-09-12). They are
+    # reported uncorrected, like the primary, and a system with two arms is
+    # ambiguous for the primary/secondary tables, so those skip it.
+    by_system: dict[str, list[str]] = {}
+    for name in arms:
+        by_system.setdefault(name.split("@", 1)[0], []).append(name)
+    for _system, names in sorted(by_system.items()):
+        if len(names) == 2:
+            first, second = names
+            b, c, n = discordance(arms[first], arms[second])
+            report["variants"][f"{second} vs {first}"] = {
+                "result": mcnemar_exact(c, b, n),  # b = the second (variant) arm's wins
+                "correction": "none (variant pair)",
+            }
+    single = {system: names[0] for system, names in by_system.items() if len(names) == 1}
+
+    if all(system in single for system in PRIMARY):
+        first, second = (single[s] for s in PRIMARY)
         b, c, n = discordance(arms[first], arms[second])
         report["primary"] = {
             "comparison": f"{first} vs {second}",
@@ -344,8 +362,9 @@ def analyse(
         }
 
     raw = {}
-    for first, second in SECONDARY:
-        if first in arms and second in arms:
+    for first_sys, second_sys in SECONDARY:
+        if first_sys in single and second_sys in single:
+            first, second = single[first_sys], single[second_sys]
             b, c, n = discordance(arms[first], arms[second])
             raw[f"{first} vs {second}"] = mcnemar_exact(b, c, n)
     adjusted = holm({label: r.p_value for label, r in raw.items()})
@@ -370,6 +389,15 @@ def _format(report: dict) -> str:
     for name, ci in report["arms"].items():
         lines.append(f"  {name:<20} {ci.as_percent():<26} ({ci.successes}/{ci.n})")
 
+    if report.get("variants"):
+        title = "variant pair (pre-registered, uncorrected; b = the variant's wins)"
+        lines += ["", title, "-" * len(title)]
+        for label, entry in report["variants"].items():
+            r = entry["result"]
+            lines.append(
+                f"  {label:<40} b={r.b} c={r.c} discordant={r.discordant} "
+                f"n={r.n_pairs}  p={r.p_value:.4f}"
+            )
     primary = report.get("primary")
     if primary:
         r = primary["result"]
@@ -397,10 +425,14 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         print("usage: python -m evals.stats <run_dir> [<run_dir> ...]", file=sys.stderr)
         return 2
+    payloads = {d: json.loads((Path(d) / "results.json").read_text(encoding="utf-8")) for d in argv}
+    systems = [p["pins"]["system"] for p in payloads.values()]
     arms, identities = {}, {}
-    for directory in argv:
-        payload = json.loads((Path(directory) / "results.json").read_text(encoding="utf-8"))
-        name = payload["pins"]["system"]
+    for directory, payload in payloads.items():
+        system = payload["pins"]["system"]
+        # Two run dirs of one system: name each by its directory so both arms
+        # survive and pair as a variant pair (see analyse).
+        name = f"{system}@{Path(directory).name}" if systems.count(system) > 1 else system
         arms[name] = {row["question_id"]: bool(row["correct"]) for row in payload["results"]}
         identities[name] = harness_identity(payload)
     print(_format(analyse(arms, identities=identities)))

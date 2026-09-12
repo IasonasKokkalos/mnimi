@@ -85,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/6"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/7"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -344,7 +344,7 @@ class TestOpenAITransportCli:
 
         assert rc == 0, capsys.readouterr().err
         pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
-        assert pins["artifact_schema"] == "mnimi-eval-artifact/6"
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/7"
         assert pins["reader_transport"] == "openai"
         assert pins["reader_model"] == "gpt-4o-2024-08-06"
         assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
@@ -1225,3 +1225,21 @@ def test_render_format_moves_the_pins_hash_through_the_template_hash():
     from evals.stats import HARNESS_PARITY_FIELDS
 
     assert "render_template_hash" in HARNESS_PARITY_FIELDS
+
+
+# -- dedup_scope (R3, schema /7, 2026-09-12) ------------------------------------
+
+
+def test_dedup_scope_moves_the_pins_hash():
+    baseline = artifacts.pins_hash(_pins(dedup_scope="store"))
+    assert artifacts.pins_hash(_pins(dedup_scope="session")) != baseline
+    assert _pins()["dedup_scope"] is None, "declared by mnimi only"
+    from evals.__main__ import build_system
+    from evals.systems.mnimi import MnimiSystem
+
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+
+    assert build_system("no_memory", dedup_scope="session").retrieval_pins() == {}
+    arm = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(dedup_scope="session"))
+    assert arm.retrieval_pins()["dedup_scope"] == "session"
