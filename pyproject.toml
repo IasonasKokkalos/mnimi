@@ -66,6 +66,18 @@ eval = [
     "openai>=1.50",
     "python-dotenv>=1.0",
 ]
+# The write-time extractor (SPEC §Extraction; PHASE2 D7). Optional so the core
+# stays sqlite-vec + numpy: without it the library runs the v1 write path and
+# makes no fact records. llama-cpp-python is pinned EXACTLY: it vendors one
+# llama.cpp commit, and llama.cpp logits are not bit-identical across builds,
+# so the version string is part of `extractor_runtime` in memory_meta and in
+# the pins. Built from source with CUDA 13.2 on the run machine — the recipe
+# and the measured throughput are in docs/DECISIONS.md "Extractor runtime".
+# huggingface-hub only downloads the revision-pinned GGUF bytes.
+extract = [
+    "llama-cpp-python==0.3.35",
+    "huggingface-hub>=0.25",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
@@ -90,6 +102,7 @@ select = ["E", "F", "I", "UP", "B"]
 testpaths = ["tests"]
 markers = [
     "bge: needs the [embed] extra and a ~130MB model download; skipped in CI",
+    "extract: needs the [extract] extra, a 1.8GB model download and a GPU; skipped in CI",
 ]
 # Put the repo root on sys.path so tests can import the top-level `evals` package
 # (the library lives under src/ and is installed editable; evals is run in place).
