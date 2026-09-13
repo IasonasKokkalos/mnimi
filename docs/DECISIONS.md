@@ -1973,3 +1973,33 @@ the facts are additional keys.
 four versions were judged on the metrics above and on the hand reading of
 the forty rounds. Gate 4-i (Task 7) is the first time the prompt meets the
 slice.
+
+## Byte-stability read: 50/50 across a shuffled restart; the corpus pass starts (2026-09-13, 16:45)
+
+**Gate 2.2 (PHASE2 Task 3 Step 6):** `python -m evals.probes.extractor_bench
+--rounds 50 --stability` — the 50 length-stratified rounds of the slice
+extracted twice, each time in a fresh process (a fresh model load, a cold
+CUDA graph cache), once in order and once shuffled (seed 1), under the frozen
+prompt (`41c8ea2c3bb4…`) and the pinned decode (`ba1a81ab349d…`):
+**50/50 raw outputs byte-identical.** A round's output depends on neither the
+round before it (cold prefill, one sequence) nor its position — which is
+what the cache key `sha256(turns)` assumes and what SPEC's "byte-stable
+output across two runs" criterion asks. Determinism at `n_gpu_layers=99` is
+therefore measured for this extractor too, as it was for the reader; the
+CPU-only pin stays a disclosed deviation, not a fallback in use.
+
+**Cost re-measured under the frozen prompt.** The same 50 rounds: mean
+3.36 s and 3.14 s per round in the two passes (p50 2.7, p90 6.8–7.5),
+prompt tokens mean 1,588 (the v4 instruction and its four examples are
+~560 tokens longer than the draft), completion tokens mean 202, facts per
+round 2.12, `[]` on 16 %, 0 outputs at the token budget, 0 inputs at the
+cap — **projected 21.6–23.1 h** for the 24,747 rounds, inside gate 2.1's
+24 h with less room than the draft's 18.7 h. Accepted: the prompt bought
+user-fact recall and dates (DECISIONS "Extractor prompt frozen"), and the
+pass runs once into the cache.
+
+**The corpus pass (Task 7 = gate 4-i) started 2026-09-13 16:45**, detached
+from the session: `python -m evals.probes.retrieval --system mnimi
+--extractor qwen3 --limit 100 --out runs/probe_mnimi_extract.json` at
+commit `e1805e5`, cache `.cache/extract/<pins hash>.sqlite`. Its reading
+is the next entry.
