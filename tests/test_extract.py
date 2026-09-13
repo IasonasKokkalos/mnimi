@@ -15,3 +15,73 @@ def test_importing_mnimi_extract_never_imports_llama_cpp():
         "assert 'huggingface_hub' not in sys.modules, 'huggingface_hub imported eagerly'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# --- Task 3: protocol, schema + grammar, prompt, the model-free RuleExtractor ---
+
+from mnimi.extract import fake, prompt, protocol, schema  # noqa: E402
+
+
+def test_schema_field_order_is_prose_first_and_locked():
+    # CHANGELOG #12: free prose (content, raw) before the constrained slots;
+    # `when` (a verbatim time mention) sits between them (PHASE2 D8).
+    assert schema.field_order() == [
+        "content", "raw", "when", "subject", "predicate", "object", "salience"
+    ]
+    props = schema.FACT_SCHEMA["items"]["properties"]
+    assert list(props) == schema.field_order()
+    assert schema.FACT_SCHEMA["items"]["required"] == schema.field_order()
+    assert props["salience"]["enum"] == [0.25, 0.5, 1.0]
+    assert schema.FACT_SCHEMA["maxItems"] == 8
+    assert props["content"]["maxLength"] == 300 and props["raw"]["maxLength"] == 300
+
+
+def test_parse_output_treats_truncation_as_empty_and_flags_it():
+    ok, truncated = schema.parse_output(
+        '[{"content":"The user owns a cat.","raw":"user: I have a cat","when":null,'
+        '"subject":"user","predicate":"owns","object":"cat","salience":1.0}]'
+    )
+    assert not truncated
+    assert ok[0].content == "The user owns a cat." and ok[0].object == "cat"
+    assert ok[0].when is None and ok[0].salience == 1.0
+    facts, truncated = schema.parse_output('[{"content":"The user owns a cat.","raw":"user: I')
+    assert facts == [] and truncated
+    assert schema.parse_output("[]") == ([], False)
+    # Structurally valid JSON that is not the contract is a bad parse, not a crash.
+    assert schema.parse_output('{"content": "x"}') == ([], True)
+
+
+def test_prompt_is_a_literal_with_thinking_disabled_and_a_stable_hash():
+    text = prompt.build_prompt([{"role": "user", "content": "I moved to Athens."},
+                                {"role": "assistant", "content": "Noted."}])
+    assert text.endswith("<|im_start|>assistant\n<think>\n\n</think>\n\n")
+    assert "user: I moved to Athens.\nassistant: Noted." in text
+    assert text.startswith("<|im_start|>system\n")
+    assert prompt.extractor_prompt_hash("root ::= x") == prompt.extractor_prompt_hash("root ::= x")
+    assert prompt.extractor_prompt_hash("root ::= x") != prompt.extractor_prompt_hash("root ::= y")
+    assert prompt.INPUT_CAP_TOKENS == 1536
+
+
+def test_rule_extractor_is_deterministic_and_declares_fake_pins():
+    turns = [{"role": "user", "content": "Yesterday I adopted a cat named Miso. Any tips?"},
+             {"role": "assistant", "content": "Congratulations!"}]
+    a, b = fake.RuleExtractor().extract(turns), fake.RuleExtractor().extract(turns)
+    assert a == b and len(a.facts) == 1 and a.truncated is False
+    assert a.facts[0].raw.startswith("user: ") and a.facts[0].when == "Yesterday"
+    assert a.facts[0].content.startswith("The user ")
+    pins = fake.RuleExtractor().pins
+    assert pins["extractor_model"] == "fake-rule"
+    assert set(pins) == {
+        "extractor_model", "extractor_quant", "extractor_runtime",
+        "extractor_decode_hash", "extractor_prompt_hash",
+    }
+    assert protocol.extractor_pins_hash(pins) == protocol.extractor_pins_hash(dict(pins))
+    assert isinstance(fake.RuleExtractor(), protocol.Extractor)
+
+
+def test_counting_extractor_counts_and_delegates():
+    inner = fake.CountingExtractor(fake.RuleExtractor())
+    turns = [{"role": "user", "content": "I run every morning."}]
+    assert inner.extract(turns) == fake.RuleExtractor().extract(turns)
+    inner.extract(turns)
+    assert inner.calls == 2 and inner.pins == fake.RuleExtractor().pins
