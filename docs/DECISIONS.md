@@ -1586,3 +1586,18 @@ Rule: adopt iff b >= c on the variant pair; the mnimi-variant vs
 naive_rag-variant pair is the primary re-measured under this configuration
 (still a pre-registered null at v1). The line above was written by the gate
 script from the probe files before submission.
+
+## R6 pre-registered after the R4+R5 sitting (2026-09-13, automated)
+
+R4+R5 variant pair: b=5, c=3 — **adopted** by the rule
+(scores: baseline 79, variant 81, naive_rag under the
+variant 82). The era's configuration for R6 is therefore
+`--query-instruction bge`.
+
+Probe reading for that configuration, off its k=50 search: ANY@10 91
+→ ANY@20 92; ALL@10 77 → ALL@20 86 (of 95).
+Sitting: two mnimi arms at one clean commit, `--top-k 10` and `--top-k 20`,
+both with the flags above. Rule: k=20 is adopted only if b > c on the variant
+pair (and it may not worsen mnimi vs naive_rag, read at the next naive_rag
+re-run); otherwise k=10 stays. No other k is ever run. Written by the gate
+script before submission.
