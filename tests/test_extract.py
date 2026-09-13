@@ -124,3 +124,69 @@ def test_cache_path_is_one_file_per_extractor_configuration(tmp_path, monkeypatc
     a = default_cache_path(fake.RuleExtractor().pins)
     b = default_cache_path({**fake.RuleExtractor().pins, "extractor_prompt_hash": "other"})
     assert a != b and a.parent == tmp_path / ".cache" / "extract" and a.suffix == ".sqlite"
+
+
+# --- Task 5: the stage-1 pre-filter ---
+
+from mnimi.extract import prefilter  # noqa: E402
+
+
+def test_prefilter_keeps_question_with_aside_and_drops_only_slotless_turns():
+    aside = {
+        "role": "user",
+        "content": "Can you suggest some tips? By the way, I've been doing guided breathing "
+        "sessions with my Fitbit.",
+    }
+    assert prefilter.decide(aside) is None, "a question with an aside is evidence, never dropped"
+    assert prefilter.decide({"role": "user", "content": "Thanks, that helps!"}) == "ack-only"
+    assert prefilter.decide({"role": "user", "content": "Hi there!"}) == "greeting-only"
+    assert (
+        prefilter.decide(
+            {
+                "role": "assistant",
+                "content": "You're welcome! Let me know if there's anything else I can help with.",
+            }
+        )
+        == "assistant-boilerplate"
+    )
+    assert prefilter.decide({"role": "user", "content": "Remember that."}) in {
+        "memory-self-reference",
+        "imperative-to-assistant",
+    }
+    # Questions are never slotless: a bare question costs one model call at most.
+    question = {"role": "user", "content": "Can you explain how transformers work?"}
+    assert prefilter.decide(question) is None
+    assert prefilter.decide({"role": "user", "content": "so what do you think"}) is None
+    assert prefilter.decide({"role": "user", "content": "ok cool"}) == "ack-only"
+    slotless = {"role": "user", "content": "not really sure about any of those"}
+    assert prefilter.decide(slotless) == "no-candidate-slot"
+    imperative = {"role": "user", "content": "Explain that again."}
+    assert prefilter.decide(imperative) == "imperative-to-assistant"
+    assert prefilter.decide({"role": "user", "content": "I moved to Athens."}) is None
+    assert prefilter.decide({"role": "user", "content": "Miso is my cat."}) is None
+    # A long assistant answer is never boilerplate, whatever it opens with.
+    long_answer = "You're welcome! " + "Here is a detailed plan with many specifics. " * 20
+    assert prefilter.decide({"role": "assistant", "content": long_answer}) is None
+    keep, dropped = prefilter.keep_round(
+        [{"role": "user", "content": "Thanks!"}, {"role": "assistant", "content": "Anytime!"}]
+    )
+    assert keep is False and len(dropped) == 2
+    keep, dropped = prefilter.keep_round([aside, {"role": "assistant", "content": "Anytime!"}])
+    assert keep is True and dropped == ["assistant-boilerplate"]
+
+
+def test_prefilter_hash_moves_with_the_lexicon(monkeypatch):
+    before = prefilter.prefilter_lexicon_hash()
+    monkeypatch.setattr(
+        prefilter, "LEXICON", {**prefilter.LEXICON, "ack": (*prefilter.LEXICON["ack"], "ta")}
+    )
+    assert prefilter.prefilter_lexicon_hash() != before
+    assert len(before) == 64
+
+
+def test_prefilter_logs_the_rule(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="mnimi.extract"):
+        prefilter.keep_round([{"role": "user", "content": "Thanks!"}])
+    assert "filtered: ack-only" in caplog.text
