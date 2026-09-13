@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         "--dedup-threshold", type=float, default=MemoryConfig().dedup_cosine_threshold
     )
     parser.add_argument("--dedup-scope", choices=["store", "session"], default=None)
-    parser.add_argument("--query-instruction", default="", help="'' | bge | a literal")
+    parser.add_argument("--query-instruction", default=None, help="bge | '' | a literal")
     parser.add_argument("--chunk-tokens", type=int, default=0)
     parser.add_argument("--chunk-overlap", type=int, default=64)
     args = parser.parse_args(argv)
@@ -272,12 +272,13 @@ def main(argv: list[str] | None = None) -> int:
         instruction = BGE_QUERY_INSTRUCTION
     knobs = dict(
         dedup_cosine_threshold=args.dedup_threshold,
-        query_instruction=instruction,
         chunk_tokens=args.chunk_tokens,
         chunk_overlap=args.chunk_overlap,
     )
     if args.dedup_scope is not None:
         knobs["dedup_scope"] = args.dedup_scope
+    if instruction is not None:
+        knobs["query_instruction"] = instruction
     config = MemoryConfig(**knobs)
     run(args.system, args.limit, Path(args.out), config)
     return 0

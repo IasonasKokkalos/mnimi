@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .embeddings import BGE_QUERY_INSTRUCTION
+
 
 @dataclass(frozen=True)
 class MemoryConfig:
@@ -43,14 +45,16 @@ class MemoryConfig:
     duplicate becomes a supersede, not a drop.
     """
 
-    query_instruction: str = ""
+    query_instruction: str = BGE_QUERY_INSTRUCTION
     """Text prepended to every query before it is embedded; never to stored text.
 
-    ``""`` (v1 as shipped) embeds the bare question. The BGE v1.5 model card's
-    retrieval instruction is ``mnimi.embeddings.BGE_QUERY_INSTRUCTION``
-    (R5, 2026-09-12; 09-08_analysis §B11 found it absent). Query side only:
-    stored vectors, the dedup key and ``memory_meta`` do not move, so it is a
-    harness pin (``query_instruction``) and not a store guard.
+    The default is the BGE v1.5 model card's retrieval instruction (R5,
+    adopted 2026-09-13: on the gpt-4o family 81 against 79 for the same
+    commit's bare-question arm, b=5, c=3; probe: recall equal at k=10, better
+    at k=20/50). ``""`` embeds the bare question — v1 as first shipped and the
+    published local-family configuration. Query side only: stored vectors,
+    the dedup key and ``memory_meta`` do not move, so it is a harness pin
+    (``query_instruction``) and not a store guard.
     """
 
     chunk_tokens: int = 0

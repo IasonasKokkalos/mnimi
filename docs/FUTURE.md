@@ -27,7 +27,12 @@ Legend:
   dense retrieval misses. BM25-alone measured well below dense on LongMemEval
   (Table 9); the hybrid's effect is unmeasured. **[SPEC-deferred: §Deferred /
   Unvalidated, lines 926-931]** · **[trigger]** W3 error analysis shows
-  exact-term retrieval misses.
+  exact-term retrieval misses. **Trigger met at the margin 2026-09-13**
+  (Phase 1 error analysis: 3 of 4 retrieval misses carry the question's
+  words verbatim in an evidence round ranked 15–36, all long multi-topic
+  rounds) — ceiling 4 rows at n=100 against 14 reading misses, so not built;
+  re-read after the extraction era's error analysis, which changes the
+  embedded unit. `docs/DECISIONS.md` "Phase 1 error analysis".
 
 * **In-process cross-encoder reranker.** Runs *after* the cosine KNN narrows
   candidates — a reranker over the top-k, never a replacement for the
@@ -36,7 +41,9 @@ Legend:
   (int8 ≈ 571 MB disk / ~650 MB RSS, lazy-loaded). Cost: a second model
   download in the install story. **[SPEC-deferred: §Deferred / Unvalidated,
   lines 932-936]** · **[FUTURE-origin: cross-encoder note]** · **[trigger]** W3
-  shows retrieval-*ordering* failures (not recall failures).
+  shows retrieval-*ordering* failures (not recall failures). **Not indicated
+  2026-09-13:** every reading miss on the gpt-4o family already has its
+  evidence inside the top-10 (Phase 1 error analysis).
 
 * **Time-aware query expansion.** +6.8–11.3% temporal-reasoning recall in the
   paper (Table 4) — but only with a strong LLM extracting time ranges; weak

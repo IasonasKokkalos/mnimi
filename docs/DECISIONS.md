@@ -1601,3 +1601,117 @@ both with the flags above. Rule: k=20 is adopted only if b > c on the variant
 pair (and it may not worsen mnimi vs naive_rag, read at the next naive_rag
 re-run); otherwise k=10 stays. No other k is ever run. Written by the gate
 script before submission.
+
+## R5 read: the query instruction is on; R4 stays off (2026-09-13, 04:00)
+
+**R4 at the probe, under the corrected `k`:** ANY@10 89/95, ALL@10 75/95
+against the R3 baseline's 91 / 77 (gate: 80 / 91) — rejected without an API
+call. Counting `k` over rounds removed the crowding (86 → 89) but chunking
+still loses two evidence rounds at k=10: windows of long, irrelevant rounds
+compete with whole evidence rounds, and the per-window cosine screen drops
+more (840 vs 536). The knob stays in the library at `chunk_tokens=0`; the
+long-round problem (42% of rounds clipped) is real and still open, and the
+extraction era changes the embedded unit anyway — R4 is re-examined there,
+not tuned here.
+
+**The sitting** (three arms at `b666729`, `provisional: []`; the automated
+gate admitted R5 alone):
+
+| arm | score | Wilson 95% | fed tokens |
+| --- | --- | --- | --- |
+| `mnimi__100q_gpt4o_r45base` (session scope, bare question) | 79/100 | [70.0, 85.8] | 4,546 |
+| `mnimi__100q_gpt4o_r45` (+ BGE query instruction) | 81/100 | [72.2, 87.5] | 4,515 |
+| `naive_rag__100q_gpt4o_r45` (+ BGE query instruction) | 82/100 | [73.3, 88.3] | 4,534 |
+
+Variant pair b=5, c=3, p=0.73 — **adopted**: `MemoryConfig.query_instruction`
+defaults to `BGE_QUERY_INSTRUCTION` from this commit; the harness and probe
+flags default to the library's value. Wins `852ce960`, `b5ef892d`,
+`09ba9854`, `38146c39`, `8077ef71`; losses `b46e15ed`, `7405e8b1`,
+`6f9b354f` — inside the family's drift, no claim on any row; the probe's
+deterministic reading (equal at k=10, better at k=20/50, 13 up / 11 down on
+the best evidence rank) is the evidence, the sitting says it did not lose.
+
+**The primary, re-measured under the adopted configuration:** mnimi 81 vs
+naive_rag 82, **b=2, c=3**, p=1.0 — the pre-registered null, and no longer
+leaning: the published sitting read 1 / 6 on the same rows. naive_rag-only
+rows: `67e0d0f2` (the within-session loss R3 could not touch), `a9f6b44c`,
+`7405e8b1`; mnimi-only: `b5ef892d`, `09ba9854`. v1's write side now costs
+nothing measurable against verbatim storage on this benchmark, which is the
+most it can claim before extraction.
+
+**Drift, third reading:** the baseline arm vs the published R3 arm — 65/100
+changed at the byte level, 0 prompt-token changes, score 79 → 79.
+
+## R6 read: k stays 10 (2026-09-13, 04:00)
+
+Two mnimi arms at `0dcf09f` (session scope + BGE instruction), the one
+pre-registered alternative:
+
+| arm | score | Wilson 95% | fed tokens |
+| --- | --- | --- | --- |
+| `mnimi__100q_gpt4o_k10` | 82/100 | [73.3, 88.3] | 4,515 |
+| `mnimi__100q_gpt4o_k20` | 81/100 | [72.2, 87.5] | 8,819 |
+
+Variant pair **b=6, c=7**, p=1.0 — rule: adopt only if b > c — **k=10 stays**.
+Probe reading for this configuration: ANY@10 91 → ANY@20 92, ALL@10 77 →
+ALL@20 86 of 95 — nine more questions have all their evidence in context
+at k=20, and the reader converts none of that into score while reading
+twice the tokens. Consistent with the paper's Table 3 for capable readers
+(top-10 ≈ top-20) and the end of the `k` question for this era: no other
+value is ever run. The k=10 arm is a fourth drift reading against the R5
+variant arm: 61/100 changed, 0 prompt-token changes, 81 → 82.
+
+## Phase 1 error analysis: R7 at the margin, R8 does not fire (2026-09-13)
+
+`python -m evals.probes.misses runs/probe_mnimi_r5.json
+results/published/mnimi__100q_gpt4o_k10/results.json --oracle … --naive …`
+on the era's final configuration (session scope, BGE instruction, k=10;
+82/100):
+
+| | wrong rows | oracle right on them | naive_rag right on them |
+| --- | --- | --- | --- |
+| retrieval-miss (no evidence round in the top-10) | 4 | 4 | 0 |
+| reading-miss (evidence in the top-10, still wrong) | 14 | 8 | 1 |
+
+By category: multi-session 0 / 6, temporal-reasoning 2 / 3, single-session-
+preference 1 / 2, knowledge-update 0 / 2, single-session-user 1 / 1
+(retrieval / reading). Six of the fourteen reading misses oracle also gets
+wrong — the reader's own floor on this slice (`35a27287`, `a3838d2b`,
+`3a704032`, `a2f3aa27`, `0a995998`, `09d032c9`).
+
+**R7 (hybrid FTS5) — trigger met at the margin, not built.** Three of the
+four retrieval misses carry the question's own words verbatim in an
+evidence round that ranked 15–36: `af082822` (*nordstrom*, *friends and
+family sale*, rank 28), `6f9b354f` (*repaint*, *bedroom*, *walls*, rank
+15), `b46e15ed` (*charity*, *events*, ranks 25–40). Each evidence turn is
+a long multi-topic round whose dense vector is dominated by other content —
+the same long-round problem R4 was for. The pre-registered trigger was ≥ 3
+exact-term misses; it is met, and the ceiling is four rows at n=100 against
+fourteen reading misses. Ruling: R7 stays deferred, trigger recorded as
+met, to be built only if the extraction era's error analysis shows the same
+shape after facts are the embedded unit (which changes the retrieval
+problem entirely). Cross-encoder rerank: not indicated — every reading miss
+already has its evidence inside the top-10, so ordering is not the failure.
+
+**R8 (bge-base) — does not fire:** retrieval misses (4) do not outnumber
+reading misses (14).
+
+**Where Phase 2 starts.** Fourteen of eighteen misses are reading misses,
+eight of which oracle gets right — i.e. the reader can answer from the
+evidence *sessions* but not from mnimi's ten verbatim rounds. That is the
+extraction thesis in one number: the rounds carry the evidence and the
+reader does not find it in them. multi-session (6 reading misses, 62.5%)
+and temporal-reasoning (3, 70.6%) are where it is lost.
+
+## Phase 1 closes (2026-09-13, v1.8.0)
+
+Adopted: `dedup_scope="session"` (R3), `query_instruction=BGE_QUERY_INSTRUCTION`
+(R5). Rejected: chunking (R4, at the probe), k=20 (R6, at the sitting).
+Instruments: `evals/probes/{retrieval,aggregate,misses}`, `--verify-drift`,
+`Store.search_rounds`, variant pairs in `evals.stats`. **mnimi on the
+gpt-4o family: 75 (v1, 2026-09-12) → 79 (R3) → 81/82 (R5, two sittings);
+naive_rag under the same configuration 82; primary b=2, c=3.** API spend
+for the phase $5.69; programme total $10.75 of $50. Every
+sitting `provisional: []`, one commit per sitting, every artifact in
+`results/published/`. The 85 criterion is read at n=500 in Phase 5, not
+here; at n=100 the adopted configuration's Wilson lower bound is 73.3.

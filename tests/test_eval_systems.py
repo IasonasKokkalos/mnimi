@@ -21,7 +21,7 @@ from evals.systems.no_memory import NoMemorySystem
 from evals.systems.oracle import OracleSystem
 
 from mnimi import MemoryConfig
-from mnimi.embeddings import HashingEmbedder
+from mnimi.embeddings import BGE_QUERY_INSTRUCTION, HashingEmbedder
 
 ALL_SYSTEMS = (NoMemorySystem, FullHistorySystem, OracleSystem, NaiveRagSystem, MnimiSystem)
 
@@ -163,7 +163,7 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
         "embedder_revision": "v1",
         "embed_template_hash": embed_template_hash(),
         "k": 10,
-        "query_instruction": "",  # the query-side knob is shared with mnimi (R5)
+        "query_instruction": BGE_QUERY_INSTRUCTION,  # shared with mnimi; default since R5
         "chunk_tokens": 0,  # and the embedded unit (R4): granularity parity
         "chunk_overlap": 64,
     }

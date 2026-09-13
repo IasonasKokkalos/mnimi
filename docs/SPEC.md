@@ -116,7 +116,7 @@ score.
 
 ---
 
-## v1 as built (v1.7.0, 2026-09-12; library: v1.3.0 @ 658f516 + the JSON render format)
+## v1 as built (v1.8.0, 2026-09-13; library: v1.3.0 @ 658f516 + the JSON render format)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -232,13 +232,19 @@ dataclass, and it keeps ruff's B008 (function call in default argument) quiet.
 Tunable parameters, passed at construction. Never hardcoded in write-path
 logic — every threshold below must read from here.
 
-**v1 as built: two of these nine fields exist** —
-`dedup_cosine_threshold = 0.95` and `top_k = 10` — **plus one this list did
-not foresee, `render_format = "text"`** (v1.6.0: `"text"` or `"json"`, read by
-`get_context`; see §Public API "v1.6.0"). The rest describe stages that are
-not written yet, and `config.py` deliberately carries no field that no code
-reads (a config knob nothing consumes is dead weight that reads as capability).
-They land with the stage that uses them.
+**v1 as built (v1.8.0, Phase 1): two of these nine fields exist** —
+`dedup_cosine_threshold = 0.95` and `top_k = 10` — **plus five this list did
+not foresee**, each a harness flag and a pin: `dedup_scope = "session"`
+(R3, adopted 2026-09-12: the cosine gate only looks at the incoming round's
+own session), `query_instruction = BGE_QUERY_INSTRUCTION` (R5, adopted
+2026-09-13: the BGE model-card retrieval instruction on the query side
+only), `chunk_tokens = 0` / `chunk_overlap = 64` (R4: windowed embedding of
+long rounds, `k` counted over rounds via `Store.search_rounds`; measured
+worse at k=10 on this benchmark and left off), and `render_format = "text"`
+(v1.6.0). The rest describe stages that are not written yet, and `config.py`
+deliberately carries no field that no code reads (a config knob nothing
+consumes is dead weight that reads as capability). They land with the stage
+that uses them.
 
 Starting values — **v1 defaults, all unmeasured guesses to be tuned on W2/W4
 eval evidence, not sacred:**

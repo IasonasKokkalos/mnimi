@@ -173,7 +173,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   gpt-4o family's sitting — `<arm>__100q_gpt4o/` for the four arms at
   `dd73736` clean (`no_memory` 5, `oracle` 90, `naive_rag` 80, `mnimi` 75;
   `full_history` cited at 64.0), the two `_json` presentation-pair arms and
-  `mnimi__100q_gpt4o_drift_2026-09-12`, `provisional: []` throughout.**
+  `mnimi__100q_gpt4o_drift_2026-09-12`, `provisional: []` throughout — and
+  the Phase 1 variant pairs (`*_r3{,base}`, `*_r45{,base}`,
+  `naive_rag__100q_gpt4o_r45`, `*_k10`, `*_k20`): mnimi 79 → 81/82 under
+  session scope + the BGE query instruction, naive_rag 82, primary b=2, c=3.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **A run that cannot be projected cannot spend.** On the API family the
@@ -227,7 +230,9 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   mnimi drift pair, identical `pins_hash`, changed 85/100 predictions at the
   byte level with prompt tokens identical on every row, score 75 → 75, 3 rows
   flipped each way — say "score reproducible within 6/100 flips; text not
-  reproducible", never "byte-identical", of this family. The 2026-07-30 n=20
+  reproducible", never "byte-identical", of this family. Three further
+  readings during Phase 1 (61, 65, 61 of 100 changed; scores within 2)
+  agree. The 2026-07-30 n=20
   four-arm figure (0.32.5) is consistent but superseded — its build is refused
   now. No bit-identity claim across different GPUs, drivers or CUDA versions;
   a different Ollama build is refused, not tolerated. The
@@ -308,7 +313,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
 ```
 
-## Current state vs SPEC (as of v1.7.0; library = v1.3.0 @ 658f516 + the JSON render format)
+## Current state vs SPEC (as of v1.8.0; library = v1.3.0 @ 658f516 + the JSON render format)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -320,9 +325,11 @@ ACTUAL" says why.
 
 - `MemoryConfig` — seven fields: `dedup_cosine_threshold = 0.95`,
   `top_k = 10`, `dedup_scope = "session"` (R3, adopted 2026-09-12 — `"store"`
-  is the published local-family configuration), `query_instruction = ""`
-  (R5), `chunk_tokens = 0` / `chunk_overlap = 64` (R4; `k` counts rounds, not
-  windows — `Store.search_rounds`), `render_format = "text"` (v1.6.0). Every
+  is the published local-family configuration), `query_instruction =
+  BGE_QUERY_INSTRUCTION` (R5, adopted 2026-09-13 — `""` is the local-family
+  configuration), `chunk_tokens = 0` / `chunk_overlap = 64` (R4; `k` counts
+  rounds, not windows — `Store.search_rounds`; measured worse, left off),
+  `render_format = "text"` (v1.6.0). Every
   one is a harness flag and a pin (schema /7); the chunk knobs are also
   `memory_meta` keys. A knob no code reads is not present; the rest land with
   the stage that uses them.

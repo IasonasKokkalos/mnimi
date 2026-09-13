@@ -80,8 +80,8 @@ def format_table(entries: list[dict], k: int, extra: list[str]) -> str:
             f"reading {by_cat[(cat, READING_MISS)]}"
         )
     for e in entries:
-        flags = " ".join(
-            f"{name}={'✓' if e.get(f'{name}_correct') else '✗'}" for name in extra
+        flags = " ".join(  # ASCII: the Windows console is cp1252
+            f"{name}={'right' if e.get(f'{name}_correct') else 'wrong'}" for name in extra
         )
         lines.append(
             f"  {e['question_id']:22s} {e['category']:28s} {e['kind']:15s} "

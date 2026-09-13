@@ -101,13 +101,25 @@ Read it with the caveats attached:
 - Absolute scores carry judge instrument error on top of sampling error; no
   per-category cell is quoted.
 
-**Phase 1 (in progress, same family, same 100 questions).** Each retrieval
-knob is probed for recall first, then measured as a pre-registered pair of
-mnimi arms at one commit. R3, the dedup scope: session scope recovers four
-annotated evidence rounds the store-wide screen had dropped and scored 79
-against 77 for the store-scope arm at the same commit (b=5, c=3, not
-significant, adopted by the pre-registered rule). Details and artifacts in
-[`results/published/`](results/published/) and `docs/DECISIONS.md`.
+**Phase 1 (2026-09-12/13, same family, same 100 questions).** Each retrieval
+knob was probed for recall first (`evals/probes/`, no API), then measured as
+a pre-registered pair of mnimi arms at one commit:
+
+| knob | baseline | variant | b / c | verdict |
+| --- | ---: | ---: | :---: | --- |
+| dedup scope, store → session (R3) | 77 | 79 | 5 / 3 | adopted: 4 dropped evidence rounds recovered |
+| BGE query instruction (R5) | 79 | 81 | 5 / 3 | adopted; naive_rag under it: 82 |
+| chunk long rounds (R4) | — | — | — | rejected at the probe (ANY@10 91 → 89) |
+| `top_k` 10 → 20 (R6) | 82 | 81 | 6 / 7 | k=10 stays; twice the tokens for nothing |
+
+Under the adopted configuration **mnimi reads 81 and 82 in two sittings and
+naive_rag 82; the primary is b=2, c=3** — the v1 write side no longer costs
+anything measurable against verbatim storage, which is all it can claim
+before extraction. Of the 18 remaining misses, 14 are reading misses with
+the evidence inside the top-10 (oracle also fails 6 of them); that is where
+Phase 2 starts. Nothing here is significant at n=100 and nothing is claimed
+to be. Artifacts, provenance and drift readings in
+[`results/published/`](results/published/); the rulings in `docs/DECISIONS.md`.
 
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
@@ -264,7 +276,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.7.0. The block above is the locked contract; what ships today is
+Pre-alpha, v1.8.0. The block above is the locked contract; what ships today is
 narrower. Built: per-round ingestion with an exact-match plus cosine dedup
 screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
 one shared context renderer (two framings, text and JSON, one pinned hash per

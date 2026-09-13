@@ -479,7 +479,9 @@ def test_query_instruction_changes_the_query_vector_not_the_stored_ones(tmp_path
     from mnimi.embeddings import BGE_QUERY_INSTRUCTION
 
     assert BGE_QUERY_INSTRUCTION == "Represent this sentence for searching relevant passages: "
-    plain = Memory(str(tmp_path / "p.db"), HashingEmbedder(), MemoryConfig())
+    # The library default is the BGE instruction since R5; the bare question
+    # is the explicit "" (the published local-family configuration).
+    plain = Memory(str(tmp_path / "p.db"), HashingEmbedder(), MemoryConfig(query_instruction=""))
     prefixed = Memory(
         str(tmp_path / "q.db"), HashingEmbedder(),
         MemoryConfig(query_instruction=BGE_QUERY_INSTRUCTION),

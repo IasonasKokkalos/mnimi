@@ -258,6 +258,9 @@ as a drift reading against the previous published mnimi run.
 | pair | commit | baseline | variant | b / c | verdict |
 | --- | --- | --- | --- | --- | --- |
 | R3 `dedup_scope` store → session (`mnimi__100q_gpt4o_r3base`, `mnimi__100q_gpt4o_r3`) | `b259a4a` | 77/100 | 79/100 | 5 / 3 | adopted (probe: 4 evidence rounds recovered, none lost); baseline drift vs `mnimi__100q_gpt4o`: 61/100 changed, score 75 → 77 |
+| R5 `query_instruction` "" → BGE (`mnimi__100q_gpt4o_r45base`, `mnimi__100q_gpt4o_r45`; `naive_rag__100q_gpt4o_r45` under the same instruction, 82/100) | `b666729` | 79/100 | 81/100 | 5 / 3 | adopted (probe: recall equal at k=10, up at k=20/50); primary re-measured: mnimi 81 vs naive_rag 82, b=2, c=3; baseline drift vs `mnimi__100q_gpt4o_r3`: 65/100 changed, 79 → 79 |
+| R4 chunking (510-token windows) | — | — | — | — | rejected at the probe under round-level `k` (ANY@10 89 vs 91, ALL@10 75 vs 77); no API run |
+| R6 `top_k` 10 → 20 (`mnimi__100q_gpt4o_k10`, `mnimi__100q_gpt4o_k20`) | `0dcf09f` | 82/100 | 81/100 (8,819 fed tokens) | 6 / 7 | k=10 stays; k10 arm drift vs `mnimi__100q_gpt4o_r45`: 61/100 changed, 81 → 82 |
 
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
