@@ -49,6 +49,16 @@ def test_parse_output_treats_truncation_as_empty_and_flags_it():
     assert schema.parse_output("[]") == ([], False)
     # Structurally valid JSON that is not the contract is a bad parse, not a crash.
     assert schema.parse_output('{"content": "x"}') == ([], True)
+    # The runtime's grammar lets a verbatim excerpt carry a real newline inside
+    # the string (measured 2026-09-13 on two of fifty rounds); the parser must
+    # read what the grammar admits.
+    with_newline = (
+        '[{"content":"The assistant listed luaus.","raw":"assistant: 1. **A**\n2. **B**",'
+        '"when":null,"subject":"assistant","predicate":"listed","object":"luaus",'
+        '"salience":0.5}]'
+    )
+    facts, truncated = schema.parse_output(with_newline)
+    assert not truncated and facts[0].raw == "assistant: 1. **A**\n2. **B**"
 
 
 def test_prompt_is_a_literal_with_thinking_disabled_and_a_stable_hash():

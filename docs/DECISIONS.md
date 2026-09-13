@@ -1832,3 +1832,80 @@ mnimi `--extractor qwen3 --render-unit facts`, `naive_rag`. Rules:
 **Budget.** PLAN carried $2.2; this sitting is four arms (≈ $3.3 with
 judges) plus gate 4-ii (≈ $0.25): **≈ $3.7, ≈ $4.7 with one re-run** —
 $39.25 remains, Phase 5 needs $14.25.
+
+## Extractor runtime: llama-cpp-python 0.3.35 with CUDA 13.2, measured (2026-09-13)
+
+**Decision (PLAN 2.1, PHASE2 Task 2):** E2 stands. The extractor runs
+in-process through `llama-cpp-python 0.3.35`, built from source on the run
+machine against CUDA 13.2 (`V13.2.86`, host compiler MSVC 19.50.35729 from
+VS 2026 Build Tools 18, CMake 4 + Ninja from the VS component) with
+`CMAKE_ARGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF"`,
+`FORCE_CMAKE=1`, `CMAKE_GENERATOR=Ninja`, installed with
+`pip install --user --no-cache-dir --no-binary llama-cpp-python llama-cpp-python==0.3.35`
+into the Python 3.14 user site (the run environment). The E1 fallback was
+not needed; the build took 13.5 minutes. The `[extract]` extra pins that
+version; the string `llama-cpp-python 0.3.35; <CMAKE_ARGS>; cuda 13.2` is
+the `extractor_runtime` row of `memory_meta` and of the pins.
+
+**Two Windows facts the recipe depends on.** (1) Long paths are disabled
+on this machine (`LongPathsEnabled=0`) and the sdist nests
+`vendor/llama.cpp` deeply enough that extraction under
+`%LOCALAPPDATA%\Temp\pip-install-*` fails at ~260 characters; the build
+runs with `TMP=TEMP=D:\t` and `SKBUILD_BUILD_DIR=D:\t\b`. (2) CUDA 13 keeps
+its runtime DLLs in `CUDA\v13.2\bin\x64`, and the binding loads `llama.dll`
+with the legacy search order, so that directory must be on `PATH` (the
+toolkit installer adds it to the machine PATH; a shell older than the
+install has to add it by hand — every harness command in this phase is run
+that way). Smoke log lines kept for the record: `ggml_cuda_init: found 1
+CUDA devices`, `load_tensors: offloaded 29/29 layers to GPU`,
+`llama_context: flash_attn = enabled`, `n_batch = 512`, `n_ubatch = 512`.
+
+**The grammar sampler was the cost, and the decode loop is now
+llama-server's.** On one 653-token round: prefill 0.20 s, greedy decode of
+137 tokens without a grammar 2.87 s, and under *any* grammar — the pinned
+schema's 5,964-character GBNF or a 1,074-character one without length
+bounds — 10.3–11.3 s. llama.cpp's grammar sampler evaluates every one of
+Qwen3's 151,936 vocabulary entries against the grammar at every step, ~55 ms
+per token, and the size of the grammar does not matter. `QwenLlamaExtractor`
+therefore decodes the way llama-server does: take the greedy token from the
+raw logits, verify that one candidate against the grammar sampler, and only
+on a rejection rescan the whole vocabulary under the grammar and take the
+best valid token. This picks exactly the token the grammar-then-greedy chain
+picks (the global argmax, when valid, is the valid argmax; otherwise the
+rescan *is* the chain) — checked byte for byte on the smoke round, three
+runs — at 13.5 ms per token. `DECODE` carries
+`grammar_mode = "greedy-verify-rescan"`, so the mechanism is part of the
+decode hash (`ba1a81ab349d…`); the earlier chain-based hash `d25ec146…` was
+never used on the slice.
+
+**Measured cost (Task 2 Step 6, `python -m evals.probes.extractor_bench
+--rounds 50`, 50 rounds of the slice stratified over ten length deciles,
+ids in `runs/extract_bench50.log`):**
+
+| quantity | value |
+| --- | --- |
+| seconds per round p50 / p90 / mean | 2.56 / 5.21 / **2.71** |
+| prompt tokens mean / completion tokens mean | 1,023 / 192 (p50 190, p90 436, max 844) |
+| throughput | 448 tokens/s overall |
+| facts per round | 1.80 (0 facts on 18/50, 2 on 16/50, 8 on 1/50) |
+| outputs that hit `max_tokens` | 0 |
+| inputs cut to the 1,536-token cap | 0 |
+| **projected corpus pass** | **18.7 h** for 24,747 rounds (≈ 18.6 h after the 0.29 % pre-filter skip) — gate 2.1 (≤ 24 h): **PASS** |
+
+**One parser correction found by the bench.** Two of the fifty outputs
+(`06878be2/a67c1862_4/5`, `a2f3aa27/61d3fec4_4/4`) came back as `[]`
+although the model had stopped cleanly at 239 and 229 tokens: their `raw`
+excerpts of multi-line assistant turns carried real newlines, which this
+binding's JSON grammar admits (`char ::= [^"\\] | "\\" (...)` — no
+control-character exclusion) and which `json.loads` in strict mode rejects.
+The grammar defines the language the model emits, so `schema.parse_output`
+now parses with `strict=False`; re-parsed, the fifty outputs are 0/50 bad and
+90 facts. The cache stores bytes, so a hit re-reads through the corrected
+parser without a model call. Not a pin: the prompt and grammar are
+unchanged.
+
+**Deviation from SPEC, restated:** the decode runs with `n_gpu_layers=99`
+(SPEC's pin said CPU-only). The reader precedent holds — deterministic with
+the batch pinned — and the byte-stability run of Task 3 is the evidence for
+this extractor; the CPU path would cost roughly an order of magnitude more
+per round and was not measured.

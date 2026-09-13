@@ -68,7 +68,11 @@ def parse_output(text: str) -> tuple[list[ExtractedFact], bool]:
     holds an output whose reading depends on parser leniency.
     """
     try:
-        payload = json.loads(text)
+        # strict=False: the runtime's JSON grammar (``char ::= [^"\\] | ...``)
+        # admits raw control characters inside strings, and a verbatim ``raw``
+        # excerpt of a multi-line assistant turn carries real newlines. The
+        # grammar defines the language the model emits; the parser reads it.
+        payload = json.loads(text, strict=False)
     except (TypeError, ValueError):
         return [], True
     if not isinstance(payload, list):
