@@ -53,8 +53,19 @@ resolution. Both roles are in extraction scope.
   No library code path reads wall-clock for scoring, decay, recency, or ordering.
 - **Exactly one LLM in the library, at extraction.** Merge / conflict / decay /
   both dedup screens stay deterministic. No LLM on the read path.
-- **Extractor:** Qwen3-1.7B-Instruct GGUF via llama-cpp-python, grammar-constrained,
-  `temperature=0`, `top_k=1`, fixed seed/threads/batch. Local, pinned, never API.
+- **Extractor (built 2026-09-13; opt-in until gate 4-iii adopts it):**
+  `Qwen/Qwen3-1.7B-GGUF` @ `90862c4b9d2787eaed51d12237eafdfe7c5f6077`,
+  `Qwen3-1.7B-Q8_0.gguf` — there is no official "Instruct" repo; the post-trained
+  hybrid runs with thinking off through the template's empty think block — via
+  llama-cpp-python 0.3.35 built with CUDA 13.2, grammar-constrained
+  (greedy-verify-rescan), `temperature=0`, `top_k=1`, `seed=0`, `n_ctx=4096`,
+  `n_batch=512`, `n_threads=8`, `n_gpu_layers=99` (a disclosed deviation from
+  SPEC's CPU pin; 50/50 byte-stable across a shuffled restart), prompt
+  `qwen3-fact-v4` (hash `41c8ea2c3bb4…`), 1,536-token input cap. Local, pinned,
+  never API. Injected as `Memory(..., extractor=...)`; harness flag
+  `--extractor {none,qwen3}`; the model sees each round once (on-disk cache).
+  Every round keeps its v1 record; facts are extra records on the round (D1).
+  The CUDA runtime DLLs live in `CUDA\v13.2\bin\x64`, which must be on PATH.
 - **Embedder:** `BAAI/bge-small-en-v1.5` @ 384-dim, HF revision pinned to
   `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a` (machine-resolved, not
   maintainer-vetted — see SPEC §Embedder as built). Vectors unit-normalized
@@ -69,7 +80,10 @@ resolution. Both roles are in extraction scope.
   v1 (pre-extraction — no `raw` exists yet) = `[Session date: {date}] {text}`,
   role as metadata only, never in the vector (a role prefix drags all
   similarities together and degrades the cosine dedup threshold). Reopens when
-  extraction lands — SPEC CHANGELOG #15.
+  extraction lands — SPEC CHANGELOG #15. **Built 2026-09-13:** fact records
+  embed `FACT_EMBED_TEMPLATE = "${raw}\n${fact}"` (the role-prefixed span, then
+  the fact) under their own `memory_meta` row, `fact_embed_template_hash`; round
+  records keep `EMBED_TEMPLATE` byte for byte, so no v1 vector moved.
 - **Ranking:** `score = (w_sim·relevance + w_rec·recency) · salience`, defaults
   `{similarity: 1.0, recency: 0.0}`. Salience is a multiplier, not a term. No
   `access_count` — inert under the eval protocol.
@@ -133,9 +147,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 - **`memory_meta` guard.** Embedder name/revision/dim, embed-template hash,
   extractor model/quant/runtime/decode-hash/prompt-hash, negation-lexicon hash,
   prefilter-lexicon hash. Written once at DB creation, all checked on load,
-  mismatch raises. (At v1 the four writable keys are all written and all
-  validated; the rest are extraction-era and unwritable because nothing exists
-  to hash.) Editing a lexicon or prompt is a versioned migration plus re-ingest
+  mismatch raises. (Extraction era, 2026-09-13: thirteen rows written and
+  validated — the four embedder rows, the R4 chunk pair, the five extractor rows
+  or the literal `"none"`, `negation_lexicon_hash="none"` until Phase 3,
+  `prefilter_lexicon_hash`, `fact_embed_template_hash`, `resolver_version`; a
+  v1.8 store is refused.) Editing a lexicon or prompt is a versioned migration plus re-ingest
   — never an in-place edit under a run.
 - **Normalize at the boundary.** Any insert path that bypasses `embeddings.py`
   breaks ranking correctness silently.
@@ -311,9 +327,20 @@ python -m evals.drift runs/a__100q runs/b__100q             # N/n changed betwee
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --verify-drift runs/mnimi__100q_gpt4o --run-dir runs/mnimi__100q_gpt4o_drift
 # the presentation pair (DECISIONS 2026-09-12): same arm, the other framing, its own run dir
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json
+# the extraction era (PHASE2, 2026-09-13). CUDA\v13.2\bin\x64 on PATH; the probe on the
+# extraction arm IS the corpus pass (the cache fills as it walks) and gate 4-i's instrument:
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --out runs/probe_mnimi_extract.json
+python -m evals.probes.extractor_bench --rounds 50            # s/round + projected corpus hours
+python -m evals.probes.extractor_bench --rounds 50 --stability  # 2 fresh processes, byte diff
+python -m evals.probes.extractor_bench --dev-set 40           # prompt dev rounds, outside the slice
+python -m evals.probes.prefilter_rate --limit 100             # stage-1 drop rate; false drops = 0
+# the gate 4-iii sitting: four arms at one clean commit, one batch arm in flight at a time
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor none  --render-unit turns       --run-dir runs/mnimi__100q_gpt4o_p2base --verify-drift results/published/mnimi__100q_gpt4o_k10
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --run-dir runs/mnimi__100q_gpt4o_extract
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit facts       --run-dir runs/mnimi__100q_gpt4o_extract_facts
 ```
 
-## Current state vs SPEC (as of v1.8.0; library = v1.3.0 @ 658f516 + the JSON render format)
+## Current state vs SPEC (Phase 2 in flight, 2026-09-13; library = v1.8.0 + the extraction era on `feature/extraction`)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -323,24 +350,25 @@ ACTUAL" says why.
 
 **Shipped:**
 
-- `MemoryConfig` — seven fields: `dedup_cosine_threshold = 0.95`,
+- `MemoryConfig` — eight fields: `dedup_cosine_threshold = 0.95`,
   `top_k = 10`, `dedup_scope = "session"` (R3, adopted 2026-09-12 — `"store"`
   is the published local-family configuration), `query_instruction =
   BGE_QUERY_INSTRUCTION` (R5, adopted 2026-09-13 — `""` is the local-family
   configuration), `chunk_tokens = 0` / `chunk_overlap = 64` (R4; `k` counts
   rounds, not windows — `Store.search_rounds`; measured worse, left off),
-  `render_format = "text"` (v1.6.0). Every
-  one is a harness flag and a pin (schema /7); the chunk knobs are also
+  `render_format = "text"` (v1.6.0), `render_unit = "turns"` (PHASE2 D5:
+  `turns` | `round+facts` | `facts`; the default flips at gate 4-iii). Every
+  one is a harness flag and a pin (schema /8); the chunk knobs are also
   `memory_meta` keys. A knob no code reads is not present; the rest land with
   the stage that uses them.
 - The real ONNX BGE embedder behind the `[embed]` extra, revision-pinned;
   `HashingEmbedder` (256-dim, numpy-only) stays the default and the CI path.
-- The `memory_meta` guard — 4 keys (`embedder_name`, `embedder_revision`,
-  `embedder_dim`, `embed_template_hash`), written at creation and validated at
-  every open; mismatch raises `MemoryMetaError` before a query runs. A DB with a
-  `memories` table but no `memory_meta` is refused, not upgraded. **The
-  `embed_template_hash` hole is closed** (v1.3.0) — there are no guard holes
-  left in v1.
+- The `memory_meta` guard — thirteen rows (the four embedder rows, the R4 chunk
+  pair, five extractor rows or `"none"`, `negation_lexicon_hash="none"` until
+  Phase 3, `prefilter_lexicon_hash`, `fact_embed_template_hash`,
+  `resolver_version`), written at creation and validated at every open;
+  mismatch raises `MemoryMetaError` before a query runs. A DB with a `memories`
+  table but no `memory_meta` is refused, not upgraded; so is a v1.8 store.
 - The embed/render split — `EMBED_TEMPLATE` + `embed_template_hash()` (frozen,
   in `memory_meta`) vs `RENDER_TEMPLATE` + `render_template_hash()`
   (reader-facing, in the harness pins). A test asserts the embed text stayed
@@ -363,15 +391,31 @@ ACTUAL" says why.
   `config.top_k`; `pinned` dropped from the dataclass and the DDL.
 - `evals/systems/` — all five arms: `no_memory`, `full_history`, `oracle`,
   `naive_rag`, `mnimi`.
+- **The extraction era (PHASE2, 2026-09-13; `mnimi docs/PHASE2.md`).**
+  `src/mnimi/extract/`: `protocol` (the `Extractor` contract and its five pins),
+  `schema` (`FACT_SCHEMA`, prose-first field order, strict parser), `prompt`
+  (`qwen3-fact-v4`, the literal chat template), `llama` (the pinned
+  `QwenLlamaExtractor`, greedy-verify-rescan under the grammar), `fake`
+  (`RuleExtractor`, CI's model-free stand-in), `cache` (`CachedExtractor`, one
+  SQLite file per extractor configuration), `prefilter` (six rules, no question
+  rule, `prefilter_lexicon_hash`), `resolver` (relative dates anchored on `ts`;
+  a mention the round does not contain is dropped). `Memory(..., extractor=)`,
+  the hybrid store (a round record plus `kind="fact"` records on one
+  `round_key`), per-kind dedup screens, `FACT_EMBED_TEMPLATE`, three render
+  units, pins schema /8 (`--extractor`, `--render-unit`, `--extractor-cache`),
+  the probe walking pieces by kind with the stage's counters,
+  `evals/probes/{extractor_bench,prefilter_rate}.py`. Measured: 2.7–3.4 s per
+  round on the RTX 1000 Ada (gate 2.1), 50/50 byte-stable (gate 2.2), 0 false
+  pre-filter drops (gate 2.3), no-extractor probe identical to Phase 1's
+  100/100. Gates 4-i/ii/iii pending (DECISIONS "Phase 2 pre-registration").
 
 **Still absent:**
 
 - `export()` — the public surface is 4 of the 5 locked methods.
 - `ScoredRecord` — `recall()` returns `list[MemoryRecord]` and drops the cosine
   at the facade; the score is available one layer down.
-- `raw`, the `(subject, predicate, object)` triple, `valid_time`,
-  `last_accessed`. `created_at` carries `ts` and plays the `system_time` role.
-- Extraction — no LLM anywhere in the library.
+- `last_accessed`. `created_at` carries `ts` and plays the `system_time` role.
+  (`raw`, the triple and `valid_time` exist on fact records since 2026-09-13.)
 - Conflict / supersede / decay. `salience` and `supersedes` are written, stored
   and returned, and **read by nothing** — placed, not live.
 - The ranking layer. Order is raw vec0 L2 ascending, which for unit vectors is
@@ -389,7 +433,9 @@ ACTUAL" says why.
 
 ## Do not
 
-- Do not import eval deps from `src/mnimi/`.
+- Do not import eval deps from `src/mnimi/`. `llama_cpp` and `huggingface_hub`
+  are imported only inside `mnimi.extract.llama`; a test asserts
+  `import mnimi.extract` never loads them.
 - Do not add public methods to `Memory`.
 - Do not read wall-clock time anywhere in scoring, decay, or ordering.
 - Do not put an LLM in the merge/conflict/decay loop, or on the read path.

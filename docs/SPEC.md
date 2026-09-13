@@ -128,17 +128,17 @@ wires against this section, not against the target sections.**
 |---|---|---|
 | `add` / `recall` / `get_context` / `consolidate` | shipped (`consolidate` is a no-op stub) | `memory.py` |
 | `export` | **not built** — the public surface is 4 of 5 methods | — |
-| `MemoryConfig` | **2 of 9 fields**: `dedup_cosine_threshold=0.95`, `top_k=10`. A field no code reads is not present | `config.py` |
-| `MemoryRecord` | `id, user_id, content, embedding, created_at, salience, source, supersedes`. No `raw`, no triple, no `valid_time`; `created_at` carries `ts` (there is no separate `system_time`); no `last_accessed` | `models.py` |
+| `MemoryConfig` | **8 fields** — two of the spec'd nine plus six the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="turns"` (extraction era, PHASE2 D5; flips to the adopted unit at gate 4-iii). Every one is a harness flag and a pin. A field no code reads is not present | `config.py` |
+| `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`. `created_at` carries `ts` and plays the `system_time` role; no `last_accessed`. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
-| `memory_meta` guard | **4 of 11 keys**: `embedder_name`, `embedder_revision`, `embedder_dim`, `embed_template_hash`. Any mismatch raises `MemoryMetaError` at open; a DB carrying `memories` without `memory_meta` is refused outright | `store.py` |
+| `memory_meta` guard | **13 rows, all written and validated** (extraction era, 2026-09-13): the four v1 rows; `chunk_tokens` / `chunk_overlap` (R4); the five extractor rows (`extractor_model`, `extractor_quant`, `extractor_runtime`, `extractor_decode_hash`, `extractor_prompt_hash` — the literal `"none"` when a store is built without an extractor); `negation_lexicon_hash` (`"none"` until Phase 3); `prefilter_lexicon_hash`; `fact_embed_template_hash`; `resolver_version`. Any mismatch raises `MemoryMetaError` at open; a v1.8 store lacks the new rows and is refused, a no-extractor store opened with an extractor is refused, and vice versa | `store.py` |
 | `embed_template_hash` | **written and validated** (since v1.3.0, 2026-07-30). An edit to v1's content template (the session-date fold, the `"\n"` join) fails loudly at open with `MemoryMetaError` | `store.py:85, 99` |
-| Extraction | not built. No LLM anywhere in the library | — |
-| Dedup | **steps 1-2 only**: exact-normalize collapse, then ONE cosine probe (`k=1`) against the store at `dedup_cosine_threshold`. No negation screen, no value-substitution screen, no entropy gate | `memory.py:51-72` |
+| Extraction | **built, opt-in** (PHASE2, 2026-09-13): `Memory(db_path, embedder, config, *, extractor=None)`. With an `Extractor` (the pinned `mnimi.extract.llama.QwenLlamaExtractor`, or CI's `RuleExtractor`) every round that survives the stage-1 pre-filter goes to the model once (on-disk cache) and each fact becomes a `kind="fact"` record beside the round's own v1 record — the hybrid store (D1). `None`, the default until gate 4-iii, is the v1 write path | `memory.py`, `extract/` |
+| Dedup | **steps 1-2, per kind**: exact-normalize collapse and ONE cosine probe (`k=1`) at `dedup_cosine_threshold`, a round against earlier rounds and a fact against earlier facts (D3); a round's exact key folds the session date, a fact's screens follow `dedup_scope`. No negation screen, no value-substitution screen, no entropy gate | `memory.py` |
 | Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
 | Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
 | Retriever extras | no active-record filter, no `recall_min_relevance`, no `last_accessed` update | — |
-| `get_context` locked block format | partly built. v1 renders each record's verbatim `turns` — full-timestamp header + `user:`/`assistant:` labels, **time-ordered oldest-first**, one shared renderer across all eval arms; still no token budget and no `raw` in the block | `memory.py` |
+| `get_context` locked block format | partly built. Each retrieved round's verbatim `turns` — full-timestamp header, `user:`/`assistant:` labels, **time-ordered oldest-first** — through one shared renderer with two formats (text / JSON) and, since the extraction era, three units: `turns` (v1), `round+facts` (the block under a `facts:` header with resolved dates), `facts` (`fact:` / `source:` lines). Still no token budget and no salience-0 exclusion | `memory.py` |
 | Normalize at the boundary | shipped — both embedders unit-normalize inside `embed()` | `embeddings.py:73-76, 132-134` |
 | `distance_metric=L2` spelled out in the DDL | shipped, asserted by a test | `store.py:120-126` |
 | L2 → cosine conversion | shipped at **exactly one site**: `store.search` returns `(record, cos)`, `cos = 1 − d²/2` | `store.py:193` |
@@ -389,6 +389,20 @@ messages (role, content, ts)
       returns facts → each becomes a MemoryRecord candidate → dedup
 ```
 
+**v1 as built (extraction era, 2026-09-13 — PHASE2 D1–D12, DECISIONS "Phase 2
+pre-registration"):** the stage exists and is opt-in. An `Extractor`
+(`mnimi.extract.protocol`) is injected as `Memory(..., extractor=...)` — the
+one defaulted keyword the locked constructor gained; `None` is the v1 write
+path. The stored unit is a **hybrid**: every round keeps its v1 record, and
+each extracted fact is a second record on the same `round_key`, so a round
+whose extraction is `[]` stays retrievable and retrieval collapses to rounds
+(`Store.search_rounds`). That is not this section's facts-only target; it is
+LongMemEval's measured key-expansion setting, chosen because a 1.7B model's
+false `[]` would otherwise erase evidence (D1). The model is called once per
+round (`mnimi.extract.cache.CachedExtractor`: one SQLite file per extractor
+configuration, keyed by the round's turns). `evals/systems/mnimi.py` runs it
+only under `--extractor qwen3`; `naive_rag` never extracts.
+
 ### Stage 1 — speech-act pre-filter (deterministic)
 
 Rejects turns that cannot contain a stored fact, before any LLM call.
@@ -409,6 +423,17 @@ Drop rules (a turn is dropped if it matches, no fact-shaped content survives):
 - Scope: a screen, not a classifier. False negatives (junk that slips
   through) are caught by stage 2 returning `[]`. False positives (a real fact
   dropped) are the only correctness risk — keep rules conservative.
+
+**v1 as built (2026-09-13):** `mnimi.extract.prefilter` — six turn-level rules
+(`ack-only`, `greeting-only`, `memory-self-reference`,
+`imperative-to-assistant`, `no-candidate-slot`, `assistant-boilerplate`), a
+frozen lexicon, `filtered: {rule}` on the `mnimi.extract` logger, and
+`prefilter_lexicon_hash` over lexicon + rule ids + limits. **The question rule
+above is not built** (D9): on LongMemEval the evidence is a question carrying
+an aside, and the rule would drop it. A round reaches the model iff at least
+one turn survives, and the whole round is the model's input. Measured on the
+n=100 slice: 71 of 24,747 rounds (0.29 %) never reach the model; 0 false drops
+on all 162 evidence rounds (`evals/probes/prefilter_rate.py`).
 
 ### Stage 2 — LLM extraction (schema-constrained)
 
@@ -472,6 +497,31 @@ run and silently invalidate the number.
   untuned (clinical distillation study, PMC12065832; REBEL fine-tune,
   arXiv 2507.13827). The measured lever if W3 shows extraction is the
   bottleneck: LoRA fine-tune on teacher-generated data (see Deferred).
+
+**v1 as built (2026-09-13):** `mnimi.extract.llama.QwenLlamaExtractor`.
+"Qwen3-1.7B-Instruct" resolves to the official `Qwen/Qwen3-1.7B-GGUF`
+(revision `90862c4b9d2787eaed51d12237eafdfe7c5f6077`, `Qwen3-1.7B-Q8_0.gguf`,
+the repo's only quant) — Qwen3's post-trained hybrid with thinking disabled
+through the chat template's empty think block, rendered by the library as a
+literal string and hashed. Schema (`mnimi.extract.schema.FACT_SCHEMA`):
+`content, raw, when, subject, predicate, object, salience`, in that order —
+**`when` is a verbatim time mention, not the ISO `valid_time` above** (D8);
+the deterministic resolver produces `valid_time` from `(when, ts)` and drops a
+mention the round does not contain. Grammar: the runtime's JSON-schema → GBNF
+(`maxItems 8`, strings ≤ 300 characters, `salience ∈ {0.25, 0.5, 1.0}`),
+hashed together with the prompt as `extractor_prompt_hash`. Decode: greedy
+(`temperature 0, top_k 1`), `seed 0`, `n_ctx 4096`, `n_batch = n_ubatch = 512`,
+`n_threads 8`, flash attention, `max_tokens 1024`, a 1,536-token input cap, one
+sequence, a cold prefill per round, and **`n_gpu_layers=99` — a disclosed
+deviation from the CPU-only pin above** (DECISIONS "Extractor runtime";
+byte-stable 50/50 across a shuffled restart in fresh processes). The grammar is
+applied llama-server's way — the greedy token first, verified against the
+grammar, a full-vocabulary rescan only on rejection — because the
+grammar-first sampler costs ~55 ms per token on a 151k vocabulary. Output is
+parsed with `strict=False` (the runtime's grammar admits raw control characters
+inside strings); a truncated or malformed output is `[]`, logged. Prompt
+`qwen3-fact-v4`, developed on 40 rounds outside the evaluation slice
+(DECISIONS "Extractor prompt frozen").
 
 **The "no LLM in the bookkeeping loop" constraint is unchanged.** It scopes
 merge / conflict / decay (dedup pipeline, both screens, decay). Extraction is
@@ -546,6 +596,15 @@ and checked on every open. The eight extraction-era rows remain unwritable
 (nothing exists to hash); every writable row is now written. No guard holes
 remain in v1.
 
+**Extraction era (2026-09-13): thirteen rows.** The four above, R4's
+`chunk_tokens` / `chunk_overlap`, the five extractor rows (from
+`Extractor.pins`; the literal `"none"` when a store is built without an
+extractor), `negation_lexicon_hash` (`"none"` until Phase 3 builds the
+lexicon), `prefilter_lexicon_hash`, and two the list above did not foresee:
+`fact_embed_template_hash` (the fact records' template — the round template's
+hash did not move) and `resolver_version`. All written at creation, all
+validated at every open; a v1.8 store is refused.
+
 **Rationale:** reproducibility requires every artifact that determines the
 corpus or the vectors to be fixed for the life of a benchmark run. Quant tag
 and runtime version are included because Q4 vs Q8 changes logits and temp-0
@@ -587,6 +646,11 @@ Order of operations on the write side:
    zeroing them forfeits temporal-reasoning questions (27% of LongMemEval).
    Decay never produces 0; only supersession does. Superseded records are
    already inactive.
+
+**v1 as built (2026-09-13):** steps 1–3 exist behind an injected extractor —
+step 1 as the hybrid store, step 2 as `mnimi.extract.resolver` (anchored on
+`ts`; date, month or year precision; `None` for a vague mention or one the
+round does not contain), step 3 per record kind. Steps 4–5 are Phase 3–4.
 
 ## Dedup strategy (v1 — reconsider in later weeks)
 
@@ -642,6 +706,14 @@ vs 77 (b=5, c=3). The cross-session case is exactly the one steps 3–4 above
 are for — a repeat or an update — and until extraction lands (`valid_time`,
 supersede) the library keeps such rounds rather than dropping them. Steps
 3–5 remain unbuilt.
+
+**v1 as built (extraction era, 2026-09-13): both screens run per kind.** A fact
+record is compared only with earlier fact records and a round record only with
+earlier round records (`Store.search(kind=…)`, a second vec0 table for facts),
+because a short round's fact sits near its own round and a single pool would
+drop the fact exactly where the round is short (D3). For facts both screens
+follow `dedup_scope` (their embed text has no date fold); for rounds the exact
+key still folds the date. The threshold is untouched.
 
 **v1 as built: steps 1 and 2 only, and nothing else.** `add()` normalizes
 (lowercase → strip punctuation → collapse whitespace) against the user's
@@ -778,6 +850,16 @@ The harness's `--render-format` hands one value to every arm. Which format
 the gpt-4o era runs is decided by the pre-registered presentation pair
 (DECISIONS 2026-09-12), not here.
 
+**Extraction era (2026-09-13): three render units** (`MemoryConfig.render_unit`,
+PHASE2 D5) frame what a retrieved round is shown as: `turns` (the block above —
+v1, and what every other arm renders), `round+facts` (the same block under a
+`facts:` header listing the round's fact records with their resolved
+`valid_time`), `facts` (per fact a `fact:` / `source:` pair; a round without
+facts falls back to its turns). One `render_records`; the *format* hash stays
+the harness parity pin, the unit is a system-level pin
+(`render_unit_template_hash` in mnimi's retrieval pins). Which unit the era
+runs is gate 4-iii's pre-registered call.
+
 The session DATE fold (`[Session date: YYYY-MM-DD] …`) remains in the
 embedded string and the dedup key at **write** time — that is the frozen
 embed text (`EMBED_TEMPLATE`, hashed into `memory_meta`), split from this
@@ -872,6 +954,14 @@ that v1 dedup depends on.
   therefore reopens on its merits at that migration (the schema above, with
   role-prefixed `raw`, is the standing position until measured evidence says
   otherwise) — it is not silently superseded in either direction.
+
+**As built (2026-09-13):** two templates, two `memory_meta` rows. Round records
+keep `EMBED_TEMPLATE` byte for byte; fact records embed
+`FACT_EMBED_TEMPLATE = "${raw}\n${fact}"` — this section's `raw` + `content`
+with the role-prefixed span — under `fact_embed_template_hash`. The
+role-in-vector question is answered for facts by following this section (the
+span carries its role); round vectors are unchanged, so a no-extractor store
+still pairs with v1.8 (`--verify-drift`, probe `p2base` 100/100 identical).
 
 **vec0 schema (as built):** the vector table is `vec_memories`, separate from
 the `memories` metadata table and joined to it by shared rowid — one file, two
