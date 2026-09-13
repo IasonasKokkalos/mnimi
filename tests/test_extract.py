@@ -85,3 +85,42 @@ def test_counting_extractor_counts_and_delegates():
     assert inner.extract(turns) == fake.RuleExtractor().extract(turns)
     inner.extract(turns)
     assert inner.calls == 2 and inner.pins == fake.RuleExtractor().pins
+
+
+# --- Task 4: the extraction cache ---
+
+
+def test_cache_makes_the_second_pass_free_and_keeps_pins_transparent(tmp_path):
+    from mnimi.extract.cache import CachedExtractor
+
+    inner = fake.CountingExtractor(fake.RuleExtractor())
+    cached = CachedExtractor(inner, tmp_path / "x.sqlite")
+    turns = [{"role": "user", "content": "I run every morning."}]
+    first = cached.extract(turns)
+    reopened = CachedExtractor(inner, tmp_path / "x.sqlite")  # a later process
+    second = reopened.extract(turns)
+    assert first == second and inner.calls == 1
+    assert reopened.stats == {"hits": 1, "misses": 0}
+    assert cached.stats == {"hits": 0, "misses": 1}
+    assert cached.pins == fake.RuleExtractor().pins
+    assert isinstance(cached, protocol.Extractor)
+
+
+def test_cache_key_ignores_ts_and_respects_roles():
+    from mnimi.extract.cache import CachedExtractor
+
+    key = CachedExtractor.key
+    assert key([{"role": "user", "content": "x", "ts": "2023-01-01"}]) == key(
+        [{"role": "user", "content": "x"}]
+    )
+    assert key([{"role": "user", "content": "x"}]) != key([{"role": "assistant", "content": "x"}])
+    assert key([{"role": "user", "content": "x"}]) != key([{"role": "user", "content": "y"}])
+
+
+def test_cache_path_is_one_file_per_extractor_configuration(tmp_path, monkeypatch):
+    from mnimi.extract.cache import default_cache_path
+
+    monkeypatch.chdir(tmp_path)
+    a = default_cache_path(fake.RuleExtractor().pins)
+    b = default_cache_path({**fake.RuleExtractor().pins, "extractor_prompt_hash": "other"})
+    assert a != b and a.parent == tmp_path / ".cache" / "extract" and a.suffix == ".sqlite"
