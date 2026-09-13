@@ -1715,3 +1715,120 @@ for the phase $5.69; programme total $10.75 of $50. Every
 sitting `provisional: []`, one commit per sitting, every artifact in
 `results/published/`. The 85 criterion is read at n=500 in Phase 5, not
 here; at n=100 the adopted configuration's Wilson lower bound is 73.3.
+
+## Phase 2 pre-registration: the extraction era's design, gates and sitting (2026-09-13)
+
+Recorded before any extractor runs on the slice. Baseline for the phase: the
+adopted v1.8.0 configuration — `mnimi__100q_gpt4o_k10` (82/100),
+`naive_rag__100q_gpt4o_r45` (82/100), primary b=2, c=3 — and the probe file
+`runs/probe_mnimi_r5.json` (ANY@10 91/95, ALL@10 77/95, 24,195 stored, 16
+exact + 536 cosine drops, one evidence round lost: `67e0d0f2`). The
+task-level plan is `mnimi docs/PHASE2.md`; its numbers doc is
+`mnimi docs/PHASE2-RESULTS.md`.
+
+**Where the misses are, read by hand** (`mnimi docs/PHASE2-RESULTS.md` §0, all
+18 wrong rows of the k10 arm). Ten rows are partial-retrieval misses: the
+evidence is a one-clause aside inside a long round about something else
+("… Can you suggest tips? By the way, I've been doing guided breathing
+sessions with my Fitbit …"), the round's vector is the assistant's answer,
+and the round ranks 11–40 (`gpt4_31ff4165`, `b46e15ed`, `af082822`,
+`45dc21b6`, `gpt4_d6585ce8`, `gpt4_2ba83207`, `75832dbd`, `3a704032`,
+`0a995998`, `6f9b354f`). Two rows lost an evidence round to the
+within-session cosine screen because the session is a run of near-template
+rounds whose *facts* differ (`67e0d0f2`: 8 edX vs 12 Coursera courses;
+`a3838d2b`: six dated charity events). Seven rows need a relative date
+resolved against the session date ("yesterday", "today", "last month", "two
+weeks ago", "the week before last", "recently"). Four rows are reader-bound
+(evidence at rank ≤ 4, oracle also wrong or judge-borderline: `35a27287`,
+`15745da0`, `a2f3aa27`, `09d032c9`). That is the design: fact records as
+extra retrieval keys on the round (LongMemEval's measured key expansion),
+per-kind dedup so a fact survives its round's near-duplicate, a deterministic
+date resolver, and a reader-visible facts header on the round.
+
+**Design (PHASE2.md D1–D12), in one paragraph.** Hybrid store: every round
+keeps its v1 record, byte-identical embed text; each extracted fact is a
+second record on the same `round_key`, embedded as `raw\nfact` under a new
+`fact_embed_template_hash`; dedup screens run per kind and per session at
+the untouched 0.95; retrieval collapses to rounds and `k=10` rounds for every
+arm; the reader sees a round as its turns plus a `facts:` header (primary)
+or as its facts alone (the one pre-registered alternative), a pinned render
+unit that is a system-level pin, not a parity field. Extractor:
+`Qwen/Qwen3-1.7B-GGUF` @ `90862c4b9d2787eaed51d12237eafdfe7c5f6077`,
+`Qwen3-1.7B-Q8_0.gguf` (the only quant in the official repo; there is no
+official "Qwen3-1.7B-Instruct" — SPEC's name resolves to this post-trained
+hybrid with thinking disabled through the chat template's empty think
+block), llama-cpp-python built from source with CUDA 13.2, greedy
+(`temperature=0, top_k=1`), `seed=0`, `n_ctx=4096`, `n_batch=512`,
+`n_ubatch=512`, `n_threads=8`, `n_gpu_layers=99` (a disclosed deviation from
+SPEC's CPU-only pin, on the reader precedent: GPU is deterministic with the
+batch pinned), one sequence, a cold prefill per round (`reset()` before every
+call — the reader's prompt-cache lesson), input capped at 1,536 tokens.
+Output schema, prose first: `content, raw, when, subject, predicate, object,
+salience`; `when` is a verbatim time mention and a deterministic resolver
+anchored on `ts` produces `valid_time` (SPEC's model-emitted ISO date is not
+asked of a 1.7B model that is never shown the date). Pre-filter: turn-level
+lexicon + rules, never "question → drop" (16 of the 18 evidence turns above
+are questions carrying the evidence as an aside). Cache: one SQLite file per
+extractor configuration, keyed by the round's turns. Nine new `memory_meta`
+keys; pins schema /8. Fallback E1 after one four-hour day: an Ollama-served
+extractor on 0.32.13 with `OLLAMA_NUM_PARALLEL=1` (parallel slots make a
+round's logits depend on its batch-mates), disclosed. The extractor is
+injected as `Memory(db_path, embedder, config, *, extractor=None)` — one
+defaulted keyword on the locked constructor; `None` is the v1 write path.
+All twelve confirmed by the maintainer on 2026-09-13.
+
+**Protocol.**
+1. Nothing about the prompt, the lexicon or the grammar is developed on the
+   slice's evidence rounds: the prompt's development set is 40 rounds from
+   the 400 questions outside the slice; the byte-stability set is 50 rounds
+   of the slice's corpus stratified by length; the pre-filter's false-drop
+   check reads the slice's evidence rounds and must be 0 (a correctness
+   check, disclosed).
+2. Every knob is a `MemoryConfig` field, a harness flag and a pin, so the
+   baseline arm (`--extractor none`, `--render-unit turns`) is the same code
+   at the same commit as the extraction arms.
+3. The corpus pass runs once, through the retrieval probe, into the cache;
+   the sitting's ingest is cache hits.
+4. Work happens on `feature/extraction` (worktree `../mnimi-wt`), one commit
+   per plan task, fast-forwarded onto `main` at the phase close so every
+   artifact's `harness_git_sha` stays on `main`'s history.
+
+**Gate 4-i (probe, no API, PHASE2 Task 7).** `python -m evals.probes.retrieval
+--system mnimi --extractor qwen3 --limit 100`: **ANY@10 ≥ 89/95 (≥ 93%) and
+ALL@10 ≥ 77/95**, otherwise extraction stops here and is re-scoped. Reported
+beside the gate: drop rate by kind and by screen, the `[]` rate, the
+truncation rate, facts per round, stored counts; and two predictions,
+falsifiable before any spend — (P1) `67e0d0f2` and `a3838d2b` no longer
+lose an evidence round to dedup; (P2) of the ten partial-retrieval rows, at
+least four have every evidence round inside the top-10.
+
+**Gate 4-ii (n=20 dev prefix, batch, ≈ $0.25, Task 8).** The `round+facts`
+arm on the first 20 stratified questions (the 0.95 dev slice): its score must
+be within 3 of the k10 arm's score on the same 20 rows, and its fed tokens
+are reported against the k10 arm's. This is the early-wrongness gate, not a
+pairing; a fail stops the sitting.
+
+**Gate 4-iii (the sitting, n=100, one clean commit, Task 9).** Four arms
+through the Batch API, one at a time: mnimi `--extractor none` (baseline;
+`--verify-drift results/published/mnimi__100q_gpt4o_k10`, and its
+`reader_prompt_tokens` must be identical on 100/100 rows — the refactor
+moved no retrieval), mnimi `--extractor qwen3 --render-unit round+facts`,
+mnimi `--extractor qwen3 --render-unit facts`, `naive_rag`. Rules:
+- Extraction is adopted (library default `render_unit="round+facts"` and the
+  harness's mnimi default `--extractor qwen3`) iff gate 4-i passed AND b ≥ c
+  for `round+facts` vs baseline. A paired loss reverts the default; the code
+  stays.
+- The render unit `facts` replaces `round+facts` iff b > c on that pair.
+- **Primary of the extraction era:** the adopted mnimi arm vs `naive_rag`,
+  exact McNemar, alpha 0.05, one test. It is no longer a pre-registered
+  null: the expectation is a positive direction. At n=100 only a gap of
+  ~8 points is detectable, so the n=100 reading is a working number and the
+  verdict is Phase 5's n=500. The fed-token table for all four arms is part
+  of the artifact. Secondaries (no_memory, oracle) are the published
+  family arms at another commit — reported descriptively, not paired.
+- The family's drift (6/100 flips) is the noise floor: a delta inside it is
+  "within drift".
+
+**Budget.** PLAN carried $2.2; this sitting is four arms (≈ $3.3 with
+judges) plus gate 4-ii (≈ $0.25): **≈ $3.7, ≈ $4.7 with one re-run** —
+$39.25 remains, Phase 5 needs $14.25.
