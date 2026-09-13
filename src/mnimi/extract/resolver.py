@@ -127,6 +127,22 @@ def _past_year(month: int, day: int, anchor: date) -> date | None:
     return candidate
 
 
+def verbatim_mention(mention: str | None, text: str) -> str | None:
+    """``mention`` if it occurs in ``text`` (case- and whitespace-insensitive), else ``None``.
+
+    The extractor is asked to copy the time expression verbatim; a mention
+    that does not occur in the round is an invention (measured 2026-09-13 on
+    the development set: the model echoed an example's "next week" once in
+    forty rounds) and must not become a ``valid_time``. The fact itself is
+    kept; only its date is dropped.
+    """
+    if not mention:
+        return None
+    needle = " ".join(mention.lower().split())
+    haystack = " ".join(text.lower().split())
+    return mention if needle and needle in haystack else None
+
+
 def resolve(mention: str | None, ts: str | None) -> str | None:
     """``valid_time`` for a verbatim time mention, anchored on ``ts``."""
     if not mention:

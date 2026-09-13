@@ -1909,3 +1909,67 @@ unchanged.
 the batch pinned — and the byte-stability run of Task 3 is the evidence for
 this extractor; the CPU path would cost roughly an order of magnitude more
 per round and was not measured.
+
+## Extractor prompt frozen: `qwen3-fact-v4`, developed outside the slice (2026-09-13)
+
+**Decision (PHASE2 Task 3 Step 5):** the extraction prompt is
+`mnimi.extract.prompt.SYSTEM_PROMPT` version `qwen3-fact-v4`;
+`extractor_prompt_hash` (prompt + chat template + schema + the GBNF the
+runtime samples under) = `41c8ea2c3bb4901aa923e734e2e37d0b7d8ea29aef5a7fc473f1e5f8fead0993`. From this line on it is
+pinned: an edit is a new era (new hash, new cache file, re-ingest), never an
+in-place change under a run.
+
+**How it was developed — and on what.** Forty rounds sampled (seed 0,
+stratified over ten length deciles) from the 400 LongMemEval-S questions
+*outside* the n=100 slice (`runs/extract_dev{,2,3,4}.jsonl`); the slice's
+evidence rounds were never read during this step (pre-registration protocol
+1). Each version was read by hand, whole, against the kinds of facts
+PHASE2-RESULTS §0 asks for: asides with dates, counts and names; plans and
+experiences; the assistant's specific recommendations; nothing for
+chit-chat.
+
+| version | facts | user facts | assistant facts | junk-shaped¹ | dated (`when`) | `[]` rounds | s/round | user facts on 7 plan/experience rounds² |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| v1 (the plan's draft) | 98 | 46 | 51 | 33 | 2 | 6 | 3.70 | 15 |
+| v2 (exclusion list, "or nothing") | 49 | 24 | 25 | 15 | 6 | 15 | 1.87 | 0 |
+| v3 (permissive user rule + v2's date rule) | 65 | 36 | 23 | 15 | 11 | 17 | 2.43 | 6 |
+| **v4 (v3 + a thanks-plus-plan example)** | **94** | **59** | 25 | 27 | **15** | 7 | 3.39 | **17** |
+
+¹ facts whose content starts "The user asked/thanks…", "The assistant
+acknowledges/is glad/encourages/provided information/explained…" — a regex
+over the content, the same for every version. ² `36b9f61e`, `71315a70`,
+`a3332713`, `982b5123/359a2a0d`, `59524333`, `6aeb4375/8de5b7cf`,
+`gpt4_483dd43c`: user turns stating plans or experiences beside a
+thank-you or a question, which v2 and v3 returned `[]` for in 0.3 s.
+
+What each step taught. v1 captured the user's asides well but left `when`
+empty when the date sat inside the sentence ("May 14th", "in 2017", "this
+week") and produced a fact for every pleasantry. v2 fixed the noise by
+naming what not to extract and lost half the user facts — a 1.7B model
+over-applies a negative list, and "state the specific recommendation
+instead, or nothing" became "nothing" for whole rounds. v3 restored the
+permissive user-turn rule and kept the date rule (dated facts 2 → 11); four
+plan/experience rounds still returned `[]` instantly because the only
+`[]` example is a thank-you turn, and those rounds thank before they plan.
+v4 adds one example of a thanks-plus-plan turn that yields facts; the four
+rounds come back with their plans and counts, dated facts reach 15, user
+facts exceed v1's, and the pleasantry noise stays below v1's. Junk-shaped
+facts (27) are mostly "The user is asking for…" and "The assistant provided
+tips on…" wrappers; they are extra keys on a round the reader sees anyway
+and are left to the sitting to price.
+
+**One deterministic guard came out of it.** v3 and v4 each produced two
+facts whose `when` does not occur in the round ("next week" echoed from an
+example; "last week" attached to a light bulb the user "finally" replaced).
+`mnimi.extract.resolver.verbatim_mention` keeps a mention only if it occurs
+in the round's text (case- and whitespace-insensitive); `round_pieces` drops
+an invented mention and keeps the fact, so no `valid_time` can come from a
+date the user never stated. The `[]` and encyclopedic-assistant behaviours
+(a Malayalam explainer still yields six assistant facts under every
+version) are accepted: D1's round record keeps every round retrievable, and
+the facts are additional keys.
+
+**Not tuned on the benchmark.** No evidence round of the slice was read; the
+four versions were judged on the metrics above and on the hand reading of
+the forty rounds. Gate 4-i (Task 7) is the first time the prompt meets the
+slice.

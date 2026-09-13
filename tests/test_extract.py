@@ -250,3 +250,44 @@ def test_resolver_never_reads_the_clock():
     for forbidden in ("datetime.now", "date.today", "time.time", "utcnow"):
         assert forbidden not in src
     assert resolver.RESOLVER_VERSION == "v1"
+
+
+def test_verbatim_mention_drops_an_invented_time():
+    from mnimi.extract.resolver import verbatim_mention
+
+    text = "Thanks! I think I'll start sharing my Lightroom edits.  By the way, I moved last week."
+    assert verbatim_mention("last week", text) == "last week"
+    assert verbatim_mention("Last  Week", text) == "Last  Week", "case and spacing are forgiven"
+    assert verbatim_mention("next week", text) is None, "echoed from an example, not the round"
+    assert verbatim_mention(None, text) is None and verbatim_mention("", text) is None
+
+
+def test_round_pieces_drop_an_invented_when_but_keep_the_fact(tmp_path):
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.memory import _messages_to_rounds, round_pieces
+
+    class Inventor:
+        pins = fake.RuleExtractor().pins
+
+        def extract(self, turns):
+            return ExtractionResult(
+                facts=[
+                    ExtractedFact("The user moved to Athens.", "user: I moved to Athens",
+                                  "next week", "user", "moved to", "Athens", 1.0),
+                    ExtractedFact("The user adopted a cat.", "user: I adopted a cat yesterday",
+                                  "yesterday", "user", "adopted", "cat", 1.0),
+                ],
+                truncated=False, raw_output="[]",
+            )
+
+    (round_,) = _messages_to_rounds([
+        {"role": "user", "content": "I moved to Athens. I adopted a cat yesterday.",
+         "ts": "2023-05-20"},
+    ])
+    pieces = round_pieces(round_, HashingEmbedder(), MemoryConfig(), Inventor())
+    facts = [p for p in pieces if p.kind == "fact"]
+    assert [(p.time_mention, p.valid_time) for p in facts] == [
+        (None, None), ("yesterday", "2023-05-19")
+    ]

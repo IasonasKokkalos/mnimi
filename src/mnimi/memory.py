@@ -17,7 +17,7 @@ from typing import NamedTuple
 from .config import MemoryConfig
 from .embeddings import Embedder
 from .extract import prefilter
-from .extract.resolver import RESOLVER_VERSION, resolve
+from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord
 from .store import Store
 
@@ -667,7 +667,10 @@ def round_pieces(
         stats["truncated_outputs"] += bool(result.truncated)
         stats["truncated_inputs"] += bool(getattr(result, "truncated_input", False))
         stats["facts"] += len(facts)
+    round_text = _round_text(round_)
     for fact in facts:
+        # A mention the round does not contain is an invention, not a date.
+        mention = verbatim_mention(fact.when, round_text)
         pieces.append(
             Piece(
                 content=_FACT_EMBED_T.substitute(raw=fact.raw, fact=fact.content),
@@ -678,8 +681,8 @@ def round_pieces(
                 subject=fact.subject,
                 predicate=fact.predicate,
                 object=fact.object,
-                valid_time=resolve(fact.when, round_.ts),
-                time_mention=fact.when,
+                valid_time=resolve(mention, round_.ts),
+                time_mention=mention,
                 salience=float(fact.salience),
             )
         )
