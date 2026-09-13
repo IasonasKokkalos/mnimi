@@ -190,3 +190,53 @@ def test_prefilter_logs_the_rule(caplog):
     with caplog.at_level(logging.INFO, logger="mnimi.extract"):
         prefilter.keep_round([{"role": "user", "content": "Thanks!"}])
     assert "filtered: ack-only" in caplog.text
+
+
+# --- Task 6: the relative-date resolver ---
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("mention,ts,expected", [
+    ("yesterday", "2022/11/18 (Fri) 17:03", "2022-11-17"),
+    ("Yesterday", "2022/11/18 (Fri) 17:03", "2022-11-17"),
+    ("today", "2023/02/14 (Tue) 09:06", "2023-02-14"),
+    ("two weeks ago", "2023/05/20 (Sat) 20:05", "2023-05-06"),
+    ("3 days ago", "2023/05/20 (Sat) 20:05", "2023-05-17"),
+    ("last month", "2023/05/25 (Thu) 16:59", "2023-04"),
+    ("last year", "2023/05/25 (Thu) 16:59", "2022"),
+    ("the week before last", "2023/05/29 (Mon) 15:17", "2023-05-15"),
+    ("last week", "2023/05/26 (Fri) 14:05", "2023-05-19"),
+    ("last Saturday, exactly a week ago", "2023/05/26 (Fri) 14:05", "2023-05-20"),
+    ("next Tuesday", "2023/05/26 (Fri) 14:05", "2023-05-30"),
+    ("on October 15th", "2023/11/29 (Wed) 03:49", "2023-10-15"),
+    ("on September 25th", "2023/11/29 (Wed) 05:08", "2023-09-25"),
+    ("in June", "2023/11/29 (Wed) 22:12", "2023-06"),
+    ("in December", "2023/11/29 (Wed) 22:12", "2022-12"),
+    ("in November", "2023/11/29 (Wed) 07:51", "2023-11"),
+    ("on 2/5", "2023/02/15 (Wed) 11:13", "2023-02-05"),
+    ("February 5th", "2023/02/15 (Wed) 11:13", "2023-02-05"),
+    ("on 2023-05-14", "2023/05/20 (Sat) 20:05", "2023-05-14"),
+    ("in 3 weeks", "2023/05/20 (Sat) 20:05", "2023-06-10"),
+    ("three months ago", "2023/05/21 (Sun) 22:01", "2023-02-21"),
+    ("recently", "2023/06/15 (Thu) 10:02", None),
+    ("a few days ago", "2023/06/15 (Thu) 10:02", None),
+    ("last month", "not a timestamp", None),
+    (None, "2023-05-20", None),
+    ("", "2023-05-20", None),
+])
+def test_resolver_anchors_on_ts(mention, ts, expected):
+    from mnimi.extract.resolver import resolve
+
+    assert resolve(mention, ts) == expected
+
+
+def test_resolver_never_reads_the_clock():
+    import inspect
+
+    from mnimi.extract import resolver
+
+    src = inspect.getsource(resolver)
+    for forbidden in ("datetime.now", "date.today", "time.time", "utcnow"):
+        assert forbidden not in src
+    assert resolver.RESOLVER_VERSION == "v1"

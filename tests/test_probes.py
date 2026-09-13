@@ -117,3 +117,35 @@ def test_misses_classify_retrieval_vs_reading(tmp_path):
         "results": [{"question_id": q, "correct": ok} for q, ok in correct.items()],
     }), encoding="utf-8")
     assert misses.main([str(probe_path), str(results)]) == 0
+
+
+def test_probe_maps_fact_records_to_their_round_and_counts_the_stage(tmp_path):
+    """PHASE2: with an extractor a round is several records; the probe ranks
+    the ROUND (best record wins), attributes drops by kind and carries the
+    extraction counters. The question's evidence round is an exact duplicate
+    of an earlier round; its round record is dropped, and so is its fact
+    (same session, same fact text) — the strict rule still counts the miss."""
+    from mnimi.extract.fake import RuleExtractor
+
+    system = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(),
+                         extractor=RuleExtractor(), extraction_cache=tmp_path / "c.sqlite")
+    row = retrieval.probe_question(system, _question())
+    assert row.n_rounds == 4 and row.n_evidence_rounds == 1
+    # The "unrelated: the weather is grey" / "Noted." round has no slot and is
+    # never sent; the other three are.
+    assert row.rounds_sent_to_model == 3 and row.prefilter_skips == 1
+    assert row.facts_stored == 1, "one fact from the first 'I adopted' round; its repeat is dropped"
+    assert row.stored == 4, "three round records plus one fact record"
+    assert {d.kind for d in row.drops} == {"round", "fact"}
+    assert row.evidence_ranks == [-1] and row.lost_evidence == [["s1", 2, "exact"]]
+    # Every ranked hit maps back to a round; the cat round is the best hit and
+    # collapses its fact and its round record into one rank.
+    assert len(row.top_sessions) == 3 and row.top_sessions[0] == "s1"
+    summary = aggregate.summarize([row])
+    assert summary["extraction"]["facts_stored"] == 1
+    assert summary["drops_by_kind"] == {"fact/exact": 1, "round/exact": 1}
+    assert "facts stored 1" in aggregate.format_summary(summary)
+    # Two model calls in all: the joke round and the first cat round; the repeated
+    # cat round is the same turns, hence the same cache key, and the probe's
+    # mirror walk costs nothing (D10).
+    assert system.cache_stats == {"hits": 4, "misses": 2}

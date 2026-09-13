@@ -85,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/7"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/8"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -344,7 +344,7 @@ class TestOpenAITransportCli:
 
         assert rc == 0, capsys.readouterr().err
         pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
-        assert pins["artifact_schema"] == "mnimi-eval-artifact/7"
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/8"
         assert pins["reader_transport"] == "openai"
         assert pins["reader_model"] == "gpt-4o-2024-08-06"
         assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
@@ -1303,3 +1303,46 @@ def test_build_system_hands_every_knob_to_both_retrieval_arms(monkeypatch):
         assert (cfg.chunk_tokens, cfg.chunk_overlap) == (510, 64)
     build_system("mnimi")
     assert captured["mnimi"].top_k == 10, "no --top-k: the library default, not a harness copy"
+
+
+# -- the extraction era (PHASE2 Task 6, schema /8) -----------------------------------------
+
+
+def test_extractor_pins_move_the_pins_hash_and_the_format_hash_stays_put():
+    from evals.stats import HARNESS_PARITY_FIELDS
+
+    base = artifacts.pins_hash(_pins(extractor_model="none", render_unit="turns"))
+    assert artifacts.pins_hash(_pins(extractor_model="Qwen/x@abc", render_unit="turns")) != base
+    assert artifacts.pins_hash(_pins(extractor_model="none", extractor_prompt_hash="p1")) != base
+    assert artifacts.pins_hash(_pins(extractor_model="none", render_unit="round+facts")) != base
+    assert artifacts.pins_hash(_pins(fact_embed_template_hash="f")) != artifacts.pins_hash(_pins())
+    for key in ("extractor_quant", "extractor_runtime", "extractor_decode_hash",
+                "prefilter_lexicon_hash", "resolver_version", "render_unit_template_hash"):
+        assert _pins()[key] is None, "declared by mnimi only"
+    # The unit is a system-level pin: the baseline and extraction arms must still pair.
+    assert "render_unit" not in HARNESS_PARITY_FIELDS
+    assert "render_unit_template_hash" not in HARNESS_PARITY_FIELDS
+    assert "render_template_hash" in HARNESS_PARITY_FIELDS
+
+
+def test_build_system_hands_extractor_and_render_unit_to_mnimi(monkeypatch):
+    import evals.systems.mnimi as mnimi_mod
+    from evals.__main__ import build_system
+
+    from mnimi.extract.fake import RuleExtractor
+
+    captured = {}
+
+    class Fake:
+        def __init__(self, config, extractor=None, extraction_cache=None):
+            captured.update(config=config, extractor=extractor, cache=extraction_cache)
+
+    monkeypatch.setattr(mnimi_mod, "MnimiSystem", Fake)
+    monkeypatch.setattr("evals.probes.retrieval.build_extractor",
+                        lambda name: RuleExtractor() if name == "qwen3" else None)
+    build_system("mnimi", extractor="qwen3", render_unit="facts", extractor_cache="c.sqlite")
+    assert captured["config"].render_unit == "facts"
+    assert captured["extractor"].pins["extractor_model"] == "fake-rule"
+    assert captured["cache"] == "c.sqlite"
+    build_system("mnimi", extractor="none")
+    assert captured["extractor"] is None and captured["config"].render_unit == "turns"

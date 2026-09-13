@@ -43,9 +43,17 @@ def build_system(
     chunk_tokens: int = 0,
     chunk_overlap: int = 64,
     top_k: int | None = None,
+    extractor: str | None = None,
+    render_unit: str | None = None,
+    extractor_cache: str | None = None,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
+
+    ``extractor`` (``none`` / ``qwen3``, PHASE2) reaches mnimi only — naive_rag
+    never extracts, that is the comparison — and ``render_unit`` reaches mnimi
+    through the shared ``MemoryConfig`` (naive_rag declares and renders
+    ``turns`` whatever the value: its records have no facts).
 
     ``render_format`` is handed to every context-bearing arm — the harness
     pins ``render_template_hash(render_format)``, and one value for all arms
@@ -70,6 +78,8 @@ def build_system(
         knobs["query_instruction"] = query_instruction
     if top_k is not None:  # the one pre-registered alternative to k=10 (R6)
         knobs["top_k"] = top_k
+    if render_unit is not None:  # else the library default (turns until adoption)
+        knobs["render_unit"] = render_unit
     config = MemoryConfig(**knobs)
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
@@ -88,9 +98,15 @@ def build_system(
 
         return NaiveRagSystem(config=config)
     if name == "mnimi":
+        from .probes.retrieval import build_extractor
         from .systems.mnimi import MnimiSystem
 
-        return MnimiSystem(config=config)
+        extractor_obj = build_extractor(extractor)
+        if extractor_obj is None:
+            return MnimiSystem(config=config)
+        return MnimiSystem(
+            config=config, extractor=extractor_obj, extraction_cache=extractor_cache
+        )
     raise SystemExit(f"unknown system: {name}")
 
 
@@ -248,6 +264,10 @@ def _resume_extras(args) -> str:
         extras.append(f"--chunk-tokens {args.chunk_tokens} --chunk-overlap {args.chunk_overlap}")
     if args.top_k is not None:
         extras.append(f"--top-k {args.top_k}")
+    if args.extractor is not None:
+        extras.append(f"--extractor {args.extractor}")
+    if args.render_unit is not None:
+        extras.append(f"--render-unit {args.render_unit}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -432,6 +452,31 @@ def main(argv: list[str] | None = None) -> int:
         help="records both retrieval arms retrieve (MemoryConfig.top_k; pinned as k). "
         "Default: the library's 10. 20 is the ONE pre-registered alternative (R6, "
         "DECISIONS 2026-09-12); no other value is ever run against the benchmark.",
+    )
+    parser.add_argument(
+        "--extractor",
+        default=None,
+        choices=["none", "qwen3"],
+        help="mnimi only: the write-time extractor (PHASE2 D6/D7). 'qwen3' is the pinned "
+        "Qwen3-1.7B Q8_0 GGUF through llama-cpp-python ([extract] extra, GPU); 'none' is "
+        "the v1 arm (rounds only). Default: the library's (none until adoption). Pinned "
+        "(schema /8) and a memory_meta row; naive_rag never extracts.",
+    )
+    parser.add_argument(
+        "--render-unit",
+        default=None,
+        choices=["turns", "round+facts", "facts"],
+        help="what mnimi shows a retrieved round as (MemoryConfig.render_unit, PHASE2 D5): "
+        "'turns' (v1), 'round+facts' (turns under a facts: header — the extraction era's "
+        "primary), 'facts' (facts only — the one pre-registered alternative). A "
+        "system-level pin (render_unit_template_hash), so the arms still pair. Default: "
+        "the library's.",
+    )
+    parser.add_argument(
+        "--extractor-cache",
+        default=None,
+        help="path of the extraction cache (default .cache/extract/<extractor pins "
+        "hash>.sqlite). Never a pin: the cache holds the model's bytes, keyed by the round.",
     )
     parser.add_argument(
         "--render-format",
@@ -674,6 +719,9 @@ def main(argv: list[str] | None = None) -> int:
             chunk_tokens=args.chunk_tokens,
             chunk_overlap=args.chunk_overlap,
             top_k=args.top_k,
+            extractor=args.extractor,
+            render_unit=args.render_unit,
+            extractor_cache=args.extractor_cache,
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
@@ -1441,6 +1489,13 @@ def _print_pins(pins: dict, declared_ctx: int | None) -> None:
         f"render template:  {str(pins.get('render_template_hash'))[:12]}...",
         file=sys.stderr,
     )
+    if pins.get("extractor_model") is not None:
+        print(
+            f"extractor:        {pins.get('extractor_model')} "
+            f"(prompt {str(pins.get('extractor_prompt_hash'))[:12]}..., "
+            f"render unit {pins.get('render_unit')})",
+            file=sys.stderr,
+        )
     print(f"pins_hash:        {artifacts.pins_hash(pins)}", file=sys.stderr)
     print("------------", file=sys.stderr)
 

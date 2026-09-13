@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/7"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/8"
 
 
 def fingerprint(text: str) -> str:
@@ -432,6 +432,15 @@ def build_pins(
     embedder_revision: str | None = None,
     embed_template_hash: str | None = None,
     extractor_model: str | None = None,
+    extractor_quant: str | None = None,
+    extractor_runtime: str | None = None,
+    extractor_decode_hash: str | None = None,
+    extractor_prompt_hash: str | None = None,
+    prefilter_lexicon_hash: str | None = None,
+    fact_embed_template_hash: str | None = None,
+    resolver_version: str | None = None,
+    render_unit: str | None = None,
+    render_unit_template_hash: str | None = None,
     k: int | None = None,
     dedup_cosine_threshold: float | None = None,
     dedup_scope: str | None = None,
@@ -505,6 +514,21 @@ def build_pins(
     vector must move the hash, as ``dedup_cosine_threshold`` taught
     (schema /2).
 
+    Schema /8 (2026-09-13, Phase 2) added the extraction era's pins, each a
+    ``memory_meta`` row too: ``extractor_model`` (now filled — repo, file and
+    HF revision of the GGUF), ``extractor_quant``, ``extractor_runtime``
+    (llama-cpp-python version, build flags, CUDA), ``extractor_decode_hash``,
+    ``extractor_prompt_hash`` (prompt + grammar), ``prefilter_lexicon_hash``,
+    ``fact_embed_template_hash`` (the fact records' embed template — the
+    round template's hash did not move), ``resolver_version``; and the render
+    unit — ``render_unit`` (``turns`` / ``round+facts`` / ``facts``) with
+    ``render_unit_template_hash``. A mnimi arm without an extractor declares
+    ``"none"`` for the five extractor keys, the value its store's guard rows
+    carry, so "does not extract" is stated rather than implied. The unit is a
+    SYSTEM-level pin, deliberately outside ``stats.HARNESS_PARITY_FIELDS``:
+    the render *format* stays the parity pin, the unit is what the memory
+    layer hands the reader, and the baseline and extraction arms must pair.
+
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
     prompt on a different transport is a different configuration family; a
@@ -565,6 +589,15 @@ def build_pins(
         "embedder_revision": embedder_revision,
         "embed_template_hash": embed_template_hash,
         "extractor_model": extractor_model,
+        "extractor_quant": extractor_quant,
+        "extractor_runtime": extractor_runtime,
+        "extractor_decode_hash": extractor_decode_hash,
+        "extractor_prompt_hash": extractor_prompt_hash,
+        "prefilter_lexicon_hash": prefilter_lexicon_hash,
+        "fact_embed_template_hash": fact_embed_template_hash,
+        "resolver_version": resolver_version,
+        "render_unit": render_unit,
+        "render_unit_template_hash": render_unit_template_hash,
         "k": k,
         "dedup_cosine_threshold": dedup_cosine_threshold,
         "dedup_scope": dedup_scope,

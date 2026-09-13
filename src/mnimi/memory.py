@@ -1,9 +1,9 @@
-"""The ``Memory`` facade: four methods over an embedder and a store.
+"""The ``Memory`` facade: four methods over an embedder, a store and, optionally, an extractor.
 
 Today these are deliberately thin. The store is real (real schema, real vector
-search); the write-side intelligence — extraction, salience, conflict
-resolution, decay — lands behind ``add`` and ``consolidate`` in later weeks. The
-public surface stays at four methods regardless.
+search); the write-side intelligence — extraction (PHASE2), salience, conflict
+resolution, decay — lands behind ``add`` and ``consolidate``. The public
+surface stays at four methods regardless.
 """
 
 from __future__ import annotations
@@ -16,7 +16,9 @@ from typing import NamedTuple
 
 from .config import MemoryConfig
 from .embeddings import Embedder
-from .models import MemoryRecord
+from .extract import prefilter
+from .extract.resolver import RESOLVER_VERSION, resolve
+from .models import KIND_FACT, KIND_ROUND, MemoryRecord
 from .store import Store
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
@@ -30,12 +32,19 @@ DEDUP_SCOPES = (DEDUP_SCOPE_STORE, DEDUP_SCOPE_SESSION)
 # ---------------------------------------------------------------------------
 # The embed/render split.
 #
-# EMBED_TEMPLATE builds the text that gets embedded and keys the dedup screens.
-# It is FROZEN: an edit here changes every vector, every retrieval and the
-# dedup key, and invalidates any threshold selected under the previous form —
-# the 0.95 threshold's selection evidence cannot be regenerated (further
-# threshold selection against LongMemEval is prohibited). Its hash is pinned
-# into ``memory_meta`` at DB creation and checked on every open.
+# EMBED_TEMPLATE builds the text that gets embedded and keys the dedup screens
+# for a ROUND record. It is FROZEN: an edit here changes every vector, every
+# retrieval and the dedup key, and invalidates any threshold selected under
+# the previous form — the 0.95 threshold's selection evidence cannot be
+# regenerated (further threshold selection against LongMemEval is
+# prohibited). Its hash is pinned into ``memory_meta`` at DB creation and
+# checked on every open.
+#
+# FACT_EMBED_TEMPLATE builds the embedded text of a FACT record (PHASE2 D2):
+# SPEC's extraction-era ``f"{raw}\n{content}"`` — the verbatim role-prefixed
+# span, then the fact text (LongMemEval's measured key expansion, CHANGELOG
+# #1). Frozen and hashed into ``memory_meta`` under its own key, so the v1
+# template's hash does not move when the extraction era lands.
 #
 # RENDER_TEMPLATE builds the text a reader sees. It may evolve — an edit here
 # changes reader context and not a single vector — and its hash is pinned in
@@ -50,10 +59,20 @@ DEDUP_SCOPES = (DEDUP_SCOPE_STORE, DEDUP_SCOPE_SESSION)
 # harness pins the hash of the format it ran — so the two are never confused
 # in an artifact, and the default format's hash is exactly what it was before
 # the second format existed.
+#
+# Three render UNITS (PHASE2 D5) decide what a retrieved ROUND is shown as:
+# its verbatim turns (``turns`` — v1, and the format the other arms render),
+# its turns under a ``facts:`` header (``round+facts``), or its facts alone
+# (``facts``). The unit is a system-level pin (``render_unit_template_hash``
+# in mnimi's retrieval pins), not a harness parity field: the FORMAT stays
+# identical across arms, the unit is what the memory layer hands the reader.
 # ---------------------------------------------------------------------------
 
 EMBED_TEMPLATE = "[Session date: ${date}] ${text}"
 _EMBED_T = Template(EMBED_TEMPLATE)
+
+FACT_EMBED_TEMPLATE = "${raw}\n${fact}"
+_FACT_EMBED_T = Template(FACT_EMBED_TEMPLATE)
 
 # One header per timestamp change, then one role-labelled line per turn — the
 # canonical context format shared by every arm of the eval (the harness's
@@ -78,6 +97,24 @@ _RENDER_TEMPLATES = {
     RENDER_FORMAT_JSON: RENDER_JSON_TEMPLATE,
 }
 
+RENDER_UNIT_TURNS = "turns"
+RENDER_UNIT_ROUND_FACTS = "round+facts"
+RENDER_UNIT_FACTS = "facts"
+RENDER_UNITS = (RENDER_UNIT_TURNS, RENDER_UNIT_ROUND_FACTS, RENDER_UNIT_FACTS)
+# The facts header a round renders under (``round+facts``), and the per-fact
+# block a round renders as (``facts``); ``(${valid_time})`` is omitted for a
+# standing fact. These strings are the hashed descriptors of each unit.
+RENDER_FACTS_HEADER_TEMPLATE = "facts:\n- ${fact} (${valid_time})"
+RENDER_FACT_ITEM_TEMPLATE = "fact: ${fact} (${valid_time})\nsource: ${raw}"
+_RENDER_UNIT_TEMPLATES = {
+    RENDER_UNIT_TURNS: "${turns}",
+    RENDER_UNIT_ROUND_FACTS: RENDER_FACTS_HEADER_TEMPLATE + "\n${turns}",
+    RENDER_UNIT_FACTS: RENDER_FACT_ITEM_TEMPLATE,
+}
+_FACT_LINE_T = Template("- ${fact}")
+_FACT_ITEM_T = Template("fact: ${fact}")
+_FACT_SOURCE_T = Template("source: ${raw}")
+
 
 def _check_render_format(fmt: str) -> str:
     if fmt not in _RENDER_TEMPLATES:
@@ -85,9 +122,20 @@ def _check_render_format(fmt: str) -> str:
     return fmt
 
 
+def _check_render_unit(unit: str) -> str:
+    if unit not in _RENDER_UNIT_TEMPLATES:
+        raise ValueError(f"unknown render unit {unit!r}; expected one of {RENDER_UNITS}")
+    return unit
+
+
 def embed_template_hash() -> str:
-    """Digest of the embed-text template, pinned in ``memory_meta``."""
+    """Digest of the round embed-text template, pinned in ``memory_meta``."""
     return hashlib.sha256(EMBED_TEMPLATE.encode("utf-8")).hexdigest()
+
+
+def fact_embed_template_hash() -> str:
+    """Digest of the fact embed-text template, pinned in ``memory_meta``."""
+    return hashlib.sha256(FACT_EMBED_TEMPLATE.encode("utf-8")).hexdigest()
 
 
 def render_template_hash(fmt: str = RENDER_FORMAT_TEXT) -> str:
@@ -97,6 +145,27 @@ def render_template_hash(fmt: str = RENDER_FORMAT_TEXT) -> str:
     hashes the same ``RENDER_TEMPLATE`` string it always did.
     """
     return hashlib.sha256(_RENDER_TEMPLATES[_check_render_format(fmt)].encode("utf-8")).hexdigest()
+
+
+def render_unit_template_hash(unit: str = RENDER_UNIT_TURNS) -> str:
+    """Digest of the render unit's block descriptor — a system-level pin."""
+    return hashlib.sha256(
+        _RENDER_UNIT_TEMPLATES[_check_render_unit(unit)].encode("utf-8")
+    ).hexdigest()
+
+
+def guard_kwargs(extractor=None) -> dict:
+    """The extraction-era ``memory_meta`` rows a ``Store`` is opened with.
+
+    One definition for every constructor site (``Memory``, the harness's
+    ``naive_rag`` arm, the tests), so the guard cannot drift between them.
+    """
+    return {
+        "extractor_pins": extractor.pins if extractor is not None else None,
+        "fact_embed_template_hash": fact_embed_template_hash(),
+        "prefilter_lexicon_hash": prefilter.prefilter_lexicon_hash(),
+        "resolver_version": RESOLVER_VERSION,
+    }
 
 
 def _render_blocks(turns: list[dict]) -> list[dict]:
@@ -151,43 +220,143 @@ def render_turns(turns: list[dict], fmt: str = RENDER_FORMAT_TEXT) -> str:
     return "\n".join(lines)
 
 
-def render_records(records: list[MemoryRecord], fmt: str = RENDER_FORMAT_TEXT) -> str:
-    """Render stored records (already ordered) through :func:`render_turns`.
+def _fact_text(record: MemoryRecord) -> str:
+    text = _FACT_LINE_T.substitute(fact=record.fact or "")[2:]  # the bare fact text
+    return f"{text} ({record.valid_time})" if record.valid_time else text
 
-    Flattens each record's verbatim turns, stamping the record's ``created_at``
-    onto every turn so the header logic sees the same shape ``full_history``
-    feeds it. A legacy record without ``turns`` falls back to its ``content``
-    string — degraded (no speaker attribution) but never silently dropped.
-    """
-    turns: list[dict] = []
+
+def _render_items(records: list[MemoryRecord], facts_of) -> list[dict]:
+    """One item per retrieved round: its ``ts``, its turns, its fact records."""
+    items: list[dict] = []
     rendered_rounds: set[str] = set()
     for record in records:
-        # A round embedded as several windows (R4) is several records with one
-        # round_key; the reader sees the round once, at its first window.
         if record.round_key is not None:
             if record.round_key in rendered_rounds:
                 continue
             rendered_rounds.add(record.round_key)
-        source_turns = record.turns or [{"role": record.source, "content": record.content}]
-        for turn in source_turns:
-            turns.append(
-                {
-                    "role": turn.get("role", ""),
-                    "content": turn.get("content", ""),
-                    "ts": record.created_at,
-                }
-            )
-    return render_turns(turns, fmt=fmt)
+        if record.round_key is not None and facts_of is not None:
+            facts = list(facts_of(record.round_key))
+        elif record.kind == KIND_FACT:
+            facts = [record]
+        else:
+            facts = []
+        turns = record.turns or [{"role": record.source, "content": record.content}]
+        items.append({"ts": record.created_at, "turns": turns, "facts": facts})
+    return items
+
+
+def render_records(
+    records: list[MemoryRecord],
+    fmt: str = RENDER_FORMAT_TEXT,
+    unit: str = RENDER_UNIT_TURNS,
+    facts_of=None,
+) -> str:
+    """Render stored records (already ordered) through the one renderer.
+
+    ``unit="turns"`` flattens each record's verbatim turns, stamping the
+    record's ``created_at`` onto every turn so the header logic sees the same
+    shape ``full_history`` feeds it — byte for byte the v1 output. A legacy
+    record without ``turns`` falls back to its ``content`` string — degraded
+    (no speaker attribution) but never silently dropped. A round stored as
+    several records (R4 windows, or a round record with its facts) renders
+    once, at its first record.
+
+    ``unit="round+facts"`` renders the same blocks with a ``facts:`` header
+    per round listing every fact record of that round — the ones retrieved
+    and, through ``facts_of(round_key)``, the ones that were not — each with
+    its resolved ``valid_time`` when it has one. ``unit="facts"`` renders a
+    round as its fact records only (``fact:`` / ``source:`` lines); a round
+    with no facts falls back to its turns.
+    """
+    _check_render_format(fmt)
+    _check_render_unit(unit)
+    if unit == RENDER_UNIT_TURNS:
+        turns: list[dict] = []
+        rendered_rounds: set[str] = set()
+        for record in records:
+            if record.round_key is not None:
+                if record.round_key in rendered_rounds:
+                    continue
+                rendered_rounds.add(record.round_key)
+            source_turns = record.turns or [{"role": record.source, "content": record.content}]
+            for turn in source_turns:
+                turns.append(
+                    {
+                        "role": turn.get("role", ""),
+                        "content": turn.get("content", ""),
+                        "ts": record.created_at,
+                    }
+                )
+        return render_turns(turns, fmt=fmt)
+
+    items = _render_items(records, facts_of)
+    if fmt == RENDER_FORMAT_JSON:
+        blocks: list[dict] = []
+        current_ts = None
+        for item in items:
+            ts = item["ts"]
+            if (ts and ts != current_ts) or not blocks:
+                blocks.append({"session_date": ts, "items": []})
+                if ts:
+                    current_ts = ts
+            entry: dict = {
+                "facts": [
+                    {"fact": f.fact, "valid_time": f.valid_time, "source": f.raw}
+                    for f in item["facts"]
+                ]
+            }
+            if unit == RENDER_UNIT_ROUND_FACTS or not item["facts"]:
+                entry["turns"] = [
+                    {"role": t.get("role", ""), "content": t.get("content", "")}
+                    for t in item["turns"]
+                ]
+            blocks[-1]["items"].append(entry)
+        return json.dumps(blocks, ensure_ascii=False, indent=_RENDER_JSON_INDENT)
+
+    lines: list[str] = []
+    current_ts = None
+    for item in items:
+        ts = item["ts"]
+        if ts and ts != current_ts:
+            lines.append(_RENDER_HEADER_T.substitute(ts=ts))
+            current_ts = ts
+        if unit == RENDER_UNIT_ROUND_FACTS:
+            if item["facts"]:
+                lines.append("facts:")
+                lines.extend(_FACT_LINE_T.substitute(fact=_fact_text(f)) for f in item["facts"])
+            for turn in item["turns"]:
+                lines.append(_RENDER_TURN_T.substitute(role=turn.get("role", ""),
+                                                       content=turn.get("content", "")))
+        else:  # RENDER_UNIT_FACTS
+            if item["facts"]:
+                for f in item["facts"]:
+                    lines.append(_FACT_ITEM_T.substitute(fact=_fact_text(f)))
+                    lines.append(_FACT_SOURCE_T.substitute(raw=f.raw or ""))
+            else:
+                for turn in item["turns"]:
+                    lines.append(_RENDER_TURN_T.substitute(role=turn.get("role", ""),
+                                                           content=turn.get("content", "")))
+    return "\n".join(lines)
 
 
 class Memory:
     """Embeddable agent memory backed by a single SQLite file."""
 
     def __init__(
-        self, db_path: str, embedder: Embedder, config: MemoryConfig = _DEFAULT_CONFIG
+        self,
+        db_path: str,
+        embedder: Embedder,
+        config: MemoryConfig = _DEFAULT_CONFIG,
+        *,
+        extractor=None,
     ) -> None:
+        """``extractor`` is the one LLM (PHASE2 D6): an ``mnimi.extract.Extractor``
+        whose facts become fact records beside every round. ``None`` — the
+        default, and all the core deps can offer — is the v1 write path: rounds
+        only, no fact records, no ``[extract]`` extra."""
         self.embedder = embedder
         self.config = config
+        self.extractor = extractor
         if config.dedup_scope not in DEDUP_SCOPES:
             raise ValueError(
                 f"unknown dedup_scope {config.dedup_scope!r}; expected one of {DEDUP_SCOPES}"
@@ -198,6 +367,8 @@ class Memory:
             raise ValueError(
                 "chunk_tokens must be >= 0 and chunk_overlap must be in [0, chunk_tokens)"
             )
+        _check_render_format(config.render_format)
+        _check_render_unit(config.render_unit)
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -206,56 +377,110 @@ class Memory:
             embed_template_hash=embed_template_hash(),
             chunk_tokens=config.chunk_tokens,
             chunk_overlap=config.chunk_overlap,
+            **guard_kwargs(extractor),
         )
+        # Diagnostics of the extraction stage, accumulated across add() calls
+        # (the corpus pass reports them). Never a pin, never persisted.
+        self.extraction_stats = new_extraction_stats()
 
     def add(self, messages, user_id: str) -> None:
-        """Write path: one record per user+assistant round, deduped.
+        """Write path: one round record per user+assistant round, plus one fact
+        record per extracted fact when an extractor is present, all deduped.
 
         ``messages`` is ``list[dict]`` with ``role`` / ``content`` / ``ts`` —
         nothing else. Granularity is per-round (a user turn and its assistant
         reply), which must match ``naive_rag`` exactly or the comparison is
-        confounded. The session date is folded into content so it reaches the
-        reader; role stays metadata and never enters the embedded string.
+        confounded. The session date is folded into the round's embed text so
+        it reaches the reader; role stays metadata and never enters a round's
+        vector (a fact's ``raw`` span is role-prefixed by SPEC).
 
-        v1 dedup is exact-normalize collapse followed by ONE cosine-threshold
-        probe against the store. No negation screen, no entropy gate — those
-        arrive with extraction, post-v1.
+        Dedup is exact-normalize collapse followed by ONE cosine-threshold
+        probe, per record, against records of the SAME kind (PHASE2 D3): a
+        fact is compared with earlier facts, a round with earlier rounds. For
+        rounds the exact screen is store-wide (its key folds the session date
+        in); for facts both screens follow ``dedup_scope``. No negation
+        screen, no entropy gate — those arrive in Phase 3.
         """
         rounds = _messages_to_rounds(messages)
         if not rounds:
             return
-        seen = {_normalize(content) for content in self.store.contents(user_id)}
-        # One embed batch per add(), as before; with chunking off every round
-        # is its own single piece and the batch is byte-identical to v1's.
-        pieces = [
-            (round_, piece)
+        per_round = [
+            (round_, round_pieces(round_, self.embedder, self.config, self.extractor,
+                                  self.extraction_stats))
             for round_ in rounds
-            for piece in round_pieces(round_, self.embedder, self.config)
         ]
-        embeddings = self.embedder.embed([piece.content for _r, piece in pieces])
-        for (round_, piece), embedding in zip(pieces, embeddings, strict=True):
-            normalized = _normalize(piece.content)
-            if normalized in seen:
+        # Two embed batches, never one: the round batch is byte-identical to
+        # v1's (batch composition moves BGE's vectors), and the fact batch
+        # rides behind it.
+        positions = {KIND_ROUND: [], KIND_FACT: []}
+        for ri, (_round, pieces) in enumerate(per_round):
+            for pi, piece in enumerate(pieces):
+                positions[piece.kind].append((ri, pi))
+        vectors: dict[tuple[int, int], list[float]] = {}
+        for spots in positions.values():
+            if not spots:
                 continue
-            hits = self.store.search(embedding, user_id=user_id, k=1)
-            if (
-                hits
-                and hits[0][1] >= self.config.dedup_cosine_threshold
-                and self._in_dedup_scope(hits[0][0], round_)
-            ):
-                continue
-            self.store.insert(
-                MemoryRecord(
-                    user_id=user_id,
-                    content=piece.content,
-                    embedding=embedding,
-                    created_at=round_.ts,
-                    source=round_.roles,
-                    turns=round_.turns,
-                    round_key=piece.round_key,
+            texts = [per_round[ri][1][pi].content for ri, pi in spots]
+            for spot, vector in zip(spots, self.embedder.embed(texts), strict=True):
+                vectors[spot] = vector
+
+        seen_round = {_normalize(c) for c in self.store.contents(user_id, kind=KIND_ROUND)}
+        seen_fact = {
+            self._fact_exact_key(ts, content)
+            for ts, content in self.store.contents_with_ts(user_id, kind=KIND_FACT)
+        }
+        threshold = self.config.dedup_cosine_threshold
+        for ri, (round_, pieces) in enumerate(per_round):
+            for pi, piece in enumerate(pieces):
+                embedding = vectors[(ri, pi)]
+                if piece.kind == KIND_ROUND:
+                    key = _normalize(piece.content)
+                    seen = seen_round
+                else:
+                    key = self._fact_exact_key(round_.ts, piece.content)
+                    seen = seen_fact
+                if key in seen:
+                    continue
+                hits = self.store.search(embedding, user_id=user_id, k=1, kind=piece.kind)
+                if (
+                    hits
+                    and hits[0][1] >= threshold
+                    and self._in_dedup_scope(hits[0][0], round_)
+                ):
+                    continue
+                self.store.insert(
+                    MemoryRecord(
+                        user_id=user_id,
+                        content=piece.content,
+                        embedding=embedding,
+                        created_at=round_.ts,
+                        salience=piece.salience,
+                        source=round_.roles,
+                        turns=round_.turns,
+                        round_key=piece.round_key,
+                        kind=piece.kind,
+                        fact=piece.fact,
+                        raw=piece.raw,
+                        subject=piece.subject,
+                        predicate=piece.predicate,
+                        object=piece.object,
+                        valid_time=piece.valid_time,
+                        time_mention=piece.time_mention,
+                    )
                 )
-            )
-            seen.add(normalized)
+                seen.add(key)
+
+    def _fact_exact_key(self, ts: str | None, content: str):
+        """The exact screen's key for a fact record: store-wide or per session.
+
+        A fact's embed text has no date fold (``FACT_EMBED_TEMPLATE``), so the
+        session scope has to be applied here explicitly; a round's key already
+        carries the date.
+        """
+        normalized = _normalize(content)
+        if self.config.dedup_scope == DEDUP_SCOPE_STORE:
+            return normalized
+        return (ts, normalized)
 
     def _in_dedup_scope(self, neighbour: MemoryRecord, round_: Round) -> bool:
         """Whether a neighbour at or above the threshold counts as a duplicate.
@@ -279,7 +504,11 @@ class Memory:
         return embedding
 
     def recall(self, query: str, user_id: str) -> list[MemoryRecord]:
-        """Raw retrieval: the nearest stored memories, no assembly."""
+        """Raw retrieval: the nearest stored rounds, no assembly.
+
+        ``k`` counts rounds: a round's records (R4 windows; the round record
+        and its facts) collapse to the best-ranked one (``Store.search_rounds``).
+        """
         query_embedding = self._query_embedding(query)
         hits = self.store.search_rounds(query_embedding, user_id=user_id, k=self.config.top_k)
         return [record for record, _cosine in hits]
@@ -293,12 +522,19 @@ class Memory:
         of the benchmark. The paper's own pipeline sorts retrieved items by
         timestamp before reading (§5.1).
 
-        Rendered from each record's verbatim ``turns`` — full timestamp header,
-        ``user:``/``assistant:`` speaker labels — never from ``content``, which
-        is the embed text and stays frozen when this format evolves.
+        Rendered from each record's verbatim ``turns`` (and, under the
+        extraction era's units, its round's fact records) — full timestamp
+        header, ``user:``/``assistant:`` speaker labels — never from
+        ``content``, which is the embed text and stays frozen when this format
+        evolves.
         """
         records = _time_ordered(self.recall(query, user_id))
-        return render_records(records, fmt=self.config.render_format)
+        return render_records(
+            records,
+            fmt=self.config.render_format,
+            unit=self.config.render_unit,
+            facts_of=lambda round_key: self.store.facts_of(user_id, round_key),
+        )
 
     def consolidate(self, user_id: str) -> None:
         """Merge duplicates, resolve conflicts, decay stale memories.
@@ -307,6 +543,19 @@ class Memory:
         write-side policy will live.
         """
         return None
+
+
+def new_extraction_stats() -> dict:
+    """Counters ``round_pieces`` accumulates when an extractor is in play."""
+    return {
+        "rounds": 0,
+        "prefilter_skips": 0,
+        "rounds_sent": 0,
+        "empty_extractions": 0,
+        "truncated_outputs": 0,
+        "truncated_inputs": 0,
+        "facts": 0,
+    }
 
 
 def _time_ordered(records: list[MemoryRecord]) -> list[MemoryRecord]:
@@ -336,10 +585,19 @@ class Round(NamedTuple):
 
 
 class Piece(NamedTuple):
-    """One embedded string of a round: the whole round, or one window of it."""
+    """One embedded string of a round: the round whole, one R4 window of it, or one fact."""
 
-    content: str  # templated exactly like Round.content
-    round_key: str | None  # shared by the windows of one round; None when whole
+    content: str  # the embed text of this record
+    round_key: str | None  # shared by every piece of one round; None for a bare v1 round
+    kind: str = KIND_ROUND
+    fact: str | None = None
+    raw: str | None = None
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    valid_time: str | None = None
+    time_mention: str | None = None
+    salience: float = 1.0
 
 
 def _round_text(round_: Round) -> str:
@@ -348,12 +606,18 @@ def _round_text(round_: Round) -> str:
 
 
 def round_key(ts: str | None, text: str) -> str:
-    """Identity of a round across its windows: its timestamp and its text."""
+    """Identity of a round across its records: its timestamp and its text."""
     return f"{ts}|{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
 
 
-def round_pieces(round_: Round, embedder: Embedder, config: MemoryConfig) -> list[Piece]:
-    """What gets embedded for one round under ``config`` (R4).
+def round_pieces(
+    round_: Round,
+    embedder: Embedder,
+    config: MemoryConfig,
+    extractor=None,
+    stats: dict | None = None,
+) -> list[Piece]:
+    """What gets embedded for one round under ``config`` (R4) and ``extractor`` (PHASE2).
 
     ``chunk_tokens == 0``: the round whole, ``round_key`` None — v1's shape.
     Otherwise the round's text is split by the embedder's own tokenizer into
@@ -361,18 +625,65 @@ def round_pieces(round_: Round, embedder: Embedder, config: MemoryConfig) -> lis
     date fold is on every window, so ``EMBED_TEMPLATE`` is unchanged); a
     round that fits in one window is still whole and unkeyed. Both retrieval
     arms of the eval call this, so their embedded units stay identical.
+
+    With an ``extractor`` (mnimi only): every piece of the round carries its
+    ``round_key``; if the stage-1 pre-filter keeps at least one turn, the
+    round is handed to the extractor and each fact becomes a ``fact`` piece —
+    ``FACT_EMBED_TEMPLATE`` text, the fact's fields, and ``valid_time``
+    resolved from the verbatim mention against the round's ``ts``. ``stats``,
+    when given, accumulates the stage's counters (the corpus pass reports
+    them).
     """
     if config.chunk_tokens <= 0:
-        return [Piece(round_.content, None)]
-    text = _round_text(round_)
-    windows = embedder.split(text, config.chunk_tokens, config.chunk_overlap)
-    if len(windows) <= 1:
-        return [Piece(round_.content, None)]
-    key = round_key(round_.ts, text)
-    return [
-        Piece(_EMBED_T.substitute(date=_date_of(round_.ts), text=w) if round_.ts else w, key)
-        for w in windows
-    ]
+        pieces = [Piece(round_.content, None)]
+    else:
+        text = _round_text(round_)
+        windows = embedder.split(text, config.chunk_tokens, config.chunk_overlap)
+        if len(windows) <= 1:
+            pieces = [Piece(round_.content, None)]
+        else:
+            key = round_key(round_.ts, text)
+            pieces = [
+                Piece(_EMBED_T.substitute(date=_date_of(round_.ts), text=w) if round_.ts else w,
+                      key)
+                for w in windows
+            ]
+    if extractor is None:
+        return pieces
+    key = round_key(round_.ts, _round_text(round_))
+    pieces = [piece._replace(round_key=key) for piece in pieces]
+    if stats is not None:
+        stats["rounds"] += 1
+    keep, _dropped = prefilter.keep_round(round_.turns)
+    if not keep:
+        if stats is not None:
+            stats["prefilter_skips"] += 1
+        return pieces
+    result = extractor.extract(round_.turns)
+    facts = [f for f in result.facts if f.raw and f.content]
+    if stats is not None:
+        stats["rounds_sent"] += 1
+        stats["empty_extractions"] += not facts
+        stats["truncated_outputs"] += bool(result.truncated)
+        stats["truncated_inputs"] += bool(getattr(result, "truncated_input", False))
+        stats["facts"] += len(facts)
+    for fact in facts:
+        pieces.append(
+            Piece(
+                content=_FACT_EMBED_T.substitute(raw=fact.raw, fact=fact.content),
+                round_key=key,
+                kind=KIND_FACT,
+                fact=fact.content,
+                raw=fact.raw,
+                subject=fact.subject,
+                predicate=fact.predicate,
+                object=fact.object,
+                valid_time=resolve(fact.when, round_.ts),
+                time_mention=fact.when,
+                salience=float(fact.salience),
+            )
+        )
+    return pieces
 
 
 def _messages_to_rounds(messages) -> list[Round]:

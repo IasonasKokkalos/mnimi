@@ -13,10 +13,13 @@ from mnimi.embeddings import Embedder
 # the SAME CODE rather than a faithful-looking copy. A copy is exactly how the
 # confound gets in — it stays faithful right up until one side is edited.
 from mnimi.memory import (
+    RENDER_UNIT_TURNS,
     _messages_to_rounds,
     _time_ordered,
     embed_template_hash,
+    guard_kwargs,
     render_records,
+    render_unit_template_hash,
     round_pieces,
 )
 from mnimi.models import MemoryRecord
@@ -76,6 +79,10 @@ class NaiveRagSystem(MemorySystem):
             "query_instruction": self._config.query_instruction,
             "chunk_tokens": self._config.chunk_tokens,
             "chunk_overlap": self._config.chunk_overlap,
+            # Never extracts, so its records have no facts and every render
+            # unit shows the turns: declared as the unit it effectively renders.
+            "render_unit": RENDER_UNIT_TURNS,
+            "render_unit_template_hash": render_unit_template_hash(RENDER_UNIT_TURNS),
         }
 
     def reset(self) -> None:
@@ -89,6 +96,8 @@ class NaiveRagSystem(MemorySystem):
             embed_template_hash=embed_template_hash(),
             chunk_tokens=self._config.chunk_tokens,
             chunk_overlap=self._config.chunk_overlap,
+            # The extraction-era guard rows with no extractor (PHASE2 D11).
+            **guard_kwargs(None),
         )
 
     def add(self, messages: list[dict]) -> None:
@@ -130,6 +139,7 @@ class NaiveRagSystem(MemorySystem):
         return render_records(
             _time_ordered([record for record, _cosine in hits]),
             fmt=self._config.render_format,
+            unit=RENDER_UNIT_TURNS,
         )
 
     # -- diagnostics, not part of the MemorySystem contract --------------------

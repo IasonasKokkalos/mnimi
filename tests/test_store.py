@@ -11,13 +11,22 @@ from mnimi.models import MemoryRecord
 from mnimi.store import MemoryMetaError, Store
 
 
-def _open(path, dim=256, name="hashing", revision="v1", template_hash="tmpl-a") -> Store:
+def _guard(extractor=None) -> dict:
+    # The extraction-era guard rows (PHASE2 D11), from the library's one definition.
+    from mnimi.memory import guard_kwargs
+
+    return guard_kwargs(extractor)
+
+
+def _open(path, dim=256, name="hashing", revision="v1", template_hash="tmpl-a",
+          extractor=None, **overrides) -> Store:
     return Store(
         str(path),
         dim=dim,
         embedder_name=name,
         embedder_revision=revision,
         embed_template_hash=template_hash,
+        **{**_guard(extractor), **overrides},
     )
 
 
@@ -209,7 +218,7 @@ def test_meta_guard_rejects_chunking_mismatch(tmp_path):
     from mnimi.memory import embed_template_hash
 
     kwargs = dict(dim=4, embedder_name="e", embedder_revision="r",
-                  embed_template_hash=embed_template_hash())
+                  embed_template_hash=embed_template_hash(), **_guard())
     Store(str(tmp_path / "s.db"), **kwargs).close()
     Store(str(tmp_path / "s.db"), **kwargs).close()  # same chunking reopens
     with pytest.raises(MemoryMetaError, match="chunk_tokens"):
@@ -222,7 +231,7 @@ def test_search_rounds_collapses_windows_of_one_round_and_equals_search_otherwis
     from mnimi.memory import embed_template_hash
 
     store = Store(str(tmp_path / "r.db"), dim=3, embedder_name="e", embedder_revision="r",
-                  embed_template_hash=embed_template_hash())
+                  embed_template_hash=embed_template_hash(), **_guard())
     def rec(content, vec, key=None):
         return MemoryRecord(user_id="u", content=content, embedding=vec, created_at="2023-05-20",
                             round_key=key)
@@ -240,7 +249,77 @@ def test_search_rounds_collapses_windows_of_one_round_and_equals_search_otherwis
     assert [r.content for r, _ in store.search_rounds(q, "u", k=10)] == ["A1", "B", "C"]
 
     plain = Store(str(tmp_path / "p.db"), dim=3, embedder_name="e", embedder_revision="r",
-                  embed_template_hash=embed_template_hash())
+                  embed_template_hash=embed_template_hash(), **_guard())
     for content, vec in (("x", [1.0, 0.0, 0.0]), ("y", [0.0, 1.0, 0.0]), ("z", [0.0, 0.0, 1.0])):
         plain.insert(rec(content, vec))
     assert plain.search_rounds(q, "u", k=2) == plain.search(q, "u", k=2), "no windows: identical"
+
+
+# -- the extraction era (PHASE2 Task 6): guard rows, kinds, fact columns -----------------
+
+
+def test_meta_guard_requires_the_extraction_era_keys_and_refuses_a_v1_store(tmp_path):
+    store = _open(tmp_path / "a.db")
+    for key in ("extractor_model", "fact_embed_template_hash", "prefilter_lexicon_hash"):
+        assert store.db.execute(
+            "SELECT value FROM memory_meta WHERE key = ?", (key,)
+        ).fetchone() is not None
+    # A v1.8 store never wrote the extraction-era rows: deleting them is what
+    # opening such a store looks like, and it is refused, not upgraded.
+    store.db.execute("DELETE FROM memory_meta WHERE key LIKE 'extractor_%'")
+    store.db.commit()
+    store.close()
+    with pytest.raises(MemoryMetaError, match="extractor_model"):
+        _open(tmp_path / "a.db")
+
+
+def test_meta_guard_rejects_an_extractor_mismatch_in_both_directions(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+
+    _open(tmp_path / "b.db").close()  # built with no extractor: the rows say "none"
+    with pytest.raises(MemoryMetaError, match="extractor_model"):
+        _open(tmp_path / "b.db", extractor=RuleExtractor())
+    _open(tmp_path / "c.db", extractor=RuleExtractor()).close()
+    with pytest.raises(MemoryMetaError, match="extractor_prompt_hash"):
+        _open(tmp_path / "c.db")
+    _open(tmp_path / "c.db", extractor=RuleExtractor()).close()  # same pins reopen
+    with pytest.raises(MemoryMetaError, match="resolver_version"):
+        _open(tmp_path / "c.db", extractor=RuleExtractor(), resolver_version="v0")
+
+
+def test_fact_record_columns_roundtrip_and_kinds_are_searched_apart(tmp_path):
+    store = _open(tmp_path / "k.db", dim=3)
+
+    def rec(kind, content, vec, key=None, **fields):
+        return MemoryRecord(user_id="u", content=content, embedding=vec, created_at="2023-05-20",
+                            round_key=key, kind=kind, **fields)
+
+    store.insert(rec("round", "the round", [1.0, 0.0, 0.0], "R"))
+    store.insert(rec("fact", "user: I own a cat\nThe user owns a cat.", [0.99, 0.1, 0.0], "R",
+                     fact="The user owns a cat.", raw="user: I own a cat", subject="user",
+                     predicate="owns", object="cat", valid_time="2023-05-19",
+                     time_mention="yesterday", salience=0.5))
+    store.insert(rec("round", "another round", [0.0, 1.0, 0.0]))
+    q = [1.0, 0.0, 0.0]
+    both = [r.kind for r, _ in store.search(q, "u", k=3)]
+    assert both == ["round", "fact", "round"], "unscoped search merges the kinds by distance"
+    assert [r.kind for r, _ in store.search(q, "u", k=3, kind="fact")] == ["fact"]
+    assert [r.content for r, _ in store.search(q, "u", k=3, kind="round")] == [
+        "the round", "another round"
+    ]
+    (fact, _), = store.search(q, "u", k=1, kind="fact")
+    assert (fact.fact, fact.raw, fact.subject, fact.predicate, fact.object) == (
+        "The user owns a cat.", "user: I own a cat", "user", "owns", "cat"
+    )
+    assert (fact.valid_time, fact.time_mention, fact.salience) == ("2023-05-19", "yesterday", 0.5)
+    assert store.contents("u", kind="fact") == ["user: I own a cat\nThe user owns a cat."]
+    assert store.contents_with_ts("u", kind="round")[0] == ("2023-05-20", "the round")
+    assert [f.fact for f in store.facts_of("u", "R")] == ["The user owns a cat."]
+    assert store.count("u") == 3 and store.count("u", kind="fact") == 1
+    # k counts rounds: the round record and its fact collapse to one hit.
+    rounds = [r.content for r, _ in store.search_rounds(q, "u", k=2)]
+    assert rounds == ["the round", "another round"]
+    with pytest.raises(ValueError):
+        store.search(q, "u", k=1, kind="window")
+    with pytest.raises(ValueError):
+        store.insert(rec("window", "x", [0.0, 0.0, 1.0]))

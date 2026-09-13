@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from mnimi import Memory, MemoryConfig
@@ -532,3 +534,128 @@ def test_recall_counts_rounds_not_windows_when_chunking(tmp_path):
     recalled = m.recall("fact3 fact4 fact5", "u")
     assert len(recalled) == 2 and len({r.round_key for r in recalled}) == 2
     assert m.get_context("fact3", "u").count("[Session date:") == 2, "two rounds, both rendered"
+
+
+# -- the extraction era (PHASE2 Task 6) ---------------------------------------------------
+
+
+def test_without_an_extractor_the_write_path_is_v1_byte_for_byte(tmp_path):
+    m = Memory(str(tmp_path / "v1.db"), HashingEmbedder())
+    m.add([_message("I adopted a cat named Miso"), _message("lovely", role="assistant")],
+          user_id="u")
+    ((record, _cos),) = m.store.search(m._query_embedding("cat"), "u", k=1)
+    assert record.kind == "round" and record.round_key is None and record.raw is None
+    assert record.content == "[Session date: 2023-05-20] I adopted a cat named Miso\nlovely"
+    assert m.store.count("u") == 1 and m.extractor is None
+    assert m.extraction_stats["rounds_sent"] == 0
+
+
+def test_extractor_adds_fact_records_on_the_rounds_key(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+
+    m = Memory(str(tmp_path / "x.db"), HashingEmbedder(), extractor=RuleExtractor())
+    m.add([_message("Yesterday I adopted a cat named Miso. Any tips?", ts="2023-05-20"),
+           _message("Congratulations!", role="assistant", ts="2023-05-20")], user_id="u")
+    rows = {r.kind: r for r, _ in m.store.search(m._query_embedding("cat"), "u", k=5)}
+    assert set(rows) == {"round", "fact"}
+    assert rows["round"].round_key == rows["fact"].round_key is not None
+    assert rows["fact"].raw == "user: Yesterday I adopted a cat named Miso."
+    assert rows["fact"].fact == "The user adopted a cat named Miso."
+    assert rows["fact"].valid_time == "2023-05-19" and rows["fact"].time_mention == "Yesterday"
+    assert rows["fact"].content == f"{rows['fact'].raw}\n{rows['fact'].fact}"
+    assert rows["round"].content.startswith("[Session date: 2023-05-20] ")
+    assert rows["fact"].turns == rows["round"].turns, "a fact carries its round's turns"
+    assert len(m.recall("cat", "u")) == 1, "k counts rounds: the fact and its round are one hit"
+    assert m.extraction_stats["rounds_sent"] == 1 and m.extraction_stats["facts"] == 1
+
+
+def test_dedup_screens_are_per_kind_and_per_session(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+
+    # A one-sentence round: under HashingEmbedder its fact text is near its
+    # round text. Per-kind screens keep both records; a single pool would have
+    # dropped the fact as a duplicate of its own round.
+    m = Memory(str(tmp_path / "d.db"), HashingEmbedder(),
+               MemoryConfig(dedup_cosine_threshold=0.5), extractor=RuleExtractor())
+    m.add([_message("I moved to Athens last year.", ts="2023-05-20")], user_id="u")
+    assert m.store.count("u", kind="round") == 1 and m.store.count("u", kind="fact") == 1
+    # The same fact stated again in another session is a repeat, kept (session scope).
+    m.add([_message("I moved to Athens last year.", ts="2023-06-01")], user_id="u")
+    assert m.store.count("u", kind="fact") == 2
+    # Restated in the same session it is an exact duplicate, dropped.
+    m.add([_message("I moved to Athens last year.", ts="2023-06-01")], user_id="u")
+    assert m.store.count("u", kind="fact") == 2
+    # Store scope keys facts store-wide: the cross-session repeat is dropped too.
+    s = Memory(str(tmp_path / "s.db"), HashingEmbedder(),
+               MemoryConfig(dedup_cosine_threshold=0.5, dedup_scope="store"),
+               extractor=RuleExtractor())
+    s.add([_message("I moved to Athens last year.", ts="2023-05-20")], user_id="u")
+    s.add([_message("I moved to Athens last year.", ts="2023-06-01")], user_id="u")
+    assert s.store.count("u", kind="fact") == 1
+
+
+def _extracted_memory(db_path, **config):
+    from mnimi.extract.fake import RuleExtractor
+
+    m = Memory(str(db_path), HashingEmbedder(), MemoryConfig(**config),
+               extractor=RuleExtractor())
+    m.add([_message("I run every morning. Yesterday I adopted a cat named Miso. Any tips?",
+                    ts="2023/05/20 (Sat) 09:00"),
+           _message("Lovely!", role="assistant", ts="2023/05/20 (Sat) 09:00")], user_id="u")
+    m.add([_message("what is the weather like", ts="2023/05/21 (Sun) 09:00"),
+           _message("Grey.", role="assistant", ts="2023/05/21 (Sun) 09:00")], user_id="u")
+    return m
+
+
+def test_render_units_frame_the_same_rounds(tmp_path):
+    turns = _extracted_memory(tmp_path / "a.db", render_unit="turns").get_context("cat", "u")
+    round_facts = _extracted_memory(tmp_path / "b.db", render_unit="round+facts").get_context(
+        "cat", "u"
+    )
+    facts = _extracted_memory(tmp_path / "c.db", render_unit="facts").get_context("cat", "u")
+    header = "[Session date: 2023/05/20 (Sat) 09:00]"
+    user_line = "user: I run every morning. Yesterday I adopted a cat named Miso. Any tips?"
+    assert turns.startswith(header + "\n" + user_line + "\nassistant: Lovely!")
+    assert "facts:" not in turns
+    # round+facts: the same block with the round's facts (all of them, dated) first.
+    assert round_facts.startswith(
+        header + "\nfacts:\n- The user run every morning.\n"
+        "- The user adopted a cat named Miso. (2023-05-19)\n" + user_line
+    )
+    assert turns.replace(header + "\n", "") in round_facts
+    # facts: fact/source lines only; the round without facts falls back to its turns.
+    assert facts.startswith(
+        header + "\nfact: The user run every morning.\nsource: user: I run every morning.\n"
+        "fact: The user adopted a cat named Miso. (2023-05-19)\n"
+        "source: user: Yesterday I adopted a cat named Miso."
+    )
+    assert user_line not in facts
+    assert "[Session date: 2023/05/21 (Sun) 09:00]\nuser: what is the weather like" in facts
+    json_text = _extracted_memory(tmp_path / "d.db", render_unit="round+facts",
+                                  render_format="json").get_context("cat", "u")
+    payload = json.loads(json_text)
+    assert payload[0]["items"][0]["facts"][1]["valid_time"] == "2023-05-19"
+    assert payload[0]["items"][0]["turns"][1]["role"] == "assistant"
+
+
+def test_render_unit_and_fact_template_hashes_are_pinned_and_distinct():
+    from mnimi.memory import (
+        FACT_EMBED_TEMPLATE,
+        RENDER_UNITS,
+        embed_template_hash,
+        fact_embed_template_hash,
+        render_template_hash,
+        render_unit_template_hash,
+    )
+
+    assert FACT_EMBED_TEMPLATE == "${raw}\n${fact}"
+    assert RENDER_UNITS == ("turns", "round+facts", "facts")
+    assert len(embed_template_hash()) == 64
+    assert render_template_hash("text").startswith("9c03ddae5c33"), "the format hash did not move"
+    assert len({render_unit_template_hash(u) for u in RENDER_UNITS}) == 3
+    assert fact_embed_template_hash() != embed_template_hash()
+    assert len(fact_embed_template_hash()) == 64
+    with pytest.raises(ValueError):
+        render_unit_template_hash("paragraphs")
+    with pytest.raises(ValueError):
+        Memory(":memory:", HashingEmbedder(), MemoryConfig(render_unit="paragraphs"))

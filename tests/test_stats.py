@@ -203,3 +203,27 @@ def test_two_arms_of_one_system_pair_as_a_variant_pair():
     assert report["primary"] is None and report["secondary"] == {}
     text = _format(report)
     assert "variant pair" in text and "mnimi@variant vs mnimi@base" in text
+
+
+def test_two_mnimi_arms_differing_in_render_unit_and_extractor_pair():
+    """PHASE2: the render unit and the extractor pins are system-level, so the
+    baseline arm (no extractor, turns) and the extraction arm pair as a
+    variant pair — that is gate 4-iii's comparison."""
+    arms = {
+        "mnimi@p2base": {"q1": True, "q2": False, "q3": False},
+        "mnimi@extract": {"q1": True, "q2": True, "q3": False},
+    }
+    identities = {
+        "mnimi@p2base": harness_identity(
+            _payload("mnimi", extractor_model="none", render_unit="turns",
+                     render_unit_template_hash="t")
+        ),
+        "mnimi@extract": harness_identity(
+            _payload("mnimi", extractor_model="Qwen/x@abc", render_unit="round+facts",
+                     render_unit_template_hash="rf", extractor_prompt_hash="p")
+        ),
+    }
+    report = analyse(arms, identities=identities)
+    (label, entry), = report["variants"].items()
+    assert label == "mnimi@extract vs mnimi@p2base"
+    assert (entry["result"].b, entry["result"].c) == (1, 0)

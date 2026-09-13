@@ -154,7 +154,7 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
     for cls in (NoMemorySystem, FullHistorySystem, OracleSystem):
         assert cls().retrieval_pins() == {}, cls
 
-    from mnimi.memory import embed_template_hash
+    from mnimi.memory import embed_template_hash, render_unit_template_hash
 
     naive = _naive().retrieval_pins()
     assert naive == {
@@ -166,12 +166,19 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
         "query_instruction": BGE_QUERY_INSTRUCTION,  # shared with mnimi; default since R5
         "chunk_tokens": 0,  # and the embedded unit (R4): granularity parity
         "chunk_overlap": 64,
+        # PHASE2: never extracts, so it declares the unit it effectively renders.
+        "render_unit": "turns",
+        "render_unit_template_hash": render_unit_template_hash("turns"),
     }
 
     mnimi = _mnimi(config=MemoryConfig(top_k=4, dedup_cosine_threshold=0.9)).retrieval_pins()
     assert mnimi["k"] == 4
     assert mnimi["dedup_cosine_threshold"] == 0.9
     assert mnimi["embedder_name"] == "hashing"
+    # A mnimi arm without an extractor SAYS so — the store's guard rows carry the same value.
+    assert mnimi["extractor_model"] == "none" and mnimi["extractor_prompt_hash"] == "none"
+    assert mnimi["render_unit"] == "turns" and len(mnimi["prefilter_lexicon_hash"]) == 64
+    assert mnimi["resolver_version"] == "v1" and len(mnimi["fact_embed_template_hash"]) == 64
 
 
 def test_retrieval_pins_carry_the_embedder_revision_constant():
@@ -246,3 +253,68 @@ def test_context_format_parity_across_all_context_bearing_arms():
     assert len(set(contexts)) == 1, {
         s.name: c for s, c in zip(systems, contexts, strict=True)
     }
+
+
+# -- the extraction era (PHASE2 Task 6) ---------------------------------------------------
+
+
+def test_with_an_extractor_mnimi_stores_facts_and_naive_rag_does_not(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+
+    messages = [
+        *_round("I adopted a cat named Miso. Any tips?", "Lovely!", ts="2023-05-20"),
+        *_round("the talk covered sqlite virtual tables", "a powerful extension point"),
+    ]
+    naive = _naive()
+    plain = _mnimi()
+    extracted = MnimiSystem(embedder=HashingEmbedder(), extractor=RuleExtractor(),
+                            extraction_cache=tmp_path / "x.sqlite")
+    for system in (naive, plain, extracted):
+        system.reset()
+        system.add(messages)
+    # naive_rag and the v1 arm are unchanged; the extraction arm's ROUND records
+    # are the same strings plus its fact records beside them.
+    assert naive.contents() == plain.contents() and len(naive.contents()) == 2
+    store = extracted._memory.store
+    assert store.contents("eval", kind="round") == naive.contents()
+    assert store.contents("eval", kind="fact") == [
+        "user: I adopted a cat named Miso.\nThe user adopted a cat named Miso."
+    ]
+    # The sqlite round has no slot cue and never reaches the model (pre-filter).
+    assert extracted.extraction_stats["rounds_sent"] == 1
+    assert extracted.extraction_stats["prefilter_skips"] == 1
+    assert extracted.cache_stats == {"hits": 0, "misses": 1} and plain.cache_stats is None
+    # The pins say what made the facts; the v1 arm says "none".
+    pins = extracted.retrieval_pins()
+    assert pins["extractor_model"] == "fake-rule"
+    assert plain.retrieval_pins()["extractor_model"] == "none"
+    assert pins["k"] == plain.retrieval_pins()["k"] == naive.retrieval_pins()["k"]
+    # A second reset + add is served from the cache: no extractor call.
+    extracted.reset()
+    extracted.add(messages)
+    assert extracted.cache_stats == {"hits": 1, "misses": 1}
+
+
+def test_render_unit_reaches_mnimi_and_not_the_other_arms(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+    from mnimi.memory import render_unit_template_hash
+
+    config = MemoryConfig(render_unit="round+facts")
+    naive = _naive(config=config)
+    extracted = MnimiSystem(embedder=HashingEmbedder(), config=config, extractor=RuleExtractor(),
+                            extraction_cache=tmp_path / "x.sqlite")
+    for system in (naive, extracted):
+        system.reset()
+        system.add(_round("I adopted a cat named Miso.", "Lovely!", ts="2023-05-20"))
+    assert "facts:" in extracted.get_context("cat")
+    assert "facts:" not in naive.get_context("cat")
+    assert extracted.retrieval_pins()["render_unit"] == "round+facts"
+    assert naive.retrieval_pins()["render_unit"] == "turns"
+    assert extracted.retrieval_pins()["render_unit_template_hash"] == render_unit_template_hash(
+        "round+facts"
+    )
+    # The turns of the round are byte-identical across the two contexts once
+    # the facts header is removed: same renderer, same format, one more block.
+    lines = [line for line in extracted.get_context("cat").splitlines()
+             if not line.startswith(("facts:", "- "))]
+    assert "\n".join(lines) == naive.get_context("cat")

@@ -27,6 +27,17 @@ def summarize(rows: list[QuestionProbe]) -> dict:
         c["any10"] += _hit(r.evidence_ranks, 10, False)
         c["all10"] += _hit(r.evidence_ranks, 10, True)
     drops = Counter(d.screen for r in rows for d in r.drops)
+    drops_by_kind = Counter(
+        f"{getattr(d, 'kind', 'round')}/{d.screen}" for r in rows for d in r.drops
+    )
+    extraction = {
+        "facts_stored": sum(r.facts_stored for r in rows),
+        "rounds_sent_to_model": sum(r.rounds_sent_to_model for r in rows),
+        "empty_extractions": sum(r.empty_extractions for r in rows),
+        "truncated_outputs": sum(r.truncated_outputs for r in rows),
+        "truncated_inputs": sum(r.truncated_inputs for r in rows),
+        "prefilter_skips": sum(r.prefilter_skips for r in rows),
+    }
     evidence_lost = [(r.question_id, lost[2]) for r in rows for lost in r.lost_evidence]
     cross_session = sum(
         1
@@ -45,6 +56,8 @@ def summarize(rows: list[QuestionProbe]) -> dict:
             "cosine": drops.get("cosine", 0),
             "evidence_lost": len(evidence_lost),
         },
+        "drops_by_kind": dict(sorted(drops_by_kind.items())),
+        "extraction": extraction,
         "cosine_drops_cross_session": cross_session,
         "evidence_lost_rows": evidence_lost,
         "rounds": sum(r.n_rounds for r in rows),
@@ -71,6 +84,22 @@ def format_summary(s: dict) -> str:
     )
     for qid, screen in s["evidence_lost_rows"]:
         lines.append(f"  evidence lost: {qid} ({screen})")
+    if s.get("drops_by_kind"):
+        lines.append(
+            "drops by kind/screen: "
+            + ", ".join(f"{k} {v}" for k, v in s["drops_by_kind"].items())
+        )
+    x = s.get("extraction") or {}
+    if x.get("rounds_sent_to_model"):
+        sent = x["rounds_sent_to_model"]
+        lines.append(
+            f"extraction: rounds sent {sent:,} (pre-filter skipped {x['prefilter_skips']:,}), "
+            f"[] outputs {x['empty_extractions']:,} ({x['empty_extractions'] / sent:.1%}), "
+            f"truncated outputs {x['truncated_outputs']:,} "
+            f"({x['truncated_outputs'] / sent:.2%}), truncated inputs {x['truncated_inputs']:,} "
+            f"({x['truncated_inputs'] / sent:.2%}), facts stored {x['facts_stored']:,} "
+            f"({x['facts_stored'] / sent:.2f} per round sent)"
+        )
     return "\n".join(lines)
 
 
