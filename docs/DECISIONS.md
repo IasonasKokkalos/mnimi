@@ -2078,3 +2078,32 @@ five hours belong to the machine's evening, not to the extractor.
 Batch API, ≈ $0.25), then the four-arm sitting (gate 4-iii). The extraction
 code stays opt-in (`--extractor qwen3`, `render_unit="turns"` default)
 until 4-iii decides.
+
+## Gate 4-ii read: the n=20 dev prefix on the extraction arm, 18/20 = the k10 arm's 18/20 — PASS (2026-09-14, 20:31)
+
+`python -m evals --system mnimi --limit 20 --stage all --reader-transport openai
+--batch --batch-poll-seconds 60 --extractor qwen3 --render-unit round+facts
+--run-dir runs/mnimi__20q_gpt4o_extract` at `49198e9`, tree clean,
+`provisional: []`, pins_hash `b71b173d…`; every round came from the cache
+(no model call), two sub-batches (13 + 7 requests) under the 90k cap, 16.9 min
+wall, $0.1726 actual against a $0.2619 projection (reader $0.1538, judge
+$0.0188). Phase 2 spend so far: $0.17; programme total $10.93 of $50.
+
+**Score 18/20, the k10 arm's score on the same 20 rows; the gate was within
+3.** The verdicts are identical row for row — the same two wrong
+(`gpt4_31ff4165`, multi-session, 3 of 6 evidence rounds in the top-10 now
+against 2 before; `35a27287`, single-session-preference, wrong for the
+oracle too) — so b = 0, c = 0 on the prefix: nothing broke and nothing moved,
+which is what a smoke test at n=20 can say. **Fed tokens** mean 5,272
+against the k10 arm's 4,639 (+14 %; max 6,660 vs 5,925; 0 truncated): the
+facts block under each retrieved round costs about 630 tokens per context at
+k=10. The five-arm question of whether the reader converts the retrieval
+gain (gate 4-i: seven wrong-at-k10 rows moved, five to complete) is the
+n=100 sitting's — none of those rows is in the prefix.
+
+**Decision: PASS → Task 9**, the four-arm sitting at one clean commit
+(p2base with `--verify-drift` against the published k10 arm, extract
+`round+facts`, extract `facts`, `naive_rag`), pre-registered rules
+unchanged: extraction adopted iff b ≥ c on `extract` vs `p2base`; `facts`
+replaces `round+facts` iff b > c on that pair; the primary is the adopted
+arm vs `naive_rag`, exact McNemar α 0.05.
