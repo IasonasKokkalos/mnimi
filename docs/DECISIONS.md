@@ -2201,3 +2201,51 @@ scores within 2). Fingerprints on the extraction arm: `fp_15cc60b404` 44,
 **Cost.** The sitting $2.81 (readers $0.6763 + $0.7746 + $0.3274 + $0.6787,
 judges $0.3526); with gate 4-ii, Phase 2 spent **$2.98** against the $3.3
 carried; programme $13.74 of $50.
+
+## Phase 2 closes: the SPEC deviations in one place, and what the era leaves behind (2026-09-15, v1.9.0)
+
+**Deviations from SPEC, each disclosed where it was decided and collected here:**
+
+1. **Hybrid store, not facts-only** (D1). Every round keeps its v1 record and
+   facts are second records on the same `round_key`; retrieval collapses to
+   rounds. LongMemEval's key-expansion setting, chosen for a 1.7B extractor's
+   miss rate; the facts-only *render* (`facts`) was the one pre-registered
+   alternative and measured worse (78 vs 84).
+2. **`when` + a deterministic resolver instead of a model-emitted
+   `valid_time`.** The model quotes a time mention verbatim (dropped if the
+   round does not contain it); `mnimi.extract.resolver` anchors it on `ts`.
+   No LLM decides a date.
+3. **GPU offload** (`n_gpu_layers=99`, CUDA 13.2) against the CPU-only pin:
+   measured 50/50 byte-stable across a shuffled restart in fresh processes;
+   the CPU build is the same code with different pins and its determinism
+   is unmeasured.
+4. **No question rule in the pre-filter.** A question can carry a fact
+   ("should I take the 7 pm train to Utrecht again?"); the six rules keep
+   every question, and the false-drop count on the slice's evidence rounds
+   is 0.
+5. **Over-long rounds are capped, not dropped**: a round past the 1,536-token
+   input cap is cut at a token boundary and flagged (`truncated_input`,
+   0.34 % of the slice); its round record is stored whole.
+6. **Field meanings**: `content` keeps its embed-text meaning for both kinds
+   (a fact's is `raw` + newline + `fact`) and `fact` carries what SPEC calls
+   a fact's `content`; `MemoryRecord` gained `kind`, `fact`, `raw`, the
+   triple, `valid_time`, `time_mention`.
+7. **`negation_lexicon_hash = "none"`** in `memory_meta` until Phase 3 writes
+   the lexicon; the row exists so the guard's shape is final.
+8. **Harness fixes after the sitting** ("Gate 4-iii read"): the drift tool's
+   two spellings of an absent extractor; accounting before verification.
+
+**What the era measured.** Corpus pass 27.3 h (22.2 h at the uncontended
+rate) into a 33.6 MB cache; extractor 2.40 facts per round, 10.9 % empty,
+0.35 % truncated; gate 4-i ANY@10 93/95 (91), ALL@10 83/95 (77), 0 evidence
+lost; gate 4-ii 18/20 = k10; gate 4-iii 80 / 84 / 78 / 79 — extraction
+adopted, `round+facts`, primary b=7, c=2. Phase 2 spent $2.98 (programme
+$13.74 of $50) and ≈ 25 hands-on hours against ≈ 45 planned.
+
+**What it leaves for Phase 3.** The 16 remaining mnimi misses are reading
+misses with the evidence in the top-10 (oracle also fails 6 of them); the
+adopted arm loses three baseline rows to reader flips under a 17 % longer
+context — the fed-token cost of the facts header is the first thing decay
+and ranking (Phase 4) can trim. Phase 3 (conflict, the negation and
+value-substitution screens) starts from a store that now holds triples and
+valid times to conflict on. v1.9.0.

@@ -40,6 +40,23 @@ score.
     for what v1's `embed_template_hash` covers — the row is written once at DB
     creation and validated on every open as of v1.3.0 (2026-07-30,
     `store.py:85, 99`).
+16. **The extraction era's embed input, as CHANGELOG #15 promised (adopted
+    2026-09-15, gate 4-iii).** A fact record embeds
+    `FACT_EMBED_TEMPLATE = "${raw}\n${fact}"` — the verbatim, speaker-labelled
+    span the fact was read from, then the fact — under its own guard row,
+    `fact_embed_template_hash`; the round record keeps v1's `EMBED_TEMPLATE`
+    byte for byte, so no v1 vector moved and the 0.95 threshold's evidence
+    stands. The role-in-vector question #15 reopened is answered per kind:
+    the fact's span carries its speaker (the label is part of what the fact
+    is about), the round's vector stays role-free, and the two kinds are
+    screened for duplicates separately, never against each other. Evidence:
+    the corpus pass's probe (ANY@10 93/95 vs 91, ALL@10 83/95 vs 77 over the
+    no-extractor store, 0 evidence rounds lost to a screen), the n=20 prefix
+    (18/20 = the k10 arm's), the sitting (80 / 84 / 78 / 79 for baseline,
+    `round+facts`, `facts`, `naive_rag`; DECISIONS "Gate 4-iii read"). Also
+    disclosed there: the extractor runs on the GPU (`n_gpu_layers=99`), a
+    deviation from this document's CPU-only pin, measured 50/50 byte-stable
+    across a shuffled restart in fresh processes.
 11. **Decay floor added.** Salience decays toward `decay_floor` (default 0.15),
     never to zero; salience 0 is reserved exclusively for superseded records.
     Decay can now only down-rank old evidence, never exclude it — closing the
@@ -116,7 +133,7 @@ score.
 
 ---
 
-## v1 as built (v1.8.0, 2026-09-13; library: v1.3.0 @ 658f516 + the JSON render format)
+## v1 as built (v1.9.0, 2026-09-15; library: the extraction era — fact records, per-kind dedup, render units — adopted at gate 4-iii)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -128,12 +145,12 @@ wires against this section, not against the target sections.**
 |---|---|---|
 | `add` / `recall` / `get_context` / `consolidate` | shipped (`consolidate` is a no-op stub) | `memory.py` |
 | `export` | **not built** — the public surface is 4 of 5 methods | — |
-| `MemoryConfig` | **8 fields** — two of the spec'd nine plus six the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="turns"` (extraction era, PHASE2 D5; flips to the adopted unit at gate 4-iii). Every one is a harness flag and a pin. A field no code reads is not present | `config.py` |
+| `MemoryConfig` | **8 fields** — two of the spec'd nine plus six the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). Every one is a harness flag and a pin. A field no code reads is not present | `config.py` |
 | `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`. `created_at` carries `ts` and plays the `system_time` role; no `last_accessed`. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
 | `memory_meta` guard | **13 rows, all written and validated** (extraction era, 2026-09-13): the four v1 rows; `chunk_tokens` / `chunk_overlap` (R4); the five extractor rows (`extractor_model`, `extractor_quant`, `extractor_runtime`, `extractor_decode_hash`, `extractor_prompt_hash` — the literal `"none"` when a store is built without an extractor); `negation_lexicon_hash` (`"none"` until Phase 3); `prefilter_lexicon_hash`; `fact_embed_template_hash`; `resolver_version`. Any mismatch raises `MemoryMetaError` at open; a v1.8 store lacks the new rows and is refused, a no-extractor store opened with an extractor is refused, and vice versa | `store.py` |
 | `embed_template_hash` | **written and validated** (since v1.3.0, 2026-07-30). An edit to v1's content template (the session-date fold, the `"\n"` join) fails loudly at open with `MemoryMetaError` | `store.py:85, 99` |
-| Extraction | **built, opt-in** (PHASE2, 2026-09-13): `Memory(db_path, embedder, config, *, extractor=None)`. With an `Extractor` (the pinned `mnimi.extract.llama.QwenLlamaExtractor`, or CI's `RuleExtractor`) every round that survives the stage-1 pre-filter goes to the model once (on-disk cache) and each fact becomes a `kind="fact"` record beside the round's own v1 record — the hybrid store (D1). `None`, the default until gate 4-iii, is the v1 write path | `memory.py`, `extract/` |
+| Extraction | **built and adopted** (PHASE2, 2026-09-13; gate 4-iii 2026-09-15): `Memory(db_path, embedder, config, *, extractor=None)`. With an `Extractor` (the pinned `mnimi.extract.llama.QwenLlamaExtractor`, or CI's `RuleExtractor`) every round that survives the stage-1 pre-filter goes to the model once (on-disk cache) and each fact becomes a `kind="fact"` record beside the round's own v1 record — the hybrid store (D1). `None` — the constructor's default, because the model is an injected `[extract]` dependency — is the v1 write path; the harness's mnimi arm injects the pinned extractor unless `--extractor none` | `memory.py`, `extract/` |
 | Dedup | **steps 1-2, per kind**: exact-normalize collapse and ONE cosine probe (`k=1`) at `dedup_cosine_threshold`, a round against earlier rounds and a fact against earlier facts (D3); a round's exact key folds the session date, a fact's screens follow `dedup_scope`. No negation screen, no value-substitution screen, no entropy gate | `memory.py` |
 | Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
 | Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
@@ -390,7 +407,9 @@ messages (role, content, ts)
 ```
 
 **v1 as built (extraction era, 2026-09-13 — PHASE2 D1–D12, DECISIONS "Phase 2
-pre-registration"):** the stage exists and is opt-in. An `Extractor`
+pre-registration"; adopted at gate 4-iii, 2026-09-15 — 84 vs 80 over the
+no-extractor arm in one sitting, b=7, c=3):** the stage exists and is the
+harness's default mnimi arm. An `Extractor`
 (`mnimi.extract.protocol`) is injected as `Memory(..., extractor=...)` — the
 one defaulted keyword the locked constructor gained; `None` is the v1 write
 path. The stored unit is a **hybrid**: every round keeps its v1 record, and
@@ -858,7 +877,13 @@ v1, and what every other arm renders), `round+facts` (the same block under a
 facts falls back to its turns). One `render_records`; the *format* hash stays
 the harness parity pin, the unit is a system-level pin
 (`render_unit_template_hash` in mnimi's retrieval pins). Which unit the era
-runs is gate 4-iii's pre-registered call.
+ran was gate 4-iii's pre-registered call, and it chose `round+facts`
+(2026-09-15): 84 vs 80 over `turns` (b=7, c=3) and 84 vs 78 over `facts`
+alone (b=8, c=2 — facts alone drop the verbatim turns single-session
+questions are answered from). `MemoryConfig.render_unit` defaults to it
+since v1.9.0; without an extractor the text rendering is byte-identical
+to `turns`, the JSON rendering frames each round as an item with
+`facts: []` and its turns.
 
 The session DATE fold (`[Session date: YYYY-MM-DD] …`) remains in the
 embedded string and the dedup key at **write** time — that is the frozen

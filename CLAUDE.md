@@ -53,7 +53,7 @@ resolution. Both roles are in extraction scope.
   No library code path reads wall-clock for scoring, decay, recency, or ordering.
 - **Exactly one LLM in the library, at extraction.** Merge / conflict / decay /
   both dedup screens stay deterministic. No LLM on the read path.
-- **Extractor (built 2026-09-13; opt-in until gate 4-iii adopts it):**
+- **Extractor (built 2026-09-13; adopted 2026-09-15 at gate 4-iii, 84 vs 80, b=7, c=3):**
   `Qwen/Qwen3-1.7B-GGUF` @ `90862c4b9d2787eaed51d12237eafdfe7c5f6077`,
   `Qwen3-1.7B-Q8_0.gguf` — there is no official "Instruct" repo; the post-trained
   hybrid runs with thinking off through the template's empty think block — via
@@ -62,8 +62,9 @@ resolution. Both roles are in extraction scope.
   `n_batch=512`, `n_threads=8`, `n_gpu_layers=99` (a disclosed deviation from
   SPEC's CPU pin; 50/50 byte-stable across a shuffled restart), prompt
   `qwen3-fact-v4` (hash `41c8ea2c3bb4…`), 1,536-token input cap. Local, pinned,
-  never API. Injected as `Memory(..., extractor=...)`; harness flag
-  `--extractor {none,qwen3}`; the model sees each round once (on-disk cache).
+  never API. Injected as `Memory(..., extractor=...)`; the harness's mnimi
+  arm runs it unless `--extractor none` (`evals.__main__.default_extractor`);
+  the model sees each round once (on-disk cache, 23,302 rounds for the slice).
   Every round keeps its v1 record; facts are extra records on the round (D1).
   The CUDA runtime DLLs live in `CUDA\v13.2\bin\x64`, which must be on PATH.
 - **Embedder:** `BAAI/bge-small-en-v1.5` @ 384-dim, HF revision pinned to
@@ -192,7 +193,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   `mnimi__100q_gpt4o_drift_2026-09-12`, `provisional: []` throughout — and
   the Phase 1 variant pairs (`*_r3{,base}`, `*_r45{,base}`,
   `naive_rag__100q_gpt4o_r45`, `*_k10`, `*_k20`): mnimi 79 → 81/82 under
-  session scope + the BGE query instruction, naive_rag 82, primary b=2, c=3.**
+  session scope + the BGE query instruction, naive_rag 82, primary b=2, c=3.
+  Phase 2 (2026-09-15, `043c0ea`): `mnimi__100q_gpt4o_{p2base,extract,extract_facts}`
+  and `naive_rag__100q_gpt4o_p2` at `82aa8b5` — 80 / 84 / 78 / 79; extraction
+  adopted with `round+facts`; primary mnimi 84 vs naive_rag 79, b=7, c=2, p=0.18.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **A run that cannot be projected cannot spend.** On the API family the
@@ -285,6 +289,9 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   `mnimi docs/PLAN.md` (done = SPEC-complete or Wilson lower bound ≥ 85 on the
   gpt-4o family). Phase 0 closed 2026-09-12: mnimi 75 / naive_rag 80 / oracle
   90 at n=100 on gpt-4o; the primary is a pre-registered null (b=1, c=6).
+  Phase 1 closed 2026-09-13 (81/82 vs 82, b=2, c=3); Phase 2 closed
+  2026-09-15: extraction adopted, mnimi 84 vs naive_rag 79 (b=7, c=2,
+  p=0.18 — ahead, not significant; the verdict is Phase 5's n=500).
 
 ## Scope rule
 
@@ -340,7 +347,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit facts       --run-dir runs/mnimi__100q_gpt4o_extract_facts
 ```
 
-## Current state vs SPEC (Phase 2 in flight, 2026-09-13; library = v1.8.0 + the extraction era on `feature/extraction`)
+## Current state vs SPEC (as of v1.9.0, 2026-09-15; library = v1.8.0 + the extraction era, adopted)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -356,8 +363,9 @@ ACTUAL" says why.
   BGE_QUERY_INSTRUCTION` (R5, adopted 2026-09-13 — `""` is the local-family
   configuration), `chunk_tokens = 0` / `chunk_overlap = 64` (R4; `k` counts
   rounds, not windows — `Store.search_rounds`; measured worse, left off),
-  `render_format = "text"` (v1.6.0), `render_unit = "turns"` (PHASE2 D5:
-  `turns` | `round+facts` | `facts`; the default flips at gate 4-iii). Every
+  `render_format = "text"` (v1.6.0), `render_unit = "round+facts"` (PHASE2 D5,
+  adopted 2026-09-15: 84 vs `turns` 80, b=7, c=3; `facts` alone 78; `turns`
+  is v1's unit and what every other arm renders). Every
   one is a harness flag and a pin (schema /8); the chunk knobs are also
   `memory_meta` keys. A knob no code reads is not present; the rest land with
   the stage that uses them.
@@ -407,7 +415,9 @@ ACTUAL" says why.
   `evals/probes/{extractor_bench,prefilter_rate}.py`. Measured: 2.7–3.4 s per
   round on the RTX 1000 Ada (gate 2.1), 50/50 byte-stable (gate 2.2), 0 false
   pre-filter drops (gate 2.3), no-extractor probe identical to Phase 1's
-  100/100. Gates 4-i/ii/iii pending (DECISIONS "Phase 2 pre-registration").
+  100/100. Gates read 2026-09-14/15: 4-i ANY@10 93/95 and ALL@10 83/95
+  (both predictions held), 4-ii 18/20 = the k10 arm's, 4-iii adopted
+  (DECISIONS "Gate 4-i read", "Gate 4-ii read", "Gate 4-iii read").
 
 **Still absent:**
 
