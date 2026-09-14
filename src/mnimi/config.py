@@ -72,15 +72,18 @@ class MemoryConfig:
     """Tokens shared by consecutive windows when ``chunk_tokens`` > 0. In
     ``memory_meta`` and the pins beside ``chunk_tokens``."""
 
-    render_unit: str = "turns"
+    render_unit: str = "round+facts"
     """What ``get_context`` shows a retrieved round as (PHASE2 D5).
 
-    ``"turns"`` (default): the round's verbatim turns — v1, and what every
-    other arm renders. ``"round+facts"``: the same block under a ``facts:``
-    header listing the round's extracted facts with their resolved dates —
-    the extraction era's primary. ``"facts"``: the round's facts alone
+    ``"round+facts"`` (default since v1.9.0 — gate 4-iii, 2026-09-15: 84 vs
+    80 over ``turns`` in one sitting, b=7, c=3): the round's verbatim turns
+    under a ``facts:`` header listing its extracted facts with their
+    resolved dates. ``"turns"``: the turns alone — v1's unit, and what every
+    other arm renders. ``"facts"``: the round's facts alone
     (``fact:`` / ``source:`` lines; a round with no facts falls back to its
-    turns) — the one pre-registered alternative. A system-level pin
+    turns) — the one pre-registered alternative, measured worse (78 vs 84,
+    b=2, c=8: it drops the verbatim turns single-session questions need). A
+    system-level pin
     (``render_unit_template_hash`` in mnimi's retrieval pins), not a harness
     parity field: the render *format* stays identical across arms, the unit
     is what the memory layer hands the reader. Without an extractor no record

@@ -85,6 +85,12 @@ HARNESS_KEY = "harness_git_sha"
 #: refused: a schema bump that only adds a pin, and the harness commit — the
 #: published restart pair (0/100 changed) spans /4 -> /5 and three commits.
 REPORTED_NOT_REFUSED = frozenset({SCHEMA_KEY, HARNESS_KEY})
+#: The extraction-era pins (schema /8, 2026-09-13) are written as the literal
+#: ``"none"`` on an arm without an extractor; before /8 the same keys were
+#: placeholders, ``None``, because nothing existed to hash. One absent
+#: extractor, two spellings: a pair that differs only in that is one
+#: configuration (the 2026-09-14 p2base arm vs the published k10 arm).
+ABSENT = frozenset({None, "none"})
 
 
 def pins_differences(reference: dict, fresh: dict) -> list[str]:
@@ -94,12 +100,19 @@ def pins_differences(reference: dict, fresh: dict) -> list[str]:
     that only *adds* a pin (``/4`` → ``/5`` added the Ollama build the same
     daemon had always served) leaves every shared key equal and the hashes
     different. Any shared pin outside :data:`REPORTED_NOT_REFUSED` that
-    differs is a refusal.
+    differs is a refusal — except an ``extractor_*`` pin that is absent on
+    both sides under the two spellings of absent (:data:`ABSENT`).
     """
     return sorted(
         key
         for key in set(reference) & set(fresh)
-        if key not in REPORTED_NOT_REFUSED and reference[key] != fresh[key]
+        if key not in REPORTED_NOT_REFUSED
+        and reference[key] != fresh[key]
+        and not (
+            key.startswith("extractor_")
+            and reference[key] in ABSENT
+            and fresh[key] in ABSENT
+        )
     )
 
 

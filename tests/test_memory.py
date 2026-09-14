@@ -431,12 +431,23 @@ def test_get_context_reads_render_format_from_config(tmp_path):
         {"role": "assistant", "content": "a mushroom risotto", "ts": "2023/05/20 (Sat) 02:21"},
     ]
     as_json = Memory(
-        str(tmp_path / "j.db"), HashingEmbedder(), MemoryConfig(render_format="json")
+        str(tmp_path / "j.db"), HashingEmbedder(),
+        MemoryConfig(render_format="json", render_unit="turns"),
     )
     as_json.add(messages, user_id="u")
     blocks = json.loads(as_json.get_context("cook", "u"))
     assert blocks[0]["session_date"] == "2023/05/20 (Sat) 02:21"
     assert [t["role"] for t in blocks[0]["turns"]] == ["user", "assistant"]
+
+    # The default unit since v1.9.0 (round+facts) frames each round as an item that
+    # carries its facts (none without an extractor) and its turns.
+    by_default = Memory(
+        str(tmp_path / "d.db"), HashingEmbedder(), MemoryConfig(render_format="json")
+    )
+    by_default.add(messages, user_id="u")
+    items = json.loads(by_default.get_context("cook", "u"))[0]["items"]
+    assert items[0]["facts"] == []
+    assert [t["role"] for t in items[0]["turns"]] == ["user", "assistant"]
 
     as_text = Memory(str(tmp_path / "t.db"), HashingEmbedder(), MemoryConfig())
     as_text.add(messages, user_id="u")

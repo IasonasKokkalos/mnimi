@@ -145,3 +145,18 @@ def test_a_schema_bump_that_only_adds_a_pin_still_pairs(tmp_path):
         {"a": 1, "artifact_schema": 1, "harness_git_sha": "x"},
         {"a": 2, "artifact_schema": 2, "harness_git_sha": "y"},
     ) == ["a"]
+
+
+def test_the_two_spellings_of_no_extractor_pair_but_a_real_extractor_does_not():
+    # /7 wrote the extractor pins as None (nothing to hash); /8 writes "none" on the
+    # v1 arm. The published k10 arm vs the 2026-09-14 p2base arm is one configuration.
+    seven = {"extractor_model": None, "extractor_prompt_hash": None, "k": 10}
+    eight = {"extractor_model": "none", "extractor_prompt_hash": "none", "k": 10}
+    assert drift.pins_differences(seven, eight) == []
+    assert drift.pins_differences(eight, seven) == []
+    assert drift.pins_differences(seven, {**eight, "extractor_model": "Qwen/x@abc"}) == [
+        "extractor_model"
+    ]
+    assert drift.pins_differences({"render_unit": None}, {"render_unit": "none"}) == [
+        "render_unit"
+    ], "only the extractor pins have two spellings of absent"

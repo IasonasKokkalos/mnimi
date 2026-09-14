@@ -262,6 +262,58 @@ as a drift reading against the previous published mnimi run.
 | R4 chunking (510-token windows) | — | — | — | — | rejected at the probe under round-level `k` (ANY@10 89 vs 91, ALL@10 75 vs 77); no API run |
 | R6 `top_k` 10 → 20 (`mnimi__100q_gpt4o_k10`, `mnimi__100q_gpt4o_k20`) | `0dcf09f` | 82/100 | 81/100 (8,819 fed tokens) | 6 / 7 | k=10 stays; k10 arm drift vs `mnimi__100q_gpt4o_r45`: 61/100 changed, 81 → 82 |
 
+### Phase 2: the extraction era's sitting — four arms, one clean commit (2026-09-14 → 15)
+
+The pre-registered gate 4-iii of `docs/DECISIONS.md` "Phase 2
+pre-registration" (2026-09-13); read in "Gate 4-iii read" (2026-09-15).
+Every value is copied from the artifacts or printed by `python -m evals.stats`
+/ `python -m evals.drift` over these directories.
+
+**Provenance — the same for all four arms:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-14 20:33 → 2026-09-15 00:31, one sitting: baseline predict 20:33–21:22, `round+facts` 21:25–22:30, `facts` 22:30–23:27, `naive_rag` 23:27–00:26, the four judge stages 00:26–00:31 |
+| harness commit | `82aa8b5dfc095858bb01ee457a5cbe0f10fa9a12` — **clean tree** on every run, one sha in all four `pins.json` (the launcher was restarted between arm 1 and arm 2 after a drift-tool refusal; nothing in the tree changed) |
+| artifact schema | `mnimi-eval-artifact/8` (adds the extractor, pre-filter, resolver and render-unit pins) |
+| `provisional` | `[]` on every directory of this set |
+| reader transport | `openai` — `gpt-4o-2024-08-06`, `num_ctx=128000`, temperature 0, `seed=0`, `max_tokens=800`; the six Ollama-only pins `null` |
+| how it was served | Batch API, 7–8 sub-batches per arm under the 90,000 enqueued-token cap, every chunk `completed`, 0 failures, 0 synchronous fallbacks; `system_fingerprint` per call in `run.environment.reader_resolved` (the `round+facts` arm: `fp_15cc60b404` ×44, `fp_f923e16c69` ×56). The baseline arm's `reader_resolved` block is absent: its `--verify-drift` refused the /7-vs-/8 pair and returned before the block was written (fixed the same night; its fingerprints can be re-read from the batch output files named in `batch_state.json`) |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` (text) |
+| retrieval, all mnimi arms | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10` rounds, `dedup_cosine_threshold=0.95`, `dedup_scope=session`, the BGE query instruction — the v1.8.0 configuration; `naive_rag` under the same embedder, instruction and `k` |
+| extractor (the two extraction arms) | `Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077`, quant `Q8_0`, runtime `llama-cpp-python 0.3.35; -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF; cuda 13.2`, prompt `qwen3-fact-v4` (`41c8ea2c3bb4901a…`), decode hash `ba1a81ab349dd09e…` (greedy-verify-rescan, temperature 0, top_k 1, seed 0, n_ctx 4096, n_batch 512, n_threads 8, GPU), pre-filter lexicon `5adb1c1c210a9610…`, `fact_embed_template_hash` `1f0cab6f895e7343…`, resolver `v1`; every round replayed from the corpus-pass cache `.cache/extract/e15153f838b8c61c…sqlite` (23,302 rounds, 33.6 MB; the pass itself: 27.3 h on 2026-09-13/14, 3.24 s/round uncontended) |
+| render unit | baseline `turns` (`266002498b7ba407…`), `round+facts` (`2aab8f27857fc372…`), `facts`; `naive_rag` declares `turns` |
+| run environment | system Python 3.14.4; NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2 (`run.environment`) |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=100 — the same 100 ids as every published sitting |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3`, temperature 0, `max_tokens=10` |
+| dollars | $2.81 for the sitting (readers $0.6763 / $0.7746 / $0.3274 / $0.6787, judges $0.3526); the baseline arm's reader line was booked by hand from its batch output files after the refusal skipped the ledger write (`.cache/api_ledger.jsonl`, `note` field) |
+
+| run | score | 95% CI | mean fed tokens | truncated | quotable? |
+| --- | --- | --- | --- | --- | --- |
+| `mnimi__100q_gpt4o_p2base` (`--extractor none --render-unit turns`) | 80/100 (80.0%) | [71.1, 86.7] | 4,515 | 0/100 | yes |
+| **`mnimi__100q_gpt4o_extract`** (`--extractor qwen3 --render-unit round+facts`) | **84/100 (84.0%)** | [75.6, 89.9] | 5,298 | 0/100 | yes |
+| `mnimi__100q_gpt4o_extract_facts` (`--extractor qwen3 --render-unit facts`) | 78/100 (78.0%) | [68.9, 85.0] | 1,701 | 0/100 | yes |
+| `naive_rag__100q_gpt4o_p2` | 79/100 (79.0%) | [70.0, 85.8] | 4,534 | 0/100 | yes |
+
+| comparison (b = the second arm's wins) | b | c | discordant | p (exact McNemar) | rule |
+| --- | --- | --- | --- | --- | --- |
+| baseline → `round+facts` | 7 | 3 | 10 | 0.3438 | b ≥ c → **extraction adopted** |
+| `round+facts` → `facts` | 2 | 8 | 10 | 0.1094 | b > c fails → `round+facts` stays |
+| **primary: `naive_rag` → `round+facts`** | 7 | 2 | 9 | 0.1797 | not significant at 0.05; mnimi ahead |
+| `naive_rag` → baseline (descriptive) | 3 | 2 | 5 | 1.0000 | — |
+| `naive_rag` → `facts` (descriptive) | 9 | 10 | 19 | 1.0000 | — |
+
+**Drift (the baseline arm against `mnimi__100q_gpt4o_k10`, `drift.json` in the
+baseline directory, re-derived after the tool learned the /8 spelling of a
+missing extractor):** 97/100 predictions changed, prompt tokens changed on
+0/100 rows, score 82 → 80 — the fifth reading of this family, all within 2.
+
+Read it with the caveats of the sections above, plus: the extraction arms'
+retrieval gain was pre-registered on a hand-reading of the k10 arm's 18
+misses (gate 4-i: ANY@10 93/95 vs 91, ALL@10 83/95 vs 77, both predictions
+held); four of the five rows it completed are answered right here, one is
+not; the three baseline rows the adopted arm loses had no retrieval change.
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |

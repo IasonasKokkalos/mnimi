@@ -121,6 +121,28 @@ Phase 2 starts. Nothing here is significant at n=100 and nothing is claimed
 to be. Artifacts, provenance and drift readings in
 [`results/published/`](results/published/); the rulings in `docs/DECISIONS.md`.
 
+**Phase 2 — extraction (2026-09-13 → 15, same family, same 100 questions).**
+A local, pinned extractor (Qwen3-1.7B Q8_0 through llama-cpp-python on the
+GPU, grammar-constrained, byte-stable) turns each round into fact records
+stored beside the round; the reader sees a retrieved round under a `facts:`
+header. Pre-registered gates, in order: the corpus pass's retrieval probe
+(ANY@10 93/95 vs 91, ALL@10 83/95 vs 77, no API), the n=20 dev prefix
+(18/20 = the k10 arm's), then one four-arm sitting at one clean commit:
+
+| arm | score | b / c vs baseline | mean fed tokens | verdict |
+| --- | ---: | :---: | ---: | --- |
+| baseline (no extractor, `turns`) | 80 | — | 4,515 | drift vs k10: 97/100 texts changed, 0/100 prompt tokens, 82 → 80 |
+| **extraction, `round+facts`** | **84** | 7 / 3 | 5,298 | **adopted** (library and harness default since v1.9.0) |
+| extraction, `facts` only | 78 | 2 / 8 (vs `round+facts`) | 1,701 | rejected: drops the turns single-session rows need |
+| naive_rag | 79 | 7 / 2 (primary, vs `round+facts`) | 4,534 | mnimi ahead for the first time; p=0.18, not significant |
+
+The pass took 27 h once (cached for every later run); Phase 2 spent $2.98.
+Nothing here is significant at n=100 and nothing is claimed to be; the
+extraction era's primary is settled at n=500 (Phase 5). Artifacts and the
+full provenance in [`results/published/`](results/published/); the rulings
+in `docs/DECISIONS.md` ("Gate 4-i read", "Gate 4-ii read", "Gate 4-iii
+read").
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked

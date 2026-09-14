@@ -1345,4 +1345,17 @@ def test_build_system_hands_extractor_and_render_unit_to_mnimi(monkeypatch):
     assert captured["extractor"].pins["extractor_model"] == "fake-rule"
     assert captured["cache"] == "c.sqlite"
     build_system("mnimi", extractor="none")
-    assert captured["extractor"] is None and captured["config"].render_unit == "turns"
+    # No --render-unit: the library default (round+facts since v1.9.0), not a harness copy.
+    assert captured["extractor"] is None and captured["config"].render_unit == "round+facts"
+
+
+def test_mnimi_extracts_by_default_and_only_mnimi():
+    from evals.__main__ import default_extractor
+
+    # Gate 4-iii (2026-09-15): the harness's mnimi arm is the extraction arm unless told otherwise.
+    assert default_extractor("mnimi", None) == "qwen3"
+    assert default_extractor("mnimi", "none") == "none"
+    assert default_extractor("mnimi", "qwen3") == "qwen3"
+    for other in ("naive_rag", "oracle", "no_memory", "full_history", None):
+        assert default_extractor(other, None) is None
+        assert default_extractor(other, "qwen3") == "qwen3", "an explicit flag passes through"

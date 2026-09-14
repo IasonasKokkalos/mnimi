@@ -2107,3 +2107,97 @@ n=100 sitting's — none of those rows is in the prefix.
 unchanged: extraction adopted iff b ≥ c on `extract` vs `p2base`; `facts`
 replaces `round+facts` iff b > c on that pair; the primary is the adopted
 arm vs `naive_rag`, exact McNemar α 0.05.
+
+## Gate 4-iii read: extraction adopted — `round+facts` 84 vs 80 (b=7, c=3); mnimi 84 vs naive_rag 79 (b=7, c=2) (2026-09-15, 00:32)
+
+**The sitting.** Four arms at `82aa8b5`, tree clean on every launch, artifact
+schema /8, `provisional: []` on all four, the same 100 stratified questions,
+`gpt-4o-2024-08-06` through the Batch API in 7–8 sub-batches per arm, judged
+with `longmemeval-paper-v3`, paired by `python -m evals.stats`. The extraction
+arms replayed every round from the corpus pass's cache (no model call).
+
+| arm | run dir | score | Wilson 95 % | mean fed tokens (max) |
+| --- | --- | --- | --- | --- |
+| baseline, `--extractor none --render-unit turns` | `mnimi__100q_gpt4o_p2base` | 80/100 | [71.1, 86.7] | 4,515 (6,792) |
+| **extraction, `round+facts`** | `mnimi__100q_gpt4o_extract` | **84/100** | [75.6, 89.9] | 5,298 (7,732) |
+| extraction, `facts` | `mnimi__100q_gpt4o_extract_facts` | 78/100 | [68.9, 85.0] | 1,701 (2,977) |
+| `naive_rag` | `naive_rag__100q_gpt4o_p2` | 79/100 | [70.0, 85.8] | 4,534 (6,792) |
+
+**The rules, applied (pre-registration of 2026-09-13):**
+
+1. `round+facts` vs baseline: **b=7, c=3** (p=0.34) → b ≥ c → **extraction is
+   adopted**: `MemoryConfig.render_unit` defaults to `"round+facts"` and the
+   harness's mnimi arm extracts unless `--extractor none` is given
+   (`evals.__main__.default_extractor`; `build_system` keeps `None` = no
+   extractor for explicit callers and tests).
+2. `facts` vs `round+facts`: **b=2, c=8** (p=0.11) → `round+facts` stays. The
+   eight losses are all single-session rows (`95228167`, `fca762bc`,
+   `0e5e2d1a`, `58bf7951`, `561fabcd`, `e9327a54`, `0a34ad58`, `1568498a`):
+   facts alone drop the verbatim turns those questions are answered from,
+   at a third of the tokens.
+3. **Primary of the extraction era — the adopted arm vs `naive_rag`: b=7,
+   c=2, exact McNemar p=0.18, not significant at 0.05.** mnimi 84 vs 79 is
+   the first sitting in the programme where the primary leans mnimi's way
+   (Phase 0: b=1, c=6; Phase 1: b=2, c=3). It is a working number at n=100;
+   the verdict is Phase 5's n=500.
+
+Descriptive, not paired for a decision: baseline vs `naive_rag` b=3, c=2
+(80 vs 79 — the v1 write side is a wash against verbatim storage, as
+Phase 1 left it); `facts` vs `naive_rag` b=9, c=10.
+
+**Where the four points came from.** The seven rows `round+facts` wins over
+the baseline: `57f827a0`, `852ce960`, `af082822`, `45dc21b6`, `2e6d26dc`,
+`3a704032`, `6f9b354f` — five of them are rows gate 4-i moved into ALL@10
+(`af082822`, `45dc21b6`, `2e6d26dc`, `3a704032`, `6f9b354f`), four of those
+the pre-registered P2 rows. Against the k10 arm's 18 wrong rows: four are now
+right (`af082822`, `45dc21b6`, `3a704032`, `6f9b354f`), `gpt4_2ba83207` stays
+wrong with all its evidence in view, and 13 stay wrong. The three losses
+(`09ba9854`, `75f70248`, `7405e8b1`) had no retrieval change at 4-i: reader
+flips under a context 17 % longer. Per category (baseline / `round+facts` /
+`facts` / `naive_rag`): knowledge-update 13/15/15/13, multi-session
+10/10/11/8, single-session-assistant 17/17/12/17, single-session-preference
+13/13/11/14, single-session-user 15/16/15/15, temporal-reasoning 12/13/14/12.
+
+**The fed-token table** (mean `reader_prompt_tokens`, baseline / `round+facts`
+/ `facts`): knowledge-update 4,941 / 5,656 / 1,742; multi-session 4,862 /
+5,512 / 1,665; single-session-assistant 3,360 / 4,064 / 1,931;
+single-session-preference 4,877 / 5,490 / 1,496; single-session-user 4,571 /
+5,530 / 1,710; temporal-reasoning 4,526 / 5,567 / 1,664. The facts header
+costs +783 tokens per context (+17 %); no context truncated in any arm.
+
+**Drift, the fifth reading of the family.** The baseline arm against the
+published k10 arm (identical configuration, the `/7 → /8` schema bump and
+five commits between): **97/100 predictions changed at the byte level,
+prompt tokens changed on 0/100 rows, score 82 → 80** — retrieval untouched by
+Task 6, as the sitting's first check required, and the text not reproducible,
+as this family never is (85, 61, 65, 61, 97 changed across five readings;
+scores within 2). Fingerprints on the extraction arm: `fp_15cc60b404` 44,
+`fp_f923e16c69` 56.
+
+**Deviations, disclosed.**
+
+- The launcher stopped after arm 1 and was restarted for arms 2–4 at the
+  same commit: `--verify-drift` was refused — "pins differ on
+  ['extractor_model']" — because the /7 artifact spells a missing extractor
+  `None` and the /8 arm writes the literal `"none"`. No file changed between
+  the two launches (`git status` clean at both; one sha in all four
+  `pins.json`). The pre-registered check was read directly from the two
+  prediction files (0/100 prompt-token changes) before arm 2 was submitted.
+  After the sitting `evals.drift.pins_differences` learned the two spellings
+  of an absent `extractor_*` pin (`ABSENT`, with a test); the fixed tool's
+  report (`drift.json` beside the published baseline) agrees with the direct
+  reading.
+- The refusal returned before the run's accounting: the baseline arm's
+  `reader_resolved` block was never written and its **$0.68 of reader spend
+  never reached the ledger**. The spend was booked by hand the same night
+  from the seven batch output files (451,528 prompt + 22,382 completion
+  tokens, $0.6763 at the batch rate, 100/100 responses, 0 failed) and the
+  harness now accounts before it verifies and books a filled entry on any
+  refusal (`_predict_sync`, `_predict_batch`, `main`; a test).
+- `render_unit="round+facts"` changes the JSON render *shape* even without
+  facts (each round becomes an item carrying `facts: []` and its turns); the
+  text shape is byte-identical without facts. A test pins both.
+
+**Cost.** The sitting $2.81 (readers $0.6763 + $0.7746 + $0.3274 + $0.6787,
+judges $0.3526); with gate 4-ii, Phase 2 spent **$2.98** against the $3.3
+carried; programme $13.74 of $50.

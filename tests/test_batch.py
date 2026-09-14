@@ -445,6 +445,13 @@ def test_verify_drift_runs_when_the_batch_predictions_land(tmp_path, monkeypatch
     assert rc == 2
     assert "not a drift pair" in capsys.readouterr().err
     assert (other / "predictions.jsonl").exists() and not (other / "drift.json").exists()
+    # ... and its reader spend is booked all the same (2026-09-14: the p2base
+    # arm's $0.68 went unrecorded when the /7-vs-/8 pair was refused).
+    from evals import pricing
+
+    booked = [e for e in pricing.entries() if str(e.get("run_dir", "")).endswith("other")]
+    assert booked and booked[-1]["reader_actual_usd"] is not None
+    assert booked[-1]["actual_usd"] == booked[-1]["reader_actual_usd"]
 
 
 # ------------------------------------------- sub-batches under the cap ---

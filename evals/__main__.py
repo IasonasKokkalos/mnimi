@@ -35,6 +35,22 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 
 
+MNIMI_DEFAULT_EXTRACTOR = "qwen3"
+
+
+def default_extractor(system: str | None, requested: str | None) -> str | None:
+    """The extractor an arm runs when ``--extractor`` is not given.
+
+    mnimi extracts by default since gate 4-iii (2026-09-15: ``round+facts`` 84
+    vs the no-extractor arm's 80 in one sitting, b=7, c=3; DECISIONS "Gate
+    4-iii read"); ``--extractor none`` is the v1 arm. Every other system
+    ignores the flag. ``build_system`` itself keeps ``None`` = no extractor, so
+    a caller (or a test) that wants the v1 arm asks for it explicitly."""
+    if requested is not None:
+        return requested
+    return MNIMI_DEFAULT_EXTRACTOR if system == "mnimi" else None
+
+
 def build_system(
     name: str,
     render_format: str = "text",
@@ -78,7 +94,7 @@ def build_system(
         knobs["query_instruction"] = query_instruction
     if top_k is not None:  # the one pre-registered alternative to k=10 (R6)
         knobs["top_k"] = top_k
-    if render_unit is not None:  # else the library default (turns until adoption)
+    if render_unit is not None:  # else the library default (round+facts since v1.9.0)
         knobs["render_unit"] = render_unit
     config = MemoryConfig(**knobs)
     if name == "no_memory":
@@ -459,7 +475,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=["none", "qwen3"],
         help="mnimi only: the write-time extractor (PHASE2 D6/D7). 'qwen3' is the pinned "
         "Qwen3-1.7B Q8_0 GGUF through llama-cpp-python ([extract] extra, GPU); 'none' is "
-        "the v1 arm (rounds only). Default: the library's (none until adoption). Pinned "
+        "the v1 arm (rounds only). Default for mnimi: qwen3 (adopted 2026-09-15, gate "
+        "4-iii); other systems ignore it. Pinned "
         "(schema /8) and a memory_meta row; naive_rag never extracts.",
     )
     parser.add_argument(
@@ -719,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
             chunk_tokens=args.chunk_tokens,
             chunk_overlap=args.chunk_overlap,
             top_k=args.top_k,
-            extractor=args.extractor,
+            extractor=default_extractor(args.system, args.extractor),
             render_unit=args.render_unit,
             extractor_cache=args.extractor_cache,
         )
@@ -774,6 +791,11 @@ def main(argv: list[str] | None = None) -> int:
                 entry=ledger_entry,
             )
             if isinstance(outcome, int):
+                # A refusal after the reader ran (--verify-drift): the money is
+                # spent whatever the drift tool says, so the ledger line is
+                # written before the exit code leaves.
+                if ledger_entry.get("reader_actual_usd") is not None:
+                    _record_spend(ledger_entry, budget_usd)
                 return outcome
             predictions = outcome
         else:
@@ -1106,10 +1128,6 @@ def _predict_openai(
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_pins(directory, pins)
     artifacts.write_predictions(directory, predictions)
-    if args.verify_drift:
-        rc = _verify_drift(args.verify_drift, directory)
-        if rc:
-            return rc
     reader_usd = pricing.estimate_usd(args.model, stats.prompt_tokens, stats.completion_tokens)
     resolved = stats.as_resolved(args.reader_transport, args.model)
     resolved["projected_usd"] = projection.total_usd
@@ -1120,6 +1138,12 @@ def _predict_openai(
         reader_completion_tokens=stats.completion_tokens,
         reader_actual_usd=reader_usd,
     )
+    # The drift check runs after the accounting: a refused pair is still a
+    # run that spent money (2026-09-14, the p2base arm went unrecorded).
+    if args.verify_drift:
+        rc = _verify_drift(args.verify_drift, directory)
+        if rc:
+            return rc
     return predictions
 
 
@@ -1344,10 +1368,6 @@ def _predict_batch(
     stats = PredictStats()
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_predictions(directory, predictions)
-    if args.verify_drift:
-        rc = _verify_drift(args.verify_drift, directory)
-        if rc:
-            return rc
     # Batch rate for the batch rows; the fallbacks were synchronous calls.
     # Their usage is inside the same totals, so bill the fallback share at
     # standard rate and the rest at batch rate.
@@ -1378,6 +1398,11 @@ def _predict_batch(
         reader_actual_usd=reader_usd,
         batch_id=resolved["batch_id"],
     )
+    # After the accounting and the state write, never before (see _predict_sync).
+    if args.verify_drift:
+        rc = _verify_drift(args.verify_drift, directory)
+        if rc:
+            return rc
     return predictions
 
 
