@@ -2003,3 +2003,78 @@ from the session: `python -m evals.probes.retrieval --system mnimi
 --extractor qwen3 --limit 100 --out runs/probe_mnimi_extract.json` at
 commit `e1805e5`, cache `.cache/extract/<pins hash>.sqlite`. Its reading
 is the next entry.
+
+## Gate 4-i read: the extraction arm's retrieval — ANY@10 93/95, ALL@10 83/95, PASS (2026-09-14, 20:01)
+
+**The corpus pass finished** — `python -m evals.probes.retrieval --system mnimi
+--extractor qwen3 --limit 100 --out runs/probe_mnimi_extract.json`, code at
+`e1805e5` (the two commits since are docs), 2026-09-13 16:45 → 2026-09-14
+20:01, exit 0. Every round of the slice's 100 histories went through the
+pre-filter, the pinned Qwen3-1.7B extractor on the GPU, the resolver and the
+per-kind screens, and every model output is in the cache
+(`.cache/extract/e15153f8….sqlite`, 23,302 distinct rounds, 33.6 MB). No API
+call was made; Phase 2 has spent $0 so far.
+
+**The gate (pre-registered in "Phase 2 pre-registration"):** on the 95
+evidence-bearing questions, against the no-extractor probe
+(`runs/probe_mnimi_p2base.json`, identical to Phase 1's R5 read):
+
+| | extract | p2base | bar | |
+| --- | --- | --- | --- | --- |
+| ANY@10 (some evidence round in the top-10) | **93/95** | 91/95 | ≥ 89/95 | PASS |
+| ALL@10 (every evidence round in the top-10) | **83/95** | 77/95 | ≥ 77/95 | PASS |
+
+Nine rows changed status: ANY gained 3, lost 1; ALL gained 7, lost 1.
+Zero evidence rounds were lost to a screen (0 cross-session drops). Per
+category (extract vs p2base, ALL@10): knowledge-update 14 vs 13,
+multi-session 11 vs 8, single-session-assistant 17 vs 17,
+single-session-preference 13 vs 12, single-session-user 16 vs 15,
+temporal-reasoning 12 vs 12; ANY@10 moves only on single-session-user
+(16 vs 15) and temporal-reasoning (15 vs 14).
+
+**P1 holds.** `67e0d0f2` (ranks 7, absent → 14, 1) and `a3838d2b`
+(2, 3, absent, absent, 25, 6 → 3, 5, 9, 14, 16, 7) lost no evidence round;
+the fact records pulled their absent rounds into the top-50 and, for three of
+the four, into the top-10 or its edge.
+
+**P2 holds: 5 of the 10 partial-retrieval rows are complete** (bar ≥ 4):
+`af082822` (28 → 1), `45dc21b6` (1, 13 → 2, 1), `gpt4_2ba83207`
+(16, 3, 7, 1 → 4, 1, 5, 2), `3a704032` (20, 10 → 2, 5), `6f9b354f` (15 → 1).
+Still partial: `gpt4_31ff4165` (3 of 6 in the top-10, was 2), `b46e15ed`
+(3 of 5, was 0), `gpt4_d6585ce8` (3 of 5, unchanged), `0a995998` (1 of 3,
+was 1). `75832dbd`'s single evidence round is outside the top-50 on both
+sides — its facts did not bridge the question's wording either.
+
+**The one loss:** `gpt4_4929293b` (temporal-reasoning, "a week ago"), rank
+8 → 11, pushed out by other rounds' fact records. The k10 arm answered it
+wrong with the round in view, so the gate pays one ANY@10 point and no
+answer; it is now a retrieval miss in the misses join.
+
+**Preview, not a score.** Joined over the k10 arm's verdicts: of its 18
+wrong rows, 16 now have evidence in the top-10 (reading misses) and 2 are
+retrieval misses (`gpt4_4929293b`, `75832dbd`). Seven of the nine moved rows
+were wrong at k10; five of those are now complete, and the oracle answered
+four of the five right (`3a704032` is wrong even for the oracle). Retrieval
+moved where the hand-reading (PHASE2-RESULTS §0) said it would; whether the
+reader converts it is gate 4-ii's and 4-iii's question.
+
+**Extraction counters.** Rounds 24,747; sent to the model 24,676
+(pre-filter skipped 71, 0.29 %); `[]` outputs 2,687 (10.9 %); truncated
+outputs 87 (0.35 %, 83 of them unparseable and fact-less); truncated inputs
+83 (0.34 %); facts per round sent: mean 2.40, p50 2, p90 5, max 8; facts
+stored 54,202 (2.20 per round sent) beside 24,195 round records — 78,397
+records in the hundred stores. Drops: round/exact 16, round/cosine 536,
+fact/exact 379, fact/cosine 4,460 — the fact screens run at 0.95 unchanged
+and collapse restatements within a session, never an evidence round.
+
+**Time.** Wall 27.26 h (98,139 s), 3.98 s per round sent overall. The 87
+uncontended questions ran at a median 3.24 s/round (13.3 min per question);
+13 questions (9–10, 12–22) ran at 4.9–21.8 s/round while a game and a
+browser shared the GPU, 5.0 h of excess. At the uncontended rate the pass
+projects to 22.2 h — inside gate 2.1's 24 h as pre-registered; the extra
+five hours belong to the machine's evening, not to the extractor.
+
+**Decision: PASS → Task 8** (gate 4-ii, the n=20 dev prefix through the
+Batch API, ≈ $0.25), then the four-arm sitting (gate 4-iii). The extraction
+code stays opt-in (`--extractor qwen3`, `render_unit="turns"` default)
+until 4-iii decides.
