@@ -2249,3 +2249,149 @@ context — the fed-token cost of the facts header is the first thing decay
 and ranking (Phase 4) can trim. Phase 3 (conflict, the negation and
 value-substitution screens) starts from a store that now holds triples and
 valid times to conflict on. v1.9.0.
+
+## Phase 3 pre-registration: conflict handling and the deterministic screens (2026-09-15)
+
+Recorded before any Phase 3 code ran on the slice. Baseline for the phase: the
+adopted v1.9.0 configuration and Phase 2's probe `runs/probe_mnimi_extract.json`
+(commit `e1805e5`): ANY@10 93/95, ALL@10 83/95, 0 evidence rounds lost,
+78,397 records stored, drops `round/exact 16`, `round/cosine 536`,
+`fact/exact 379`, `fact/cosine 4,460`. The task-level plan is
+`mnimi docs/PHASE3.md` (D1–D12 in full, Tasks 1–5); its numbers doc will be
+`mnimi docs/PHASE3-RESULTS.md`. Phase 3 spends $0 of API.
+
+**What was measured at design time, disclosed.** The extraction cache's
+corpus-wide tables were read (23,302 rounds, 55,841 facts; subject, predicate
+and object frequencies, marker counts inside fact texts, object lengths) and
+the pair rules were simulated per store on the slice; no evidence round and
+no question was read, no threshold was selected, nothing was scored. Three
+facts from that reading shaped the design: 99.8 % of facts carry a triple;
+the predicates are overwhelmingly speech-act verbs (`explained` 4,221,
+`provided` 3,594, `mentioned` 2,248) and 37 % of objects are clauses of ten
+tokens or more; and 5,705 `(subject, predicate)` groups per store hold two or
+more objects with 33,963 facts in them (`user|has` alone 1,788: a cat *and* a
+sister). A bare same-pair rule would therefore have superseded tens of
+thousands of true facts.
+
+**Design (PHASE3.md D1–D12), in brief.**
+- D1 Fact records only conflict; a round is evidence, never superseded.
+- D2 Candidates: (a) the value screen runs store-wide over every *active*
+  earlier fact with the same normalized `pair_key`, through an index, because
+  the session-scoped cosine gate never sees the cross-session
+  knowledge-update case; (b) the negation screen runs over cosine-pass pairs
+  within `dedup_scope` and over (a)'s candidates. A same-pair pair with
+  different value-sized objects (≤ 6 tokens) is *routed away from the merge*;
+  it is *superseded* only under three rules — negation (same object, opposite
+  polarity), functional (a frozen predicate group: residence, employer,
+  occupation, origin, vehicle, partner, name, weight, school, age, height,
+  phone, email, birthday — positive, different values), numeric (both objects
+  carry a number, the numbers differ, the residues match: "2 of Emma's
+  recipes" → "3 of Emma's recipes"). The assistant's facts never conflict.
+  The leaning (every same-pair different-object fact conflicts) is overturned
+  on the 33,963-fact measurement above. Design-time projection on the slice:
+  16 functional + 35 numeric + 0 negation supersessions across the 100
+  stores (by category: knowledge-update 1/13/0, multi-session 3/8/0,
+  single-session-user 3/8/0, single-session-assistant 4/1/0,
+  single-session-preference 2/1/0, temporal-reasoning 2/4/0) — LongMemEval's
+  history is built non-conflicting, so gate 3-i is a non-regression guard and
+  gate 3-ii is the falsification.
+- D3 Normalization is code, exact match after a fixed rewrite (lower-case,
+  apostrophes and punctuation out, contractions expanded, first-person forms
+  and "the user" → `user`, articles and auxiliaries stripped, markers removed
+  and counted, antonym and functional forms canonicalized, number words →
+  digits); no lemmatization, no fuzzy matching; inflections are enumerated.
+  Versioned by a NEW `memory_meta` row `conflict_rules_hash` (not folded into
+  `resolver_version` — different artifact, different lifetime). A v1.9 store
+  is refused at open; every store is rebuilt from the cache.
+- D4 The negation lexicon (`mnimi/conflict/lexicon.py`): 19 contractions, 20
+  markers (`not`, `no`, `never`, `no longer`, `used to`, the cessation verbs as
+  prefixes; `anymore` deliberately not a marker), ten antonym groups with
+  every inflection (`like` folds love/enjoy with dislike/hate; `own` folds
+  has/bought/adopted with sold/gave away/rehomed; pass/fail, win/lose, drop
+  left out), fourteen functional groups (`uses`, `using`, `has` are NOT
+  functional — measured). Polarity on the predicate and object tokens,
+  `polarity_of_text(content)` as the fallback for a null triple.
+  `negation_lexicon_hash = 330604b5772e…` replaces the literal `"none"`;
+  `conflict_rules_hash = 7d19c48828c8…`. Both frozen at Block 1's commit and
+  pinned by `tests/test_conflict.py`.
+- D5 The entropy gate: token-level Shannon entropy in bits of the normalized
+  fact text; `min(H(incoming), H(neighbour)) < dedup_entropy_gate` (SPEC's
+  2.0) keeps a cosine-pass fact pair apart, after the two screens abstain;
+  facts only. Token-level because a sentence's character entropy sits near
+  4 bits whatever it says (Graphiti's character-level gate is on names).
+- D6 One ordering: `(effective_time, session date, session ts, trust, id)`,
+  greater wins; `effective_time` = `valid_time` when set, else the session
+  date — SPEC step 4 for the pure cases, and the mixed dated-vs-standing case
+  by the same key (a standing fact is an assertion current as of its session;
+  "dated beats standing" is rejected because a 2015-dated fact would beat a
+  2023 assertion). Loser `salience = 0`; winner `supersedes` = the last loser's
+  id; `superseded {old_id}: {rule} {pair_key}: {old} -> {new}` at INFO on the
+  `mnimi.memory` logger (the same channel as `filtered: {rule}`).
+- D7 Runs inside `add()` per fact; `consolidate()` is the same decision as an
+  idempotent full pass over the pair index (no-op after `add()`), still not
+  called by the harness (Phase 4.3). A null-triple negation pair found through
+  cosine is superseded by `add()` only.
+- D8 Read path untouched: no salience-0 exclusion, no ranking, no decay. The
+  probe can move only through keeps (fewer fact drops, never more, never a
+  round).
+- D9 Gate 3-i below. D10 Gate 3-ii below.
+- D11 `dedup_entropy_gate = 2.0` lands (SPEC field); `conflict_resolution =
+  True` lands as the one switch for the stage (`False` = the v1.9 write path,
+  the gate 3-ii baseline and the "behind a flag" fallback); no threshold
+  changes; no knob for the lexicon.
+- D12 `memory_meta`: `negation_lexicon_hash` live, `conflict_rules_hash` new
+  (fourteen rows). Pins schema /9 (`dedup_entropy_gate`, `conflict_resolution`,
+  the two hashes; mnimi declares them, naive_rag does not;
+  `HARNESS_PARITY_FIELDS` unchanged). Language: the probe is Tier 2 given the
+  pins and the cache; the demo set is deterministic and CI-run.
+
+**Gate 3-i (the slice guard, no API, PHASE3 Task 2).** After the screens land:
+`python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100
+--out runs/probe_mnimi_p3.json` from the cache, read against
+`runs/probe_mnimi_extract.json`. PASS iff **ANY@10 ≥ 93/95, ALL@10 ≥ 83/95,
+evidence lost = 0, `round/exact` = 16 and `round/cosine` = 536 exactly,
+`fact/exact` = 379 exactly, `fact/cosine` ≤ 4,460, stored ≥ 78,397 and stored +
+drops = 83,788**, AND the no-extractor probe `runs/probe_mnimi_p3base.json` is
+identical to `runs/probe_mnimi_p2base.json` on ranks, top-50, drops and stored
+for 100/100 questions. Reported beside it: keeps by screen, per-category
+ANY/ALL; in Task 3, the probe re-run must be identical to Task 2's on 100/100
+(D8), with conflicts and supersessions by rule and category against the
+projection above, and prediction **P1**: the store of `45dc21b6` records a
+numeric supersession whose winner's object carries `3`. Tripwires (reported,
+not gated): `fact/cosine` < 3,345 → twenty kept pairs read by hand before
+Task 3; superseded > 500 → the rules re-read before Task 4.
+
+**Gate 3-ii (the demo set, the falsification gate, PHASE3 Task 4).**
+`python -m evals.probes.conflict_demo --seed 0`: 100 seeded pairs — value-change
+30 (15 functional, 15 count), negation 30 (15 marker, 15 antonym), dated-update
+20 (10 in session order, 10 with the later-`valid_time` fact ingested first),
+paraphrase 10 and unrelated 10 as controls — through a model-free
+`ScriptedExtractor`, one `Memory` per pair, `HashingEmbedder`. A conflict pair
+is correct iff exactly one active fact carries its pair key with the expected
+value (or polarity), the loser has `salience = 0` and the winner's `supersedes`
+points at it, after `add()` and again after `consolidate()`; paraphrase is
+correct iff nothing is superseded and every active fact carries the expected
+value; unrelated iff two facts stay active. Baseline: the same set with
+`conflict_resolution=False` (the v1.9 write path). **PASS iff mnimi ≥ 72/80 on
+the conflict families and ≥ 27/30, ≥ 27/30, ≥ 18/20 within them, controls
+20/20, both readings, and strictly above the baseline on conflicts.**
+Expected baseline: 0/80 on conflicts (two active facts fail the "exactly one
+active" reading by construction; the brief's "near 50 %" guess is superseded
+by this strict metric, which is what supersession exists to make true) and
+20/20 on controls. An optional pass through the real extractor
+(`--extractor qwen3`) is reported, never the gate.
+
+**Adoption rule.** The screens and supersession ship as the library default
+(`conflict_resolution=True`, harness following) iff gate 3-i AND gate 3-ii
+pass. On a 3-i loss the code stays behind `conflict_resolution=False` as the
+default and Phase 3 is re-scoped in PLAN.md (Tasks 3–4 still run,
+informatively); on a 3-ii loss the same, with the failure ids recorded. No
+number is tuned to pass either gate.
+
+**Prohibited in this phase.** No LLM anywhere new; no threshold selection (0.95
+and k=10 untouched; `dedup_entropy_gate` at SPEC's default); no edit to the
+lexicon, the normalization tables or any `memory_meta` row under a run (an edit
+is a version bump, a new hash, a re-ingest, a dated entry); no read-path change
+(no salience-0 exclusion, no ranking, no decay); no change to `naive_rag`, the
+renderer, `k`, the reader prompt, `EMBED_TEMPLATE` or `FACT_EMBED_TEMPLATE`;
+`evals/systems/mnimi.py` keeps not calling `consolidate()`.
