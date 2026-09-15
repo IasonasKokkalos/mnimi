@@ -85,6 +85,11 @@ def _anchor(ts: str | None) -> date | None:
         return None
 
 
+#: The public name of the ``ts`` → date parse (PHASE3 Task 3: the supersede
+#: ordering reads a session date the same way the resolver anchors on it).
+anchor_date = _anchor
+
+
 def _number(token: str) -> int | None:
     token = token.strip()
     if token.isdigit():

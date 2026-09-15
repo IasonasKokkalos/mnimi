@@ -784,3 +784,159 @@ def test_fact_records_carry_their_pair_key(tmp_path):
         for fact in m.store.facts_of("u", record.round_key):
             by_key[fact.fact] = fact.pair_key
     assert by_key == {"The user moved to Seattle.": "user|lives in", "The user feels happy.": None}
+
+
+# -- Phase 3 Task 3: supersede inside add(), consolidate() ----------------------------------
+
+
+def _two_sessions(m, script, ts_a="2023/01/10 (Tue) 09:00", ts_b="2023/06/10 (Sat) 09:00"):
+    (text_a, text_b) = script
+    m.add([_message(text_a, ts=ts_a)], user_id="u")
+    m.add([_message(text_b, ts=ts_b)], user_id="u")
+
+
+def _active(m, pair_key):
+    return m.store.active_facts_by_pair("u", pair_key)
+
+
+def test_value_change_across_sessions_supersedes_the_older_fact(tmp_path, caplog):
+    import logging
+
+    m = _scripted_memory(tmp_path / "s.db", _VALUE_SCRIPT)
+    with caplog.at_level(logging.INFO, logger="mnimi"):
+        _two_sessions(m, list(_VALUE_SCRIPT))
+    (active,) = _active(m, "user|lives in")
+    assert active.object == "Seattle" and active.supersedes is not None
+    loser = {r.id: r for r in m.store.facts_with_pair_key("u")}[active.supersedes]
+    assert loser.object == "Boston" and loser.salience == 0.0
+    assert f"superseded {loser.id}: functional user|lives in: boston -> seattle" in caplog.text
+    assert m.conflict_stats["conflicts_functional"] == 1 and m.conflict_stats["superseded"] == 1
+
+
+def test_an_out_of_order_dated_fact_loses_to_the_later_valid_time(tmp_path):
+    script = {
+        "I moved to Seattle last month.": [
+            _fact("The user moved to Seattle.", "user: I moved to Seattle last month.", "user",
+                  "moved to", "Seattle", when="last month")],
+        "Back in 2019 I lived in Boston.": [
+            _fact("The user lived in Boston in 2019.", "user: Back in 2019 I lived in Boston.",
+                  "user", "lived in", "Boston", when="in 2019")],
+    }
+    m = _scripted_memory(tmp_path / "d.db", script)
+    _two_sessions(m, list(script))  # Seattle first (January), Boston later (June)
+    (active,) = _active(m, "user|lives in")
+    assert active.object == "Seattle" and active.valid_time == "2022-12"
+
+
+def test_an_incoming_fact_can_lose_and_is_stored_inactive(tmp_path):
+    m = _scripted_memory(tmp_path / "l.db", _VALUE_SCRIPT)
+    _two_sessions(m, list(_VALUE_SCRIPT), ts_a="2023/06/10 (Sat) 09:00",
+                  ts_b="2023/01/10 (Tue) 09:00")
+    (active,) = _active(m, "user|lives in")
+    assert active.object == "Boston", "the January Seattle fact arrived second and lost"
+    assert m.store.count("u", kind="fact") == 2
+
+
+def test_a_superseded_loser_is_never_a_candidate_again(tmp_path):
+    script = {**_VALUE_SCRIPT, "Third time: I live in Denver now.": [
+        _fact("The user lives in Denver.", "user: I live in Denver now.", "user", "lives in",
+              "Denver")]}
+    m = _scripted_memory(tmp_path / "t.db", script)
+    stamps = ("2023/01/10 (Tue) 09:00", "2023/03/10 (Fri) 09:00", "2023/06/10 (Sat) 09:00")
+    for text, ts in zip(list(script), stamps, strict=True):
+        m.add([_message(text, ts=ts)], user_id="u")
+    (active,) = _active(m, "user|lives in")
+    assert active.object == "Denver" and m.conflict_stats["superseded"] == 2
+    assert m.conflict_stats["candidates"] == 2, "Boston was inactive when Denver arrived"
+
+
+def test_negation_across_sessions_supersedes_and_the_round_is_untouched(tmp_path):
+    script = {
+        "I like jazz.": [_fact("The user likes jazz.", "user: I like jazz.", "user", "likes",
+                               "jazz")],
+        "I dislike jazz now.": [_fact("The user dislikes jazz.", "user: I dislike jazz now.",
+                                      "user", "dislikes", "jazz")],
+    }
+    m = _scripted_memory(tmp_path / "n.db", script)
+    _two_sessions(m, list(script))
+    (active,) = _active(m, "user|like")
+    assert active.object == "jazz" and active.predicate == "dislikes"
+    assert m.conflict_stats["conflicts_negation"] == 1
+    rounds = [r for r, _ in m.store.search(m._query_embedding("jazz"), "u", k=5, kind="round")]
+    assert len(rounds) == 2 and all(r.salience == 1.0 and r.supersedes is None for r in rounds), \
+        "rounds are never superseded (D1)"
+
+
+def test_read_path_is_untouched_a_superseded_fact_still_renders(tmp_path):
+    m = _scripted_memory(tmp_path / "r.db", _VALUE_SCRIPT)
+    _two_sessions(m, list(_VALUE_SCRIPT))
+    context = m.get_context("where does the user live", "u")
+    assert "The user lives in Boston." in context and "The user lives in Seattle." in context
+    assert len(m.recall("where does the user live", "u")) == 2
+
+
+def test_consolidate_is_idempotent_and_matches_add(tmp_path):
+    m = _scripted_memory(tmp_path / "c1.db", _VALUE_SCRIPT)
+    _two_sessions(m, list(_VALUE_SCRIPT))
+    before = [(r.id, r.salience, r.supersedes) for r in m.store.facts_with_pair_key("u")]
+    m.consolidate("u")
+    m.consolidate("u")
+    assert [(r.id, r.salience, r.supersedes) for r in m.store.facts_with_pair_key("u")] == before
+    assert m.conflict_stats["superseded"] == 1, "consolidate found nothing to do"
+    # A store whose facts were inserted with resolution off, then consolidated
+    # with it on, reaches the same active set (its screens-off merges aside).
+    off = _scripted_memory(tmp_path / "c2.db", _VALUE_SCRIPT, conflict_resolution=False)
+    _two_sessions(off, list(_VALUE_SCRIPT))
+    on = Memory(str(tmp_path / "c2.db"), HashingEmbedder(),
+                MemoryConfig(dedup_cosine_threshold=0.5), extractor=off.extractor)
+    on.consolidate("u")
+    # Different sessions, so the session-scoped cosine gate never merged the
+    # pair: both facts were stored, and the pass leaves the June one active.
+    assert [r.object for r in _active(on, "user|lives in")] == ["Seattle"]
+    assert on.conflict_stats["superseded"] == 1
+    off2 = _scripted_memory(tmp_path / "c3.db", _VALUE_SCRIPT, conflict_resolution=False)
+    _two_sessions(off2, list(_VALUE_SCRIPT))
+    off2.consolidate("u")
+    assert all(r.salience == 1.0 for r in off2.store.facts_with_pair_key("u")), "off means off"
+
+
+def test_cosine_negation_pair_supersedes_only_without_a_pair_key(tmp_path):
+    # Null triples: the pair cannot meet on the index, so the negation screen's
+    # keep is the only path — and it supersedes (D7).
+    script = {
+        "Quick note: I live in Boston now.": [
+            _fact("The user lives in Boston.", "user: I live in Boston now.")],
+        "Update from me: I no longer live in Boston.": [
+            _fact("The user no longer lives in Boston.", "user: I no longer live in Boston.")],
+    }
+    m = _scripted_memory(tmp_path / "n1.db", script)
+    for text in script:
+        m.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert m.conflict_stats["kept_negation"] == 1 and m.conflict_stats["superseded"] == 1
+    # Keyed triples on DIFFERENT pairs (and the assistant's facts, never): the
+    # screen keeps them apart, but nothing supersedes — conflict_between rules.
+    keyed = {
+        "Quick note: I like the new office.": [
+            _fact("The assistant explained the office.", "assistant: the new office",
+                  "assistant", "explained", "the office")],
+        "Update from me: I don't like the new office.": [
+            _fact("The assistant did not explain the office.", "assistant: not the office",
+                  "assistant", "did not explain", "the office")],
+    }
+    k = _scripted_memory(tmp_path / "n2.db", keyed)
+    for text in keyed:
+        k.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert k.conflict_stats["kept_negation"] == 1 and k.conflict_stats["superseded"] == 0
+    # The assistant's facts never conflict (D2), even through the null-triple
+    # path: one side keyed to the assistant, the other with no triple.
+    mixed = {
+        "Quick note: I read the book.": [
+            _fact("The assistant read the book.", "assistant: yes", "assistant", "read",
+                  "the book")],
+        "Update from me: I did not read the book.": [
+            _fact("The assistant did not read the book.", "assistant: no")],
+    }
+    a = _scripted_memory(tmp_path / "n3.db", mixed)
+    for text in mixed:
+        a.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert a.conflict_stats["kept_negation"] == 1 and a.conflict_stats["superseded"] == 0

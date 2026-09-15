@@ -7,9 +7,10 @@ import sys
 
 import pytest
 
-from mnimi.conflict import lexicon, normalize
+from mnimi.conflict import lexicon, normalize, supersede
 from mnimi.conflict.normalize import NormalizedTriple, normalize_triple
 from mnimi.conflict.screens import KEEP_REASONS, Verdict, screen_pair, token_entropy_bits
+from mnimi.models import MemoryRecord
 
 
 def test_importing_mnimi_conflict_loads_no_heavy_dependency():
@@ -191,3 +192,79 @@ def test_screen_pair_abstains_on_null_triples_and_merges_true_duplicates():
     assert screen_pair("The user adopted a cat named Miso.", _t(None, None, None),
                        "The user adopted a cat called Miso.",
                        _t("user", "adopted", "a cat called Miso"), 2.0) == dup
+
+
+# -- supersede: the ordering and the three rules (PHASE3 Task 3) -------------------------
+
+
+def _rec(id, created_at, valid_time=None, raw="user: x", subject="user", predicate="lives in",
+         obj="Boston", fact=None, salience=1.0):
+    t = normalize_triple(subject, predicate, obj)
+    return MemoryRecord(id=id, user_id="u", content="c", created_at=created_at, kind="fact",
+                        fact=fact or f"The user {predicate} {obj}.", raw=raw, subject=subject,
+                        predicate=predicate, object=obj, valid_time=valid_time, salience=salience,
+                        pair_key=t.pair_key if t else None)
+
+
+def test_time_keys_parse_every_precision_and_never_read_the_clock():
+    assert supersede.valid_time_key("2023") == (2023, 0, 0)
+    assert supersede.valid_time_key("2023-05") == (2023, 5, 0)
+    assert supersede.valid_time_key("2023-05-20") == (2023, 5, 20)
+    assert supersede.valid_time_key(None) is None
+    assert supersede.created_at_key("2023/05/20 (Sat) 09:00") == (2023, 5, 20)
+    assert supersede.created_at_key("2023-05-20") == (2023, 5, 20)
+    assert supersede.created_at_key("yesterday") == (0, 0, 0)
+    import inspect
+    src = inspect.getsource(supersede)
+    assert "datetime.now" not in src and "date.today" not in src and "time.time" not in src
+
+
+def test_ordering_dated_facts_by_valid_time_regardless_of_session_order():
+    boston = _rec(1, "2023/06/10 (Sat) 09:00", valid_time="2019", obj="Boston")
+    seattle = _rec(2, "2023/01/10 (Tue) 09:00", valid_time="2022-12", obj="Seattle")
+    assert supersede.beats(seattle, boston) and not supersede.beats(boston, seattle)
+
+
+def test_ordering_standing_facts_by_the_later_session_then_trust_then_id():
+    a = _rec(1, "2023/01/10 (Tue) 09:00", obj="Boston")
+    b = _rec(2, "2023/06/10 (Sat) 09:00", obj="Seattle")
+    assert supersede.beats(b, a)
+    same_session_user = _rec(3, "2023/06/10 (Sat) 09:00", obj="Tacoma", raw="user: x")
+    same_session_assistant = _rec(4, "2023/06/10 (Sat) 09:00", obj="Olympia", raw="assistant: x")
+    assert supersede.beats(same_session_user, same_session_assistant), "the user's span outranks"
+    later_id = _rec(5, "2023/06/10 (Sat) 09:00", obj="Everett", raw="user: x")
+    assert supersede.beats(later_id, same_session_user), "full tie: the later id"
+
+
+def test_ordering_mixed_dated_vs_standing_uses_one_effective_time():
+    standing_2023 = _rec(1, "2023/03/01 (Wed) 09:00", obj="Boston")
+    dated_2023_06 = _rec(2, "2023/06/10 (Sat) 09:00", valid_time="2023-06", obj="Seattle")
+    assert supersede.beats(dated_2023_06, standing_2023)
+    dated_2015 = _rec(3, "2023/09/01 (Fri) 09:00", valid_time="2015", obj="Denver")
+    assert supersede.beats(standing_2023, dated_2015), "a 2015 fact does not beat a 2023 assertion"
+
+
+def test_conflict_between_applies_the_three_rules_and_abstains_elsewhere():
+    cb = supersede.conflict_between
+    assert cb(_rec(1, "2023-01-01", obj="Boston"),
+              _rec(2, "2023-01-02", obj="Seattle")) == "functional"
+    assert cb(_rec(1, "2023-01-01", predicate="likes", obj="jazz"),
+              _rec(2, "2023-01-02", predicate="dislikes", obj="jazz")) == "negation"
+    assert cb(_rec(1, "2023-01-01", predicate="has", obj="2 cats"),
+              _rec(2, "2023-01-02", predicate="has", obj="3 cats")) == "numeric"
+    assert cb(_rec(1, "2023-01-01", predicate="has", obj="a cat"),
+              _rec(2, "2023-01-02", predicate="has", obj="a sister")) is None
+    assert cb(_rec(1, "2023-01-01", predicate="likes", obj="jazz"),
+              _rec(2, "2023-01-02", predicate="likes", obj="hiking")) is None
+    assert cb(_rec(1, "2023-01-01", subject="assistant", predicate="lives in", obj="Boston"),
+              _rec(2, "2023-01-02", subject="assistant", predicate="lives in",
+                   obj="Seattle")) is None
+    assert cb(_rec(1, "2023-01-01", predicate="lives in", obj="Boston"),
+              _rec(2, "2023-01-02", predicate="does not live in", obj="Seattle")) is None, \
+        "a negative value asserts nothing"
+    assert cb(_rec(1, "2023-01-01", obj="Boston"),
+              _rec(2, "2023-01-02", predicate="likes", obj="Seattle")) is None, "different pairs"
+    assert supersede.reason("functional", _rec(1, "2023-01-01", obj="Boston"),
+                            _rec(2, "2023-01-02", obj="Seattle")) == \
+        "functional user|lives in: boston -> seattle"
+    assert supersede.RULES == ("negation", "functional", "numeric")

@@ -380,6 +380,44 @@ class Store:
         ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def active_facts_by_pair(self, user_id: str, pair_key: str) -> list[MemoryRecord]:
+        """The user's ACTIVE fact records on one normalized pair — conflict candidates (PHASE3 D2).
+
+        Found through the pair index, store-wide, never through a vector.
+        ``salience > 0``: a superseded fact is never a candidate again.
+        """
+        rows = self.db.execute(
+            f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? AND m.kind = ? "
+            f"AND m.pair_key = ? AND m.salience > 0 ORDER BY m.id",
+            (user_id, KIND_FACT, pair_key),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
+    def facts_with_pair_key(self, user_id: str) -> list[MemoryRecord]:
+        """Every fact record with a pair key, active or not, in id order (``consolidate``)."""
+        rows = self.db.execute(
+            f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? AND m.kind = ? "
+            f"AND m.pair_key IS NOT NULL ORDER BY m.id",
+            (user_id, KIND_FACT),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
+    def supersede(self, loser_id: int, winner_id: int) -> None:
+        """Mark ``loser_id`` superseded by ``winner_id`` (SPEC write path step 4).
+
+        The loser's ``salience`` becomes 0 — the value reserved for supersession
+        and nothing else — and the winner's ``supersedes`` points at the last
+        loser it defeated (the highest id; it is one integer). History is kept,
+        never deleted. Idempotent.
+        """
+        self.db.execute("UPDATE memories SET salience = 0 WHERE id = ?", (loser_id,))
+        self.db.execute(
+            "UPDATE memories SET supersedes = ? WHERE id = ? "
+            "AND (supersedes IS NULL OR supersedes < ?)",
+            (loser_id, winner_id, loser_id),
+        )
+        self.db.commit()
+
     def count(self, user_id: str | None = None, kind: str | None = None) -> int:
         """Number of stored memories, optionally scoped to a user and a kind."""
         clauses, params = [], []

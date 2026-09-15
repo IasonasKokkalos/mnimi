@@ -229,3 +229,56 @@ def test_identity_counts_identical_rows(tmp_path):
     assert identity.main([str(left), str(left)]) == 0
     assert identity.main([str(left), str(right)]) == 1
     assert "identical 1/2" in identity.format_report([a, b], [a, b_moved])
+
+
+# -- Phase 3 Task 3: the probe counts conflicts and supersessions ---------------------------
+
+
+def _cross_session_question():
+    # The residence changes across two sessions: out of the cosine gate's
+    # scope, found through the pair index, superseded by the ordering.
+    return Question(
+        question_id="q-update", question_type="knowledge-update",
+        question="where does the user live?", answer="Seattle",
+        question_date="2023/07/01 (Sat) 10:00",
+        sessions=[
+            Session(session_id="s1", date="2023/05/20 (Sat) 09:00", turns=[
+                {"role": "user", "content": "I live in Boston now, by the way."},
+                {"role": "assistant", "content": "Noted."},
+            ]),
+            Session(session_id="s2", date="2023/06/20 (Tue) 09:00", turns=[
+                {"role": "user", "content": "Update: I live in Seattle now.", "has_answer": True},
+                {"role": "assistant", "content": "Got it."},
+            ]),
+        ],
+        answer_session_ids=["s2"],
+    )
+
+
+def test_probe_counts_conflicts_and_supersessions(tmp_path):
+    from mnimi.extract.fake import ScriptedExtractor
+    from mnimi.extract.protocol import ExtractedFact
+
+    def fact(content, raw, obj):
+        return ExtractedFact(content, raw, None, "user", "lives in", obj, 1.0)
+
+    script = {
+        "I live in Boston now, by the way.": [
+            fact("The user lives in Boston.", "user: I live in Boston now, by the way.", "Boston")],
+        "Update: I live in Seattle now.": [
+            fact("The user lives in Seattle.", "user: Update: I live in Seattle now.", "Seattle")],
+    }
+    system = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(),
+                         extractor=ScriptedExtractor(script),
+                         extraction_cache=tmp_path / "c.sqlite")
+    row = retrieval.probe_question(system, _cross_session_question())
+    assert row.conflicts == {"negation": 0, "functional": 1, "numeric": 0}
+    assert row.superseded == 1 and row.facts_stored == 2
+    assert row.stored == 4, "a superseded loser is still stored (D8)"
+    summary = aggregate.summarize([row])
+    assert summary["superseded"] == 1 and summary["conflicts"]["functional"] == 1
+    assert summary["by_category"]["knowledge-update"]["superseded"] == 1
+    assert "superseded 1" in aggregate.format_summary(summary)
+    off = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(conflict_resolution=False),
+                      extractor=ScriptedExtractor(script), extraction_cache=tmp_path / "d.sqlite")
+    assert retrieval.probe_question(off, _cross_session_question()).superseded == 0

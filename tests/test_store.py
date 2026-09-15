@@ -360,3 +360,28 @@ def test_pair_key_column_roundtrips_and_is_indexed(tmp_path):
     assert back.id == record.id and back.pair_key == "user|lives in"
     indexes = {row["name"] for row in store.db.execute("PRAGMA index_list('memories')")}
     assert "idx_memories_pair" in indexes
+
+
+# -- Phase 3 Task 3: supersede, the pair-index reads ----------------------------------------
+
+
+def test_supersede_updates_salience_and_the_winner_link(tmp_path):
+    store = _open(tmp_path / "s.db")
+    vec = [1.0] + [0.0] * 255
+    loser = store.insert(MemoryRecord(user_id="u", content="a", embedding=vec,
+                                      created_at="2023-01-01", kind="fact", fact="a",
+                                      raw="user: a", subject="user", predicate="lives in",
+                                      object="Boston", pair_key="user|lives in"))
+    winner = store.insert(MemoryRecord(user_id="u", content="b", embedding=vec,
+                                       created_at="2023-02-01", kind="fact", fact="b",
+                                       raw="user: b", subject="user", predicate="lives in",
+                                       object="Seattle", pair_key="user|lives in"))
+    assert [r.id for r in store.active_facts_by_pair("u", "user|lives in")] == [loser.id, winner.id]
+    store.supersede(loser.id, winner.id)
+    (active,) = store.active_facts_by_pair("u", "user|lives in")
+    assert active.id == winner.id and active.supersedes == loser.id
+    rows = {r.id: r for r in store.facts_with_pair_key("u")}
+    assert rows[loser.id].salience == 0.0 and rows[winner.id].salience == 1.0
+    store.supersede(loser.id, winner.id)  # idempotent at the store too
+    assert store.active_facts_by_pair("u", "user|lives in")[0].supersedes == loser.id
+    assert store.active_facts_by_pair("u", "user|other") == []

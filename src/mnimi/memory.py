@@ -19,6 +19,7 @@ from .config import MemoryConfig
 from .conflict.lexicon import negation_lexicon_hash
 from .conflict.normalize import conflict_rules_hash, normalize_triple
 from .conflict.screens import ACTION_KEEP, Verdict, screen_pair
+from .conflict.supersede import beats, conflict_between, reason
 from .embeddings import Embedder
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
@@ -459,6 +460,7 @@ class Memory:
                 if key in seen:
                     continue
                 hits = self.store.search(embedding, user_id=user_id, k=1, kind=piece.kind)
+                negated_neighbour: MemoryRecord | None = None
                 if (
                     hits
                     and hits[0][1] >= threshold
@@ -473,7 +475,9 @@ class Memory:
                         continue
                     self.conflict_stats[f"kept_{verdict.reason.replace('-', '_')}"] += 1
                     log.debug("kept: %s", verdict.reason)
-                self.store.insert(
+                    if verdict.reason == "negation":
+                        negated_neighbour = hits[0][0]
+                stored = self.store.insert(
                     MemoryRecord(
                         user_id=user_id,
                         content=piece.content,
@@ -495,6 +499,69 @@ class Memory:
                     )
                 )
                 seen.add(key)
+                if piece.kind == KIND_FACT and self.config.conflict_resolution:
+                    self._resolve_conflicts(user_id, stored, negated_neighbour)
+
+    def _resolve_conflicts(
+        self, user_id: str, new: MemoryRecord, cosine_neighbour: MemoryRecord | None = None
+    ) -> None:
+        """SPEC write path step 4 for one freshly stored fact (PHASE3 D2, D6, D7).
+
+        Candidates are the user's ACTIVE facts on the same ``pair_key``, read
+        through the index store-wide — plus the cosine neighbour the negation
+        screen just kept this fact apart from, when the pair has no key to
+        meet on (null triples). Each genuine conflict is settled by
+        ``beats``: the loser's salience becomes 0, the winner's ``supersedes``
+        points at it, and one line is logged. If ``new`` itself loses it is
+        already stored (history is kept) and stops being a candidate.
+        """
+        candidates: list[tuple[MemoryRecord, str | None]] = []
+        if new.pair_key:
+            candidates = [
+                (c, None)
+                for c in self.store.active_facts_by_pair(user_id, new.pair_key)
+                if c.id != new.id
+            ]
+        # The cosine-kept negation pair is a candidate only when the two
+        # cannot meet on the pair index (a null triple on either side); a
+        # keyed pair is judged by conflict_between like every other, so the
+        # assistant exclusion and the same-pair requirement still hold (D2).
+        if (
+            cosine_neighbour is not None
+            and cosine_neighbour.salience > 0
+            and (new.pair_key is None or cosine_neighbour.pair_key is None)
+            and not any(self._is_assistant_fact(r) for r in (new, cosine_neighbour))
+            and all(c.id != cosine_neighbour.id for c, _rule in candidates)
+        ):
+            candidates.append((cosine_neighbour, "negation"))
+        for candidate, forced_rule in candidates:
+            self.conflict_stats["candidates"] += 1
+            rule = forced_rule or conflict_between(new, candidate)
+            if rule is None:
+                continue
+            self.conflict_stats[f"conflicts_{rule}"] += 1
+            if beats(new, candidate):
+                self._supersede(candidate, new, rule)
+            else:
+                self._supersede(new, candidate, rule)
+                return  # the incoming fact is inactive now
+
+    @staticmethod
+    def _is_assistant_fact(record: MemoryRecord) -> bool:
+        """The assistant's facts never conflict (D2): read off the triple when
+        there is one, else off the fact text's opening ("The assistant …")."""
+        triple = normalize_triple(record.subject, record.predicate, record.object)
+        if triple is not None:
+            return triple.subject == "assistant"
+        return _normalize(record.fact or "").startswith("the assistant")
+
+    def _supersede(self, loser: MemoryRecord, winner: MemoryRecord, rule: str) -> None:
+        self.store.supersede(loser.id, winner.id)
+        loser.salience = 0.0
+        if winner.supersedes is None or winner.supersedes < loser.id:
+            winner.supersedes = loser.id
+        self.conflict_stats["superseded"] += 1
+        log.info("superseded %s: %s", loser.id, reason(rule, loser, winner))
 
     def _fact_exact_key(self, ts: str | None, content: str):
         """The exact screen's key for a fact record: store-wide or per session.
@@ -563,11 +630,36 @@ class Memory:
         )
 
     def consolidate(self, user_id: str) -> None:
-        """Merge duplicates, resolve conflicts, decay stale memories.
+        """Resolve conflicts across one user's facts: an idempotent full pass (PHASE3 D7).
 
-        Stub today — not exercised by the Day 1 baselines. This is where the
-        write-side policy will live.
+        The same decision ``add()`` makes per fact, applied to every pair of
+        active facts on one ``pair_key`` in ``(id_i < id_j)`` order — so a
+        store built by ``add()`` with ``conflict_resolution`` on is already
+        consistent and this is a no-op, and calling it twice is calling it
+        once. Reads the pair index only: a negation pair that met through the
+        cosine screen with null triples was settled by ``add()`` and is not
+        re-derived here. Decay (Phase 4) is not here yet. Deliberately not
+        called by the eval harness (``evals/systems/mnimi.py``).
         """
+        if not self.config.conflict_resolution:
+            return None
+        groups: dict[str, list[MemoryRecord]] = {}
+        for fact in self.store.facts_with_pair_key(user_id):
+            groups.setdefault(fact.pair_key, []).append(fact)
+        for facts in groups.values():
+            for i, earlier in enumerate(facts):
+                for later in facts[i + 1:]:
+                    if earlier.salience <= 0 or later.salience <= 0:
+                        continue
+                    self.conflict_stats["candidates"] += 1
+                    rule = conflict_between(earlier, later)
+                    if rule is None:
+                        continue
+                    self.conflict_stats[f"conflicts_{rule}"] += 1
+                    if beats(later, earlier):
+                        self._supersede(earlier, later, rule)
+                    else:
+                        self._supersede(later, earlier, rule)
         return None
 
 

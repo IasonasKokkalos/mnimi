@@ -2433,3 +2433,42 @@ stays wrong in the pre-registration text above, with this entry as its reading.
 **Decision: PASS → Task 3** (supersede). `MemoryConfig.conflict_resolution` stays `True` as the
 library default pending gate 3-ii. What the screens cost the reader: 313 more fact records in
 the hundred stores (+0.4 %), none of which displaced an evidence round from the top-10.
+
+## Supersede lands: 46 facts superseded on the slice, no rank moved; P1 not held (2026-09-15)
+
+**What landed (PHASE3 Task 3, PLAN 3.2).** `mnimi.conflict.supersede`: `conflict_between` (the
+three rules of D2 — negation on one object, functional on a frozen predicate group, numeric on a
+shared residue; the assistant's facts never conflict) and `beats` (D6's one ordering:
+`valid_time` or the session date, then the session date, the raw session timestamp, the user's
+span over the assistant's, the id). `Store.active_facts_by_pair` / `facts_with_pair_key` /
+`supersede` (loser `salience = 0`, winner `supersedes` = the last loser's id). `Memory.add` runs
+`_resolve_conflicts` after every stored fact against its active same-pair facts store-wide, plus
+the cosine-kept negation neighbour when the pair has no key to meet on; `consolidate()` is the
+same decision as an idempotent full pass over the pair index (tests: twice = once; after
+`add()` = no-op; off means off). `evals/systems/mnimi.py` still does not call it. Every
+supersession logs `superseded {old_id}: {rule} {pair_key}: {old} -> {new}` at INFO on
+`mnimi.memory`. Tests 329 → 344.
+
+**The probe (Step 8), at the Task 3 commit.** `runs/probe_mnimi_p3s.json` from the cache
+(`misses: 0` on 100/100, 47 min) is **identical to Task 2's `probe_mnimi_p3.json` on 100/100
+questions** over evidence ranks, top-50 sessions, drops and stored — D8 as pre-registered:
+supersession stores the loser and moves no rank. Conflicts found: functional 16, numeric 30,
+negation 0; **46 facts superseded** (projection 16 / 35 / 0), by category knowledge-update 14,
+multi-session 7, single-session-user 11, single-session-assistant 5, single-session-preference 4,
+temporal-reasoning 5. Tripwire (> 500) not tripped. Full list, read by hand, in
+`mnimi docs/PHASE3-RESULTS.md` § Task 3: about half the numeric supersessions are enumerations
+(`answered: question 249 -> 250 -> …`) and nine of the functional ones are containment
+refinements (`tokyo -> roppongi`) — the exact-match rules' known false-positive classes,
+invisible in this phase and Phase 4's to price.
+
+**P1 not held.** No supersession on `45dc21b6`: the earlier round's extraction carries no
+"tried two recipes" triple (the model emitted the recipes as something the user has "been loving",
+no count), so the later `tried out | 3 of Emma's recipes` fact has nothing to conflict with. An
+extraction limit; recorded as the failed prediction it is.
+
+**Two corrections during the task, disclosed.** The cosine-negation path was first applied to
+every kept neighbour rather than only to null-triple pairs (D7) — narrowed on the first run's
+question 1; and it let one keyed assistant fact through (`assistant|read: yes -> no`) because the
+null-triple side hid the subject — D2 says the assistant never conflicts, so the subject is now
+read from either side; the probe was re-run at the committed code and the two runs' supersession
+lines differ by exactly that line (`runs/probe_mnimi_p3s_run1.*` kept). → Task 4, gate 3-ii.
