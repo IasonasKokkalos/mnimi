@@ -149,3 +149,83 @@ def test_probe_maps_fact_records_to_their_round_and_counts_the_stage(tmp_path):
     # cat round is the same turns, hence the same cache key, and the probe's
     # mirror walk costs nothing (D10).
     assert system.cache_stats == {"hits": 4, "misses": 2}
+
+
+# -- Phase 3 Task 2: the probe mirrors the screens; the identity tool ---------------------
+
+
+def _conflict_question():
+    # One session states a residence twice with different values (the value
+    # screen's case, inside session scope); a second session is unrelated.
+    return Question(
+        question_id="q-conflict", question_type="knowledge-update",
+        question="where does the user live?", answer="Seattle",
+        question_date="2023/05/21 (Sun) 10:00",
+        sessions=[
+            Session(session_id="s1", date="2023/05/20 (Sat) 09:00", turns=[
+                {"role": "user", "content": "I live in Boston now, by the way."},
+                {"role": "assistant", "content": "Noted."},
+                {"role": "user", "content": "Update: I live in Seattle now.", "has_answer": True},
+                {"role": "assistant", "content": "Got it."},
+            ]),
+            Session(session_id="s2", date="2023/05/19 (Fri) 09:00", turns=[
+                {"role": "user", "content": "tell me a joke"},
+                {"role": "assistant", "content": "Why did the cat cross the road?"},
+            ]),
+        ],
+        answer_session_ids=["s1"],
+    )
+
+
+def test_probe_mirrors_the_screens_and_counts_keeps(tmp_path):
+    from mnimi.extract.fake import ScriptedExtractor
+    from mnimi.extract.protocol import ExtractedFact
+
+    def fact(content, raw, obj):
+        return ExtractedFact(content, raw, None, "user", "lives in", obj, 1.0)
+
+    script = {
+        "I live in Boston now, by the way.": [
+            fact("The user lives in Boston.", "user: I live in Boston now, by the way.", "Boston")],
+        "Update: I live in Seattle now.": [
+            fact("The user lives in Seattle.", "user: Update: I live in Seattle now.", "Seattle")],
+    }
+    system = MnimiSystem(embedder=HashingEmbedder(),
+                         config=MemoryConfig(dedup_cosine_threshold=0.5),
+                         extractor=ScriptedExtractor(script),
+                         extraction_cache=tmp_path / "c.sqlite")
+    row = retrieval.probe_question(system, _conflict_question())
+    # The two s1 facts sit above 0.5 under HashingEmbedder and share the pair
+    # key with different values: the value screen keeps the second (the walk
+    # mirrors the same verdict, so its insert bookkeeping still matches).
+    assert row.screen_keeps == {"negation": 0, "value": 1, "low-entropy": 0}
+    assert row.facts_stored == 2
+    assert row.stored == system._memory.store.count("eval")
+    assert [d.kind for d in row.drops] in ([], ["round"]), "only the round screen may have dropped"
+    off = MnimiSystem(embedder=HashingEmbedder(),
+                      config=MemoryConfig(dedup_cosine_threshold=0.5, conflict_resolution=False),
+                      extractor=ScriptedExtractor(script), extraction_cache=tmp_path / "d.sqlite")
+    row_off = retrieval.probe_question(off, _conflict_question())
+    assert row_off.facts_stored == 1 and "fact" in {d.kind for d in row_off.drops}
+    assert row_off.screen_keeps == {"negation": 0, "value": 0, "low-entropy": 0}
+    # aggregate carries the new counters and prints them.
+    summary = aggregate.summarize([row, row_off])
+    assert summary["screen_keeps"] == {"low-entropy": 0, "negation": 0, "value": 1}
+    assert "screen keeps" in aggregate.format_summary(summary)
+
+
+def test_identity_counts_identical_rows(tmp_path):
+    from evals.probes import identity
+
+    a = retrieval.QuestionProbe("a", "multi-session", False, 5, 2, 5, [3, 7], ["s"] * 5)
+    b = retrieval.QuestionProbe("b", "temporal-reasoning", False, 5, 2, 5, [-1, 12], ["s"] * 5)
+    b_moved = retrieval.QuestionProbe("b", "temporal-reasoning", False, 5, 2, 5, [1, 12],
+                                      ["s"] * 5)
+    assert identity.compare([a, b], [a, b]) == (["a", "b"], [])
+    assert identity.compare([a, b], [a, b_moved]) == (["a"], ["b"])
+    left, right = tmp_path / "l.json", tmp_path / "r.json"
+    retrieval.write_rows(left, [a, b])
+    retrieval.write_rows(right, [a, b_moved])
+    assert identity.main([str(left), str(left)]) == 0
+    assert identity.main([str(left), str(right)]) == 1
+    assert "identical 1/2" in identity.format_report([a, b], [a, b_moved])

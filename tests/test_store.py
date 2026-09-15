@@ -323,3 +323,40 @@ def test_fact_record_columns_roundtrip_and_kinds_are_searched_apart(tmp_path):
         store.search(q, "u", k=1, kind="window")
     with pytest.raises(ValueError):
         store.insert(rec("window", "x", [0.0, 0.0, 1.0]))
+
+
+# -- Phase 3 Task 2: the two guard rows, the pair_key column -------------------------------
+
+
+def test_meta_guard_requires_the_phase3_rows_and_refuses_a_v19_store(tmp_path):
+    from mnimi.conflict.lexicon import negation_lexicon_hash
+    from mnimi.conflict.normalize import conflict_rules_hash
+
+    store = _open(tmp_path / "p3.db")
+    rows = dict(store.db.execute("SELECT key, value FROM memory_meta").fetchall())
+    assert rows["negation_lexicon_hash"] == negation_lexicon_hash() != "none"
+    assert rows["conflict_rules_hash"] == conflict_rules_hash()
+    # Sixteen rows: the four embedder rows, the R4 pair, five extractor rows,
+    # the four extraction-era rows (negation lexicon now live), and this one.
+    assert len(rows) == 16
+    store.db.execute("DELETE FROM memory_meta WHERE key = 'conflict_rules_hash'")
+    store.db.execute("UPDATE memory_meta SET value = 'none' WHERE key = 'negation_lexicon_hash'")
+    store.db.commit()
+    store.close()
+    with pytest.raises(MemoryMetaError, match="conflict_rules_hash"):
+        _open(tmp_path / "p3.db")
+
+
+def test_pair_key_column_roundtrips_and_is_indexed(tmp_path):
+    store = _open(tmp_path / "pk.db")
+    vec = [1.0] + [0.0] * 255
+    record = store.insert(MemoryRecord(user_id="u", content="x", embedding=vec,
+                                       created_at="2023-05-20", kind="fact",
+                                       fact="The user lives in Boston.",
+                                       raw="user: I live in Boston.", subject="user",
+                                       predicate="lives in", object="Boston",
+                                       pair_key="user|lives in"))
+    ((back, _cos),) = store.search(vec, "u", k=1, kind="fact")
+    assert back.id == record.id and back.pair_key == "user|lives in"
+    indexes = {row["name"] for row in store.db.execute("PRAGMA index_list('memories')")}
+    assert "idx_memories_pair" in indexes

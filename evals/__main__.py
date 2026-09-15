@@ -62,9 +62,16 @@ def build_system(
     extractor: str | None = None,
     render_unit: str | None = None,
     extractor_cache: str | None = None,
+    conflict_resolution: bool | None = None,
+    dedup_entropy_gate: float | None = None,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
+
+    ``conflict_resolution`` and ``dedup_entropy_gate`` (PHASE3 D11) travel
+    through the shared ``MemoryConfig`` like ``dedup_scope``: only mnimi reads
+    them (naive_rag has no facts) and only mnimi pins them; ``None`` is the
+    library default for each.
 
     ``extractor`` (``none`` / ``qwen3``, PHASE2) reaches mnimi only — naive_rag
     never extracts, that is the comparison — and ``render_unit`` reaches mnimi
@@ -96,6 +103,10 @@ def build_system(
         knobs["top_k"] = top_k
     if render_unit is not None:  # else the library default (round+facts since v1.9.0)
         knobs["render_unit"] = render_unit
+    if conflict_resolution is not None:  # else the library default (PHASE3 D11)
+        knobs["conflict_resolution"] = conflict_resolution
+    if dedup_entropy_gate is not None:  # else SPEC's 2.0
+        knobs["dedup_entropy_gate"] = dedup_entropy_gate
     config = MemoryConfig(**knobs)
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
@@ -284,6 +295,10 @@ def _resume_extras(args) -> str:
         extras.append(f"--extractor {args.extractor}")
     if args.render_unit is not None:
         extras.append(f"--render-unit {args.render_unit}")
+    if args.conflict_resolution is not None:
+        extras.append(f"--conflict-resolution {args.conflict_resolution}")
+    if args.dedup_entropy_gate is not None:
+        extras.append(f"--dedup-entropy-gate {args.dedup_entropy_gate}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -494,6 +509,23 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="path of the extraction cache (default .cache/extract/<extractor pins "
         "hash>.sqlite). Never a pin: the cache holds the model's bytes, keyed by the round.",
+    )
+    parser.add_argument(
+        "--conflict-resolution",
+        default=None,
+        choices=["on", "off"],
+        help="mnimi only: the Phase 3 write-side stage (MemoryConfig.conflict_resolution, "
+        "PHASE3 D11) — the negation and value-substitution screens, the entropy gate and "
+        "supersession. 'off' is the v1.9 write path (gate 3-ii's baseline). Pinned "
+        "(schema /9). Default: the library's.",
+    )
+    parser.add_argument(
+        "--dedup-entropy-gate",
+        type=float,
+        default=None,
+        help="mnimi only: token-level entropy (bits) below which a cosine-pass fact pair is "
+        "not auto-merged (MemoryConfig.dedup_entropy_gate, SPEC step 5). Pinned. Default: "
+        "the library's 2.0; never tuned against the benchmark.",
     )
     parser.add_argument(
         "--render-format",
@@ -739,6 +771,10 @@ def main(argv: list[str] | None = None) -> int:
             extractor=default_extractor(args.system, args.extractor),
             render_unit=args.render_unit,
             extractor_cache=args.extractor_cache,
+            conflict_resolution=(
+                None if args.conflict_resolution is None else args.conflict_resolution == "on"
+            ),
+            dedup_entropy_gate=args.dedup_entropy_gate,
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),

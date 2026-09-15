@@ -20,15 +20,15 @@ from .extract.protocol import PIN_KEYS
 from .models import KIND_FACT, KIND_ROUND, KINDS, MemoryRecord
 
 #: The value a guard row takes when the stage it describes is not in use — a
-#: store built without an extractor writes it for the five extractor rows, and
-#: ``negation_lexicon_hash`` carries it until Phase 3 builds the lexicon.
+#: store built without an extractor writes it for the five extractor rows.
+#: (``negation_lexicon_hash`` carried it until Phase 3 built the lexicon.)
 GUARD_NONE = "none"
 
 _VEC_TABLE = {KIND_ROUND: "vec_memories", KIND_FACT: "vec_facts"}
 _COLUMNS = (
     "m.id, m.user_id, m.content, m.created_at, m.salience, m.source, m.supersedes, "
     "m.turns, m.round_key, m.kind, m.fact, m.raw, m.subject, m.predicate, m.object, "
-    "m.valid_time, m.time_mention"
+    "m.valid_time, m.time_mention, m.pair_key"
 )
 
 
@@ -55,8 +55,9 @@ class Store:
         fact_embed_template_hash: str,
         prefilter_lexicon_hash: str,
         resolver_version: str,
+        negation_lexicon_hash: str,
+        conflict_rules_hash: str,
         extractor_pins: dict | None = None,
-        negation_lexicon_hash: str = GUARD_NONE,
         chunk_tokens: int = 0,
         chunk_overlap: int = 64,
     ) -> None:
@@ -79,7 +80,10 @@ class Store:
         self.extractor_pins = {key: str(pins.get(key, GUARD_NONE)) for key in PIN_KEYS}
         self.fact_embed_template_hash = fact_embed_template_hash
         self.prefilter_lexicon_hash = prefilter_lexicon_hash
+        # Phase 3 (D12): the negation lexicon and the normalization / conflict
+        # rules decide which facts stay active; both are frozen and hashed.
         self.negation_lexicon_hash = negation_lexicon_hash
+        self.conflict_rules_hash = conflict_rules_hash
         self.resolver_version = resolver_version
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
@@ -113,6 +117,9 @@ class Store:
             "prefilter_lexicon_hash": self.prefilter_lexicon_hash,
             "fact_embed_template_hash": self.fact_embed_template_hash,
             "resolver_version": self.resolver_version,
+            # Phase 3 (D3/D12): the sixteenth row. A v1.9 store lacks it and
+            # is refused at open.
+            "conflict_rules_hash": self.conflict_rules_hash,
         }
 
     def _init_schema(self) -> None:
@@ -180,7 +187,8 @@ class Store:
                 predicate    TEXT,
                 object       TEXT,
                 valid_time   TEXT,
-                time_mention TEXT
+                time_mention TEXT,
+                pair_key     TEXT
             )
             """
         )
@@ -189,6 +197,11 @@ class Store:
         )
         self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_memories_round ON memories(user_id, round_key)"
+        )
+        # Conflict candidates are found through the normalized pair, store-wide,
+        # never through a vector (PHASE3 D2).
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_pair ON memories(user_id, pair_key)"
         )
         # vec0 virtual tables; rowid is shared with the memories table so the
         # two stay joined without an extra key column. distance_metric is
@@ -222,8 +235,9 @@ class Store:
             """
             INSERT INTO memories
                 (user_id, content, created_at, salience, source, supersedes, turns, round_key,
-                 kind, fact, raw, subject, predicate, object, valid_time, time_mention)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 kind, fact, raw, subject, predicate, object, valid_time, time_mention,
+                 pair_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.user_id,
@@ -242,6 +256,7 @@ class Store:
                 record.object,
                 record.valid_time,
                 record.time_mention,
+                record.pair_key,
             ),
         )
         record.id = int(cur.lastrowid)
@@ -403,4 +418,5 @@ class Store:
             object=row["object"],
             valid_time=row["valid_time"],
             time_mention=row["time_mention"],
+            pair_key=row["pair_key"],
         )

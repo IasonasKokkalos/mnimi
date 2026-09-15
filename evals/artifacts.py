@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/8"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/9"
 
 
 def fingerprint(text: str) -> str:
@@ -447,6 +447,10 @@ def build_pins(
     query_instruction: str | None = None,
     chunk_tokens: int | None = None,
     chunk_overlap: int | None = None,
+    dedup_entropy_gate: float | None = None,
+    conflict_resolution: bool | None = None,
+    negation_lexicon_hash: str | None = None,
+    conflict_rules_hash: str | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -529,6 +533,16 @@ def build_pins(
     the render *format* stays the parity pin, the unit is what the memory
     layer hands the reader, and the baseline and extraction arms must pair.
 
+    Schema /9 (2026-09-15, Phase 3) added the deterministic screens and
+    supersession: ``dedup_entropy_gate`` (SPEC's entropy gate, a
+    ``MemoryConfig`` field), ``conflict_resolution`` (the stage's one switch —
+    ``False`` is the v1.9 write path), and the two frozen artifacts the stage
+    reads, both ``memory_meta`` rows: ``negation_lexicon_hash`` (live now, no
+    longer ``"none"``) and ``conflict_rules_hash`` (the normalization tables,
+    the functional-predicate groups, the value-token limit and the rule
+    ids). Declared by mnimi only — naive_rag has no facts — and, like the
+    render unit, outside ``HARNESS_PARITY_FIELDS``: the arms still pair.
+
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
     prompt on a different transport is a different configuration family; a
@@ -604,6 +618,11 @@ def build_pins(
         "query_instruction": query_instruction,
         "chunk_tokens": chunk_tokens,
         "chunk_overlap": chunk_overlap,
+        # Schema /9 (PHASE3): the deterministic screens and supersession.
+        "dedup_entropy_gate": dedup_entropy_gate,
+        "conflict_resolution": conflict_resolution,
+        "negation_lexicon_hash": negation_lexicon_hash,
+        "conflict_rules_hash": conflict_rules_hash,
     }
 
 

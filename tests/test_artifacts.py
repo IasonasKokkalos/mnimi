@@ -85,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/8"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/9"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -344,7 +344,7 @@ class TestOpenAITransportCli:
 
         assert rc == 0, capsys.readouterr().err
         pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
-        assert pins["artifact_schema"] == "mnimi-eval-artifact/8"
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/9"
         assert pins["reader_transport"] == "openai"
         assert pins["reader_model"] == "gpt-4o-2024-08-06"
         assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
@@ -1359,3 +1359,49 @@ def test_mnimi_extracts_by_default_and_only_mnimi():
     for other in ("naive_rag", "oracle", "no_memory", "full_history", None):
         assert default_extractor(other, None) is None
         assert default_extractor(other, "qwen3") == "qwen3", "an explicit flag passes through"
+
+
+# -- Phase 3 Task 2 (schema /9): the screens' pins ------------------------------------------
+
+
+def test_phase3_pins_move_the_pins_hash_and_the_schema_is_9():
+    baseline = artifacts.pins_hash(_pins())
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/9"
+    assert artifacts.pins_hash(_pins(dedup_entropy_gate=2.0)) != baseline
+    assert artifacts.pins_hash(_pins(conflict_resolution=True)) != baseline
+    assert artifacts.pins_hash(_pins(negation_lexicon_hash="330604b5772e")) != baseline
+    assert artifacts.pins_hash(_pins(conflict_rules_hash="7d19c48828c8")) != baseline
+    assert artifacts.pins_hash(_pins(conflict_resolution=True)) != artifacts.pins_hash(
+        _pins(conflict_resolution=False)
+    )
+    for key in ("dedup_entropy_gate", "conflict_resolution", "negation_lexicon_hash",
+                "conflict_rules_hash"):
+        assert _pins()[key] is None, f"{key}: declared by mnimi only"
+
+
+def test_build_system_hands_the_conflict_flags_to_mnimi(monkeypatch):
+    import evals.systems.mnimi as mnimi_mod
+    from evals.__main__ import build_system
+
+    captured = {}
+    monkeypatch.setattr(
+        mnimi_mod, "MnimiSystem", lambda config: captured.__setitem__("mnimi", config)
+    )
+    build_system("mnimi", conflict_resolution=False, dedup_entropy_gate=1.0)
+    assert captured["mnimi"].conflict_resolution is False
+    assert captured["mnimi"].dedup_entropy_gate == 1.0
+    build_system("mnimi")
+    assert captured["mnimi"].conflict_resolution is True
+    assert captured["mnimi"].dedup_entropy_gate == 2.0
+    assert build_system("no_memory", conflict_resolution=False).retrieval_pins() == {}
+
+
+def test_resume_extras_repeat_the_conflict_flags():
+    import argparse
+
+    args = argparse.Namespace(render_format="text", dedup_scope=None, query_instruction=None,
+                              chunk_tokens=0, chunk_overlap=64, top_k=None, extractor=None,
+                              render_unit=None, conflict_resolution="off",
+                              dedup_entropy_gate=1.5, verify_drift=None)
+    extras = evals_main._resume_extras(args)
+    assert "--conflict-resolution off" in extras and "--dedup-entropy-gate 1.5" in extras

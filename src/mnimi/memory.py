@@ -10,16 +10,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from string import Template
 from typing import NamedTuple
 
 from .config import MemoryConfig
+from .conflict.lexicon import negation_lexicon_hash
+from .conflict.normalize import conflict_rules_hash, normalize_triple
+from .conflict.screens import ACTION_KEEP, Verdict, screen_pair
 from .embeddings import Embedder
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord
 from .store import Store
+
+log = logging.getLogger("mnimi.memory")
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
 
@@ -165,6 +171,10 @@ def guard_kwargs(extractor=None) -> dict:
         "fact_embed_template_hash": fact_embed_template_hash(),
         "prefilter_lexicon_hash": prefilter.prefilter_lexicon_hash(),
         "resolver_version": RESOLVER_VERSION,
+        # Phase 3 (D12): the frozen negation lexicon and the normalization /
+        # conflict rules — both decide which facts stay active.
+        "negation_lexicon_hash": negation_lexicon_hash(),
+        "conflict_rules_hash": conflict_rules_hash(),
     }
 
 
@@ -382,6 +392,9 @@ class Memory:
         # Diagnostics of the extraction stage, accumulated across add() calls
         # (the corpus pass reports them). Never a pin, never persisted.
         self.extraction_stats = new_extraction_stats()
+        # The same for the Phase 3 stage: pairs screened and kept, conflicts
+        # found and facts superseded (the probe reports them by category).
+        self.conflict_stats = new_conflict_stats()
 
     def add(self, messages, user_id: str) -> None:
         """Write path: one round record per user+assistant round, plus one fact
@@ -398,8 +411,12 @@ class Memory:
         probe, per record, against records of the SAME kind (PHASE2 D3): a
         fact is compared with earlier facts, a round with earlier rounds. For
         rounds the exact screen is store-wide (its key folds the session date
-        in); for facts both screens follow ``dedup_scope``. No negation
-        screen, no entropy gate — those arrive in Phase 3.
+        in); for facts both screens follow ``dedup_scope``. A fact pair the
+        cosine probe flags is then read through SPEC's screens — negation,
+        value substitution, the entropy gate (PHASE3, ``fact_verdict``) — and
+        is dropped only when all three call it a duplicate; with
+        ``config.conflict_resolution`` off, or for a round, the flag alone
+        drops it (the v1.9 path).
         """
         rounds = _messages_to_rounds(messages)
         if not rounds:
@@ -447,7 +464,15 @@ class Memory:
                     and hits[0][1] >= threshold
                     and self._in_dedup_scope(hits[0][0], round_)
                 ):
-                    continue
+                    verdict = fact_verdict(piece, hits[0][0], self.config)
+                    if verdict is None:
+                        continue  # a round, or the stage is off: the v1.9 drop
+                    self.conflict_stats["pairs_screened"] += 1
+                    if verdict.action != ACTION_KEEP:
+                        self.conflict_stats["merged"] += 1
+                        continue
+                    self.conflict_stats[f"kept_{verdict.reason.replace('-', '_')}"] += 1
+                    log.debug("kept: %s", verdict.reason)
                 self.store.insert(
                     MemoryRecord(
                         user_id=user_id,
@@ -466,6 +491,7 @@ class Memory:
                         object=piece.object,
                         valid_time=piece.valid_time,
                         time_mention=piece.time_mention,
+                        pair_key=piece.pair_key,
                     )
                 )
                 seen.add(key)
@@ -558,6 +584,41 @@ def new_extraction_stats() -> dict:
     }
 
 
+def new_conflict_stats() -> dict:
+    """Counters of the Phase 3 stage: the screens (Task 2) and supersession (Task 3)."""
+    return {
+        "pairs_screened": 0,
+        "merged": 0,
+        "kept_negation": 0,
+        "kept_value": 0,
+        "kept_low_entropy": 0,
+        "candidates": 0,
+        "conflicts_negation": 0,
+        "conflicts_functional": 0,
+        "conflicts_numeric": 0,
+        "superseded": 0,
+    }
+
+
+def fact_verdict(piece: Piece, neighbour: MemoryRecord, config: MemoryConfig) -> Verdict | None:
+    """What the screens say about a cosine-gate-pass pair, or ``None`` when they do not apply.
+
+    One function for the write path and the retrieval probe's mirror walk, so
+    the two cannot disagree. ``None`` — a round record, or
+    ``config.conflict_resolution`` off — is the v1.9 outcome: the probe's flag
+    alone drops the incoming piece.
+    """
+    if piece.kind != KIND_FACT or not config.conflict_resolution:
+        return None
+    return screen_pair(
+        piece.fact or "",
+        (piece.subject, piece.predicate, piece.object),
+        neighbour.fact or "",
+        (neighbour.subject, neighbour.predicate, neighbour.object),
+        config.dedup_entropy_gate,
+    )
+
+
 def _time_ordered(records: list[MemoryRecord]) -> list[MemoryRecord]:
     """Oldest first, ties broken by insertion order.
 
@@ -598,6 +659,7 @@ class Piece(NamedTuple):
     valid_time: str | None = None
     time_mention: str | None = None
     salience: float = 1.0
+    pair_key: str | None = None  # the normalized subject|predicate of a fact's triple
 
 
 def _round_text(round_: Round) -> str:
@@ -671,6 +733,7 @@ def round_pieces(
     for fact in facts:
         # A mention the round does not contain is an invention, not a date.
         mention = verbatim_mention(fact.when, round_text)
+        triple = normalize_triple(fact.subject, fact.predicate, fact.object)
         pieces.append(
             Piece(
                 content=_FACT_EMBED_T.substitute(raw=fact.raw, fact=fact.content),
@@ -684,6 +747,7 @@ def round_pieces(
                 valid_time=resolve(mention, round_.ts),
                 time_mention=mention,
                 salience=float(fact.salience),
+                pair_key=triple.pair_key if triple is not None else None,
             )
         )
     return pieces

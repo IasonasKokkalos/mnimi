@@ -94,6 +94,40 @@ class RuleExtractor:
         return ExtractionResult(facts=facts, truncated=False, raw_output=raw_output)
 
 
+class ScriptedExtractor:
+    """Pre-authored facts per round, keyed by the round's first user turn (PHASE3 D10).
+
+    The conflict demo set and the Phase 3 tests script exactly which triples
+    a round yields, so the write path — pre-filter, resolver, both screens,
+    supersession — runs end to end with no model. An unscripted round yields
+    ``[]``. Fake pins, so a scripted store is refused by a real open.
+    """
+
+    name = "fake-scripted"
+
+    def __init__(self, script: dict[str, list[ExtractedFact]]) -> None:
+        self.script = dict(script)
+
+    @property
+    def pins(self) -> dict:
+        return {
+            "extractor_model": self.name,
+            "extractor_quant": "none",
+            "extractor_runtime": "mnimi.extract.fake ScriptedExtractor v1",
+            "extractor_decode_hash": sha256_text("fake-scripted decode v1"),
+            "extractor_prompt_hash": extractor_prompt_hash("<no grammar: fake-scripted>"),
+        }
+
+    def extract(self, turns: list[dict]) -> ExtractionResult:
+        facts: list[ExtractedFact] = []
+        for turn in turns:
+            if turn.get("role") == "user":
+                facts = list(self.script.get(str(turn.get("content", "")), []))
+                break
+        raw_output = json.dumps([fact._asdict() for fact in facts], ensure_ascii=False)
+        return ExtractionResult(facts=facts, truncated=False, raw_output=raw_output)
+
+
 class CountingExtractor:
     """Wraps any extractor and counts the calls that reach it (the cache's test)."""
 

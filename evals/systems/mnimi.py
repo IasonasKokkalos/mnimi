@@ -69,6 +69,8 @@ class MnimiSystem(MemorySystem):
         # `revision` is a static constant on the embedder class (the pinned HF
         # commit for BGE) — read, never resolved: a network lookup here could
         # pin whatever the hub currently serves instead of what ran.
+        from mnimi.conflict.lexicon import negation_lexicon_hash
+        from mnimi.conflict.normalize import conflict_rules_hash
         from mnimi.extract import prefilter
         from mnimi.extract.protocol import PIN_KEYS
         from mnimi.extract.resolver import RESOLVER_VERSION
@@ -105,6 +107,12 @@ class MnimiSystem(MemorySystem):
                 "resolver_version": RESOLVER_VERSION,
                 "render_unit": self._config.render_unit,
                 "render_unit_template_hash": render_unit_template_hash(self._config.render_unit),
+                # Phase 3 (schema /9): the screens and supersession, and the two
+                # frozen artifacts they read. mnimi only — naive_rag has no facts.
+                "dedup_entropy_gate": self._config.dedup_entropy_gate,
+                "conflict_resolution": self._config.conflict_resolution,
+                "negation_lexicon_hash": negation_lexicon_hash(),
+                "conflict_rules_hash": conflict_rules_hash(),
             }
         )
         return pins

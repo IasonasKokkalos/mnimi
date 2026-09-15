@@ -2340,7 +2340,7 @@ thousands of true facts.
   the gate 3-ii baseline and the "behind a flag" fallback); no threshold
   changes; no knob for the lexicon.
 - D12 `memory_meta`: `negation_lexicon_hash` live, `conflict_rules_hash` new
-  (fourteen rows). Pins schema /9 (`dedup_entropy_gate`, `conflict_resolution`,
+  (sixteen rows; fifteen at v1.9). Pins schema /9 (`dedup_entropy_gate`, `conflict_resolution`,
   the two hashes; mnimi declares them, naive_rag does not;
   `HARNESS_PARITY_FIELDS` unchanged). Language: the probe is Tier 2 given the
   pins and the cache; the demo set is deterministic and CI-run.
@@ -2395,3 +2395,41 @@ is a version bump, a new hash, a re-ingest, a dated entry); no read-path change
 (no salience-0 exclusion, no ranking, no decay); no change to `naive_rag`, the
 renderer, `k`, the reader prompt, `EMBED_TEMPLATE` or `FACT_EMBED_TEMPLATE`;
 `evals/systems/mnimi.py` keeps not calling `consolidate()`.
+
+## Gate 3-i read: the screens keep 326 fact pairs apart and move no evidence round — PASS (2026-09-15)
+
+**The instrument.** `python -m evals.probes.retrieval --system mnimi --extractor qwen3
+--limit 100 --out runs/probe_mnimi_p3.json` from the worktree at the Task 2 tree (committed as
+the Task 2 commit), every round replayed from the Phase 2 cache (`misses: 0` on 100/100
+questions; the model was loaded, never called), 84 min wall; read with
+`evals.probes.aggregate` and `evals.probes.identity` against `runs/probe_mnimi_extract.json`
+(Phase 2, `e1805e5`). Beside it, the no-extractor probe `runs/probe_mnimi_p3base.json` against
+Phase 2's `probe_mnimi_p2base.json`. Full tables: `mnimi docs/PHASE3-RESULTS.md` § Task 2.
+
+**The gate, against the pre-registration:**
+
+| | pre-registered | Phase 2 | Task 2 | |
+| --- | --- | --- | --- | --- |
+| ANY@10 / ALL@10 | ≥ 93/95, ≥ 83/95 | 93, 83 | **93, 83** | PASS |
+| evidence rounds lost | 0 | 0 | **0** | PASS |
+| round/exact, round/cosine | 16, 536 exactly | 16, 536 | **16, 536** | PASS |
+| fact/cosine | ≤ 4,460 | 4,460 | **4,134** | PASS |
+| stored, stored + drops | ≥ 78,397; 83,788 | 78,397 | **78,710; 83,788** | PASS |
+| p3base = p2base | 100/100 | — | **100/100** | PASS |
+| fact/exact | = 379 | 379 | **392** | pre-registration error, below |
+
+Per-category ANY/ALL cells are Phase 2's to the unit; evidence ranks are identical on 99/100
+questions (`gpt4_0b2f1d21`: one evidence round rank 3 → 4, still top-10). Keeps by screen:
+negation 150, value 170, low-entropy 6 — 326, exactly Phase 2's fact/cosine minus Task 2's.
+No tripwire (fact/cosine ≥ 3,345).
+
+**One pre-registration error, corrected in the open.** "`fact/exact` = 379 exactly" assumed the
+exact screen sees the same inputs; it does not — a kept fact joins the exact-key set, so 13
+later restatements of kept facts moved from the cosine screen to the exact screen. Fact drops
+total 4,526 vs 4,839, the 313 difference being the stored delta to the record. The invariant
+meant (nothing dropped that v1.9 kept; records conserved) holds; the literal is wrong and
+stays wrong in the pre-registration text above, with this entry as its reading.
+
+**Decision: PASS → Task 3** (supersede). `MemoryConfig.conflict_resolution` stays `True` as the
+library default pending gate 3-ii. What the screens cost the reader: 313 more fact records in
+the hundred stores (+0.4 %), none of which displaced an evidence round from the top-10.

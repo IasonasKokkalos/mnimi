@@ -9,6 +9,7 @@ import pytest
 
 from mnimi.conflict import lexicon, normalize
 from mnimi.conflict.normalize import NormalizedTriple, normalize_triple
+from mnimi.conflict.screens import KEEP_REASONS, Verdict, screen_pair, token_entropy_bits
 
 
 def test_importing_mnimi_conflict_loads_no_heavy_dependency():
@@ -133,3 +134,60 @@ def test_lexicon_forms_are_normalized_and_unambiguous():
     for marker in lexicon.MARKERS:
         assert marker == normalize.normalize_text(marker), marker
     assert "uses" not in functional and "using" not in functional and "has" not in functional
+
+
+# -- the screens (PHASE3 Task 2) -------------------------------------------------------
+
+def test_token_entropy_bits_is_token_level_shannon():
+    assert token_entropy_bits("") == 0.0
+    assert token_entropy_bits("Miso") == 0.0
+    assert token_entropy_bits("The user is 30.") == pytest.approx(2.0)  # 4 distinct tokens
+    assert token_entropy_bits("the the the user") == pytest.approx(0.8112781)  # (3/4, 1/4)
+    assert token_entropy_bits("The user adopted a cat named Miso.") == pytest.approx(2.8073549)
+
+
+def _t(s, p, o):
+    return (s, p, o)
+
+
+def test_screen_pair_routes_negation_value_and_low_entropy_away_from_the_merge():
+    assert KEEP_REASONS == ("negation", "value", "low-entropy")
+    # negation: opposite polarity on a near-duplicate — with a triple, and without one
+    assert screen_pair("The user likes jazz.", _t("user", "likes", "jazz"),
+                       "The user dislikes jazz.", _t("user", "dislikes", "jazz"),
+                       2.0) == Verdict("keep", "negation")
+    assert screen_pair("The user no longer lives in Boston.", _t(None, None, None),
+                       "The user lives in Boston.", _t(None, None, None),
+                       2.0) == Verdict("keep", "negation")
+    # value: same pair, different value-sized objects
+    assert screen_pair("The user lives in Seattle.", _t("user", "lives in", "Seattle"),
+                       "The user lives in Boston.", _t("user", "moved to", "Boston"),
+                       2.0) == Verdict("keep", "value")
+    assert screen_pair("The user has tried 3 of Emma's recipes.",
+                       _t("user", "has tried", "3 of Emma's recipes"),
+                       "The user has tried 2 of Emma's recipes.",
+                       _t("user", "has tried", "two of Emma's recipes"),
+                       2.0) == Verdict("keep", "value")
+    # low entropy: too few distinct tokens to trust a cosine
+    assert screen_pair("Miso.", _t(None, None, None), "Miso", _t(None, None, None),
+                       2.0) == Verdict("keep", "low-entropy")
+    assert screen_pair("Miso.", _t(None, None, None), "Miso", _t(None, None, None),
+                       0.0) == Verdict("merge", "duplicate")
+
+
+def test_screen_pair_abstains_on_null_triples_and_merges_true_duplicates():
+    dup = Verdict("merge", "duplicate")
+    # same pair, same object, same polarity: a restatement
+    assert screen_pair("The user lives in Boston.", _t("user", "lives in", "Boston"),
+                       "The user is living in Boston.", _t("user", "living in", "Boston"),
+                       2.0) == dup
+    # a clause-sized object is not a value: the value screen abstains, the pair merges
+    long_obj = "the evolution of language is a complex and fascinating process"
+    assert screen_pair("The user mentioned that " + long_obj + ".",
+                       _t("user", "mentioned", long_obj),
+                       "The user mentioned language evolution.",
+                       _t("user", "mentioned", "language evolution"), 2.0) == dup
+    # one triple null and no polarity difference: abstain → entropy → merge
+    assert screen_pair("The user adopted a cat named Miso.", _t(None, None, None),
+                       "The user adopted a cat called Miso.",
+                       _t("user", "adopted", "a cat called Miso"), 2.0) == dup

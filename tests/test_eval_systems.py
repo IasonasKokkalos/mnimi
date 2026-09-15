@@ -319,3 +319,22 @@ def test_render_unit_reaches_mnimi_and_not_the_other_arms(tmp_path):
     lines = [line for line in extracted.get_context("cat").splitlines()
              if not line.startswith(("facts:", "- "))]
     assert "\n".join(lines) == naive.get_context("cat")
+
+
+# -- Phase 3 Task 2: the pins (schema /9) ----------------------------------------------
+
+
+def test_mnimi_pins_declare_the_phase3_rows_and_naive_rag_does_not():
+    from mnimi.conflict.lexicon import negation_lexicon_hash
+    from mnimi.conflict.normalize import conflict_rules_hash
+
+    pins = _mnimi(
+        config=MemoryConfig(dedup_entropy_gate=1.5, conflict_resolution=False)
+    ).retrieval_pins()
+    assert pins["dedup_entropy_gate"] == 1.5 and pins["conflict_resolution"] is False
+    assert pins["negation_lexicon_hash"] == negation_lexicon_hash()
+    assert pins["conflict_rules_hash"] == conflict_rules_hash()
+    default = _mnimi().retrieval_pins()
+    assert default["dedup_entropy_gate"] == 2.0 and default["conflict_resolution"] is True
+    naive = _naive().retrieval_pins()
+    assert "conflict_resolution" not in naive and "negation_lexicon_hash" not in naive

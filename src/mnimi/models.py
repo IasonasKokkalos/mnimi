@@ -101,3 +101,10 @@ class MemoryRecord:
     time_mention: str | None = None
     """The temporal expression the extractor copied verbatim, kept beside its
     resolution so an unresolved mention is auditable."""
+
+    pair_key: str | None = None
+    """The normalized ``subject|predicate`` of a fact's triple
+    (``mnimi.conflict.normalize``), indexed so conflict candidates are found
+    store-wide without a vector (PHASE3 D2). ``None`` for round records and
+    for facts whose triple is null or empties under normalization. Derived,
+    never rendered, never embedded."""

@@ -670,3 +670,117 @@ def test_render_unit_and_fact_template_hashes_are_pinned_and_distinct():
         render_unit_template_hash("paragraphs")
     with pytest.raises(ValueError):
         Memory(":memory:", HashingEmbedder(), MemoryConfig(render_unit="paragraphs"))
+
+
+# -- Phase 3 Task 2: the screens in the write path -------------------------------------
+
+
+def test_config_has_the_phase3_fields_with_spec_defaults():
+    config = MemoryConfig()
+    assert config.dedup_entropy_gate == 2.0 and config.conflict_resolution is True
+    assert MemoryConfig(conflict_resolution=False, dedup_entropy_gate=1.5).dedup_entropy_gate == 1.5
+
+
+def _fact(content, raw, subject=None, predicate=None, obj=None, when=None):
+    from mnimi.extract.protocol import ExtractedFact
+
+    return ExtractedFact(content=content, raw=raw, when=when, subject=subject,
+                         predicate=predicate, object=obj, salience=1.0)
+
+
+def _scripted_memory(db_path, script, **config):
+    from mnimi.extract.fake import ScriptedExtractor
+
+    # 0.5: under HashingEmbedder the fact pairs below sit well above it, so
+    # the k=1 probe fires and the screens — not the threshold — decide.
+    return Memory(str(db_path), HashingEmbedder(),
+                  MemoryConfig(dedup_cosine_threshold=0.5, **config),
+                  extractor=ScriptedExtractor(script))
+
+
+_VALUE_SCRIPT = {
+    "Quick note: I live in Boston now.": [
+        _fact("The user lives in Boston.", "user: I live in Boston now.", "user", "lives in",
+              "Boston")],
+    "Update from me: I live in Seattle now.": [
+        _fact("The user lives in Seattle.", "user: I live in Seattle now.", "user", "lives in",
+              "Seattle")],
+}
+
+
+def test_value_substitution_keeps_both_facts_within_a_session(tmp_path):
+    m = _scripted_memory(tmp_path / "v.db", _VALUE_SCRIPT)
+    for text in _VALUE_SCRIPT:
+        m.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert m.store.count("u", kind="fact") == 2
+    assert m.conflict_stats["pairs_screened"] == 1 and m.conflict_stats["kept_value"] == 1
+    facts = [r for r, _cos in m.store.search(m._query_embedding("live"), "u", k=5, kind="fact")]
+    assert len(facts) == 2 and {f.pair_key for f in facts} == {"user|lives in"}
+    assert {f.object for f in facts} == {"Boston", "Seattle"}
+
+
+def test_conflict_resolution_off_is_the_v19_write_path(tmp_path):
+    off = _scripted_memory(tmp_path / "off.db", _VALUE_SCRIPT, conflict_resolution=False)
+    for text in _VALUE_SCRIPT:
+        off.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert off.store.count("u", kind="fact") == 1, "v1.9 drops the second fact as a near-duplicate"
+    assert off.conflict_stats["pairs_screened"] == 0
+
+
+def test_negation_keeps_both_facts_within_a_session(tmp_path):
+    script = {
+        "By the way, I like jazz.": [
+            _fact("The user likes jazz.", "user: I like jazz.", "user", "likes", "jazz")],
+        "Actually, I dislike jazz.": [
+            _fact("The user dislikes jazz.", "user: I dislike jazz.", "user", "dislikes", "jazz")],
+    }
+    m = _scripted_memory(tmp_path / "n.db", script)
+    for text in script:
+        m.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert m.store.count("u", kind="fact") == 2 and m.conflict_stats["kept_negation"] == 1
+
+
+def test_low_entropy_facts_are_not_auto_merged(tmp_path):
+    # Two-token facts (1.0 bit) whose exact keys differ ("is") and whose
+    # rounds carry a first-person cue, so both reach the cosine probe.
+    script = {
+        "My cat is Miso.": [_fact("Cat Miso.", "user: My cat is Miso.")],
+        "My cat, Miso!": [_fact("Cat Miso!", "user: My cat, Miso!")],
+    }
+    m = _scripted_memory(tmp_path / "e.db", script)
+    for text in script:
+        m.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert m.conflict_stats["kept_low_entropy"] == 1 and m.store.count("u", kind="fact") == 2
+    gated = _scripted_memory(tmp_path / "g.db", script, dedup_entropy_gate=0.0)
+    for text in script:
+        gated.add([_message(text, ts="2023-05-20")], user_id="u")
+    assert gated.store.count("u", kind="fact") == 1, "the gate reads config, not a constant"
+
+
+def test_screens_never_touch_round_records(tmp_path):
+    # Two near-identical rounds in one session with no extractor: the v1.9
+    # round screen drops the second, screens on or off.
+    for flag in (True, False):
+        m = Memory(str(tmp_path / f"r{flag}.db"), HashingEmbedder(),
+                   MemoryConfig(dedup_cosine_threshold=0.5, conflict_resolution=flag))
+        m.add([_message("I live in Boston now, by the way.", ts="2023-05-20")], user_id="u")
+        m.add([_message("I live in Seattle now, by the way.", ts="2023-05-20")], user_id="u")
+        assert m.store.count("u", kind="round") == 1 and m.conflict_stats["pairs_screened"] == 0
+
+
+def test_fact_records_carry_their_pair_key(tmp_path):
+    script = {
+        "I moved to Seattle.": [
+            _fact("The user moved to Seattle.", "user: I moved to Seattle.", "user", "moved to",
+                  "Seattle")],
+        "I feel happy about it all.": [_fact("The user feels happy.", "user: I feel happy.")],
+    }
+    m = _scripted_memory(tmp_path / "k.db", script)
+    m.add([_message("I moved to Seattle.", ts="2023-05-20")], user_id="u")
+    m.add([_message("I feel happy about it all.", ts="2023-05-21")], user_id="u")
+    by_key = {}
+    for record in m.recall("Seattle happy", "u"):
+        assert record.pair_key is None or record.kind == "fact", "a round has no pair key"
+        for fact in m.store.facts_of("u", record.round_key):
+            by_key[fact.fact] = fact.pair_key
+    assert by_key == {"The user moved to Seattle.": "user|lives in", "The user feels happy.": None}

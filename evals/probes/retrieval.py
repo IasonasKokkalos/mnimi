@@ -42,7 +42,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from mnimi import MemoryConfig
-from mnimi.memory import _messages_to_rounds, _normalize, new_extraction_stats, round_pieces
+from mnimi.conflict.screens import ACTION_KEEP, KEEP_REASONS
+from mnimi.memory import (
+    _messages_to_rounds,
+    _normalize,
+    fact_verdict,
+    new_extraction_stats,
+    round_pieces,
+)
 from mnimi.models import KIND_FACT, KIND_ROUND
 
 from ..dataset import DEFAULT_SAMPLE_SEED, SAMPLE_STRATIFIED, Question, load
@@ -86,6 +93,13 @@ class QuestionProbe:
     truncated_outputs: int = 0
     truncated_inputs: int = 0
     prefilter_skips: int = 0
+    # The Phase 3 stage, per question (empty / zero without it, and absent
+    # from Phase 2 probe files — the defaults keep those loadable). Keeps are
+    # cosine-pass fact pairs the screens routed away from the merge, by
+    # reason; conflicts and supersessions come with Task 3.
+    screen_keeps: dict = field(default_factory=dict)
+    conflicts: dict = field(default_factory=dict)
+    superseded: int = 0
 
 
 class _Observed:
@@ -170,6 +184,11 @@ def probe_question(system, q: Question) -> QuestionProbe:
     lost_evidence: list[list] = []
     stats = new_extraction_stats()
     n_rounds = n_evidence = facts_stored = 0
+    # The screens' keeps, counted by the mirror and checked against the
+    # library's own counters at the end (mnimi only).
+    keeps = dict.fromkeys(KEEP_REASONS, 0)
+    conflict_stats = getattr(getattr(system, "_memory", None), "conflict_stats", None)
+    conflict_before = dict(conflict_stats) if conflict_stats is not None else None
     try:
         for session in q.sessions:  # file order — exactly what runner._sessions_for feeds
             tagged = _tag_rounds(session)
@@ -205,13 +224,19 @@ def probe_question(system, q: Question) -> QuestionProbe:
                     if hits and cosine >= config.dedup_cosine_threshold and (
                         config.dedup_scope == "store" or hits[0][0].created_at == round_.ts
                     ):
-                        neighbour = content_to_round.get(hits[0][0].content)
-                        drops.append(DropEvent(
-                            session.session_id, i, "cosine", cosine,
-                            neighbour[0] if neighbour else None, is_evidence, p_idx, piece.kind,
-                        ))
-                        last_screen = "cosine"
-                        continue
+                        # The same function the write path calls (PHASE3): a
+                        # fact pair the screens keep apart is inserted, not dropped.
+                        verdict = fact_verdict(piece, hits[0][0], config)
+                        if verdict is None or verdict.action != ACTION_KEEP:
+                            neighbour = content_to_round.get(hits[0][0].content)
+                            drops.append(DropEvent(
+                                session.session_id, i, "cosine", cosine,
+                                neighbour[0] if neighbour else None, is_evidence, p_idx,
+                                piece.kind,
+                            ))
+                            last_screen = "cosine"
+                            continue
+                        keeps[verdict.reason] += 1
                     seen[piece.kind].add(key)
                     id_to_round[observed.inserted[insert_cursor]] = (session.session_id, i)
                     insert_cursor += 1
@@ -221,6 +246,17 @@ def probe_question(system, q: Question) -> QuestionProbe:
                     lost_evidence.append([session.session_id, i, last_screen])
             if probe_cursor != len(observed.probes) or insert_cursor != len(observed.inserted):
                 raise AssertionError("the walk did not mirror the system's dedup/insert calls")
+        conflicts: dict = {}
+        superseded = 0
+        if conflict_stats is not None:
+            delta = {k: conflict_stats[k] - conflict_before[k] for k in conflict_stats}
+            library_keeps = {r: delta[f"kept_{r.replace('-', '_')}"] for r in KEEP_REASONS}
+            if library_keeps != keeps:
+                raise AssertionError(
+                    f"the walk's screen keeps {keeps} differ from the library's {library_keeps}"
+                )
+            conflicts = {r: delta[f"conflicts_{r}"] for r in ("negation", "functional", "numeric")}
+            superseded = delta["superseded"]
         # The read path's own search: k counts rounds, every record of one
         # round collapses to its best-ranked one (Store.search_rounds).
         hits = store.search_rounds(query_embedding(q.question), user_id=EVAL_USER_ID, k=SEARCH_K)
@@ -248,6 +284,9 @@ def probe_question(system, q: Question) -> QuestionProbe:
         truncated_outputs=stats["truncated_outputs"],
         truncated_inputs=stats["truncated_inputs"],
         prefilter_skips=stats["prefilter_skips"],
+        screen_keeps=keeps,
+        conflicts=conflicts,
+        superseded=superseded,
     )
 
 
@@ -307,6 +346,11 @@ def run(system_name: str, limit: int, out: Path, config: MemoryConfig,
             if row.rounds_sent_to_model
             else ""
         )
+        if any(row.screen_keeps.values()) or row.superseded:
+            extra += f" keeps={row.screen_keeps} superseded={row.superseded}"
+        cache = getattr(system, "cache_stats", None)
+        if cache:
+            extra += f" cache={cache}"
         print(
             f"[{i}/{len(questions)}] {q.question_id} ranks={row.evidence_ranks} "
             f"drops={len(row.drops)}{extra}  {time.time() - started:.0f}s",
@@ -327,6 +371,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--query-instruction", default=None, help="bge | '' | a literal")
     parser.add_argument("--chunk-tokens", type=int, default=0)
     parser.add_argument("--chunk-overlap", type=int, default=64)
+    parser.add_argument(
+        "--conflict-resolution", choices=["on", "off"], default=None,
+        help="mnimi only: the Phase 3 stage (screens + supersession); 'off' is the v1.9 path. "
+        "Default: the library's.",
+    )
+    parser.add_argument(
+        "--dedup-entropy-gate", type=float, default=None,
+        help="mnimi only: MemoryConfig.dedup_entropy_gate. Default: the library's 2.0.",
+    )
     parser.add_argument(
         "--extractor", choices=["none", "qwen3"], default=None,
         help="mnimi only: the write-time extractor (PHASE2). Default: none (the v1 arm). "
@@ -352,6 +405,10 @@ def main(argv: list[str] | None = None) -> int:
         knobs["dedup_scope"] = args.dedup_scope
     if instruction is not None:
         knobs["query_instruction"] = instruction
+    if args.conflict_resolution is not None:
+        knobs["conflict_resolution"] = args.conflict_resolution == "on"
+    if args.dedup_entropy_gate is not None:
+        knobs["dedup_entropy_gate"] = args.dedup_entropy_gate
     config = MemoryConfig(**knobs)
     run(args.system, args.limit, Path(args.out), config, args.extractor, args.extractor_cache)
     return 0

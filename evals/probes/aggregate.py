@@ -20,12 +20,22 @@ def summarize(rows: list[QuestionProbe]) -> dict:
     answerable = [r for r in rows if not r.is_abstention and r.n_evidence_rounds > 0]
     any_at = {k: sum(1 for r in answerable if _hit(r.evidence_ranks, k, False)) for k in KS}
     all_at = {k: sum(1 for r in answerable if _hit(r.evidence_ranks, k, True)) for k in KS}
-    by_cat: dict[str, dict] = defaultdict(lambda: {"n": 0, "any10": 0, "all10": 0})
+    by_cat: dict[str, dict] = defaultdict(
+        lambda: {"n": 0, "any10": 0, "all10": 0, "superseded": 0}
+    )
     for r in answerable:
         c = by_cat[r.category]
         c["n"] += 1
         c["any10"] += _hit(r.evidence_ranks, 10, False)
         c["all10"] += _hit(r.evidence_ranks, 10, True)
+    for r in rows:  # supersessions are counted on every question, abstentions too
+        by_cat[r.category]["superseded"] += getattr(r, "superseded", 0)
+    # The Phase 3 stage (absent from Phase 2 probe files: the getattr defaults).
+    screen_keeps: Counter = Counter()
+    conflicts: Counter = Counter()
+    for r in rows:
+        screen_keeps.update(getattr(r, "screen_keeps", {}) or {})
+        conflicts.update(getattr(r, "conflicts", {}) or {})
     drops = Counter(d.screen for r in rows for d in r.drops)
     drops_by_kind = Counter(
         f"{getattr(d, 'kind', 'round')}/{d.screen}" for r in rows for d in r.drops
@@ -58,6 +68,9 @@ def summarize(rows: list[QuestionProbe]) -> dict:
         },
         "drops_by_kind": dict(sorted(drops_by_kind.items())),
         "extraction": extraction,
+        "screen_keeps": dict(sorted(screen_keeps.items())),
+        "conflicts": dict(sorted(conflicts.items())),
+        "superseded": sum(getattr(r, "superseded", 0) for r in rows),
         "cosine_drops_cross_session": cross_session,
         "evidence_lost_rows": evidence_lost,
         "rounds": sum(r.n_rounds for r in rows),
@@ -75,7 +88,10 @@ def format_summary(s: dict) -> str:
         f"ANY@10 {s['any_at'][10]}/{n}   ALL@10 {s['all_at'][10]}/{n}",
     ]
     for cat, c in sorted(s["by_category"].items()):
-        lines.append(f"  {cat:28s} n={c['n']:<3} ANY@10 {c['any10']:<3} ALL@10 {c['all10']}")
+        line = f"  {cat:28s} n={c['n']:<3} ANY@10 {c['any10']:<3} ALL@10 {c['all10']}"
+        if s.get("superseded"):
+            line += f"   superseded {c.get('superseded', 0)}"
+        lines.append(line)
     d = s["drops"]
     lines.append(
         f"drops: exact {d['exact']}, cosine {d['cosine']} "
@@ -88,6 +104,17 @@ def format_summary(s: dict) -> str:
         lines.append(
             "drops by kind/screen: "
             + ", ".join(f"{k} {v}" for k, v in s["drops_by_kind"].items())
+        )
+    if s.get("screen_keeps"):
+        lines.append(
+            "screen keeps (cosine-pass fact pairs kept apart): "
+            + ", ".join(f"{k} {v}" for k, v in s["screen_keeps"].items())
+        )
+    if s.get("conflicts") or s.get("superseded"):
+        lines.append(
+            "conflicts: "
+            + ", ".join(f"{k} {v}" for k, v in (s.get("conflicts") or {}).items())
+            + f"; superseded {s.get('superseded', 0)}"
         )
     x = s.get("extraction") or {}
     if x.get("rounds_sent_to_model"):

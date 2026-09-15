@@ -28,6 +28,25 @@ class MemoryConfig:
     top_k: int = 10
     """How many records ``recall`` retrieves."""
 
+    dedup_entropy_gate: float = 2.0
+    """Token-level Shannon entropy (bits) below which a cosine-gate-pass pair
+    of FACT records is not auto-merged (SPEC §Dedup strategy step 5, PHASE3
+    D5). The shorter side's entropy is compared: with fewer than four distinct
+    tokens (2.0 bits) a cosine is not trusted to say "same fact", and both
+    records are kept. SPEC's default, unmeasured — reported, never tuned on
+    the benchmark. A harness flag (``--dedup-entropy-gate``) and a pin."""
+
+    conflict_resolution: bool = True
+    """The Phase 3 write-side stage as one switch: the negation and
+    value-substitution screens and the entropy gate over cosine-gate-pass fact
+    pairs (SPEC steps 3–5), and supersession between conflicting facts (SPEC
+    write path step 4). ``False`` is the v1.9 write path byte for byte — a
+    fact that trips the cosine gate is dropped, nothing is ever superseded —
+    which is gate 3-ii's baseline and the fallback the pre-registration keeps
+    the code behind on a gate loss (DECISIONS "Phase 3 pre-registration"). It
+    never touches a round record or the read path. A harness flag
+    (``--conflict-resolution``) and a pin."""
+
     dedup_scope: str = "session"
     """Where the cosine dedup screen looks for a duplicate.
 

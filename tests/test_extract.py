@@ -291,3 +291,17 @@ def test_round_pieces_drop_an_invented_when_but_keep_the_fact(tmp_path):
     assert [(p.time_mention, p.valid_time) for p in facts] == [
         (None, None), ("yesterday", "2023-05-19")
     ]
+
+
+def test_scripted_extractor_returns_the_authored_facts_per_round():
+    from mnimi.extract.fake import ScriptedExtractor
+    from mnimi.extract.protocol import ExtractedFact
+
+    fact = ExtractedFact("The user lives in Boston.", "user: I live in Boston.", None, "user",
+                         "lives in", "Boston", 1.0)
+    ex = ScriptedExtractor({"I live in Boston.": [fact]})
+    hit = ex.extract([{"role": "user", "content": "I live in Boston."},
+                      {"role": "assistant", "content": "Nice."}])
+    assert hit.facts == [fact] and hit.truncated is False
+    assert ex.extract([{"role": "user", "content": "unscripted"}]).facts == []
+    assert ex.pins["extractor_model"] == "fake-scripted" and set(ex.pins) == set(protocol.PIN_KEYS)
