@@ -2577,3 +2577,76 @@ falsifies the mechanism on authored triples, not the extractor's — the descrip
 is the honest ceiling of the two together — and the read path still renders a superseded fact
 (D8), so nothing here moves a benchmark number until Phase 4 reads `salience`. → Task 5, close
 Phase 3 at v1.10.0.
+
+## Phase 3 closes: the SPEC deviations in one place, and what the phase leaves for Phase 4 (2026-09-16, v1.10.0)
+
+**Deviations from SPEC, each disclosed where it was decided and collected here** (PHASE3 D1–D12;
+"Phase 3 pre-registration", "Gate 3-i read", "Supersede lands", "Gate 3-ii read"):
+
+1. **Supersession has a predicate condition** (D2, CHANGELOG #17). SPEC step 4's "a new fact
+   contradicting an existing one" is narrowed to three rules — `negation` (one object, opposite
+   polarity), `functional` (a frozen predicate group, two positive values), `numeric` (different
+   numbers on one residue) — because the literal same-pair-different-object rule would have zeroed
+   33,963 true facts on the cache (5,705 multi-valued groups; `user|has` 1,788). A same-pair pair
+   with two value-sized objects is still routed away from the merge; it is superseded only under a
+   rule. The assistant's facts never conflict.
+2. **One effective time, not a class priority** (D6). `valid_time` when set, else the session
+   date; then the session date, the raw `ts`, the user's span over the assistant's, the id. SPEC's
+   three cases fall out of it and the mixed dated-vs-standing case is decided by the same key (a
+   2015-dated fact does not beat a 2023 assertion).
+3. **`supersedes` is one integer pointing at the *last* loser** the winner defeated (SPEC's shape;
+   a chain of updates leaves each intermediate loser at salience 0 with its own pointer).
+4. **`consolidate()` reads the pair index only** (D7). A cosine-pass negation pair whose triples
+   are null has no key to meet on; `add()` supersedes it, the pass cannot re-derive it (no vectors
+   in the pass). Idempotent by construction; a no-op after `add()`; still not called by
+   `evals/systems/mnimi.py` — Phase 4.3 wires it as the explicit decision.
+5. **`conflict_resolution` is a config field SPEC did not foresee** (D11): one switch for the
+   screens, the entropy gate and supersession; `False` is the v1.9 write path byte for byte (a
+   test compares stored contents). `dedup_entropy_gate` lands at SPEC's 2.0, untuned, token-level
+   (D5 — a sentence's character entropy sits near 4 bits whatever it says).
+6. **Candidates come from the store-wide `pair_key` index, not from cosine-gate-pass pairs**
+   (D2a). SPEC scopes screens 3–4 to cosine-pass pairs; since R3 the gate is session-scoped and
+   the knowledge-update case ("Boston" in session 3, "Seattle" in session 9) never reaches it.
+   The negation screen keeps SPEC's scope for the in-session half and adds the index half.
+7. **Two guard rows, sixteen in all** (D12): `negation_lexicon_hash` live (`330604b5772e…`),
+   `conflict_rules_hash` new (`7d19c48828c8…`, its own lifetime — not folded into
+   `resolver_version`). The "thirteen rows" quoted at v1.9 was a miscount of fifteen. Pins schema
+   /9 (`dedup_entropy_gate`, `conflict_resolution`, the two hashes; mnimi declares them, naive_rag
+   does not). A v1.9 store is refused at open.
+8. **The read path is untouched** (D8): no salience-0 exclusion, no ranking, no decay. A
+   superseded fact still ranks and renders. This is what made the Task 3 identity check exact
+   (100/100) and is why no benchmark number moved in this phase and none is claimed.
+9. **One pre-registration error, corrected in the open**: `fact/exact = 379 exactly` read 392 —
+   a kept fact joins the exact-key set, so 13 later restatements moved from the cosine screen to
+   the exact screen; records conserved at 83,788.
+10. **Two corrections during Task 3, disclosed**: the cosine-negation path narrowed to
+    null-triple pairs (D7 as written), and the assistant exclusion applied through that path
+    (one `assistant|read: yes -> no` line in the first run, gone in the committed run).
+11. **P1 not held**: no numeric supersession on `45dc21b6` — the earlier round's extraction has
+    no count triple. An extraction limit, recorded as the failed prediction it is.
+
+**What the phase measured** (all at $0; `mnimi docs/PHASE3-RESULTS.md`). Gate 3-i: ANY@10 93/95,
+ALL@10 83/95, 0 evidence lost, round drops 16/536 identical, fact/cosine 4,460 → 4,134 (326 keeps:
+negation 150, value 170, low-entropy 6), stored 78,397 → 78,710, ranks identical 99/100, the
+no-extractor probe identical to Phase 2's on 100/100. Supersede: the probe identical to Task 2's
+on 100/100; 46 facts superseded on the slice (functional 16, numeric 30, negation 0; projection
+16 / 35 / 0), about half the numeric ones enumerations and nine functional ones containment
+refinements. Gate 3-ii: mnimi 80/80 conflicts (30/30, 30/30, 20/20) + 20/20 controls after `add()`
+and after `consolidate()` vs the v1.9 path's 0/80 + 20/20; BGE identical; the real-extractor pass
+42/42 of the pairs the model keyed on the authored pair, 0 control supersessions, 57/200 rounds
+`[]`. Tests 272 → 348, ruff clean, CI reproduced on 3.11 and 3.12 with the `[dev]` extra alone.
+Hands-on ≈ 19.5 h against 25 planned; ≈ 3.3 h of unattended probe time; closed 58 days ahead of the
+Nov 13 line.
+
+**What it leaves for Phase 4.** (a) The salience-0 exclusion has a price to read before it ships:
+the 46 slice supersessions include the exact-match rules' two false-positive classes —
+`tokyo -> roppongi` containment refinements on `lives in` (nine) and `answered: question 249 ->
+250 -> …` enumerations on a numeric residue (fifteen) — invisible while the read path ignores
+`salience`, and the first thing an active-record filter would hide from the reader. (b) Ranking
+(`salience_weights`, `ScoredRecord`), decay with its floor and `last_accessed` are unbuilt; the
+fed-token cost of the facts header (+783 tokens per context, Phase 2) is still the lever they can
+trim. (c) `consolidate()` is wired into the harness only by an explicit edit (4.3). (d) An
+extraction limit the demo exposed, outside this phase's scope: the 1.7B extractor returns `[]` on
+28.5 % of one-sentence rounds (10.9 % on the corpus) and seldom emits both sides of an antonym
+pair as triples — the screens can only resolve what the model keys. (e) The lexicon and the
+normalization tables stay frozen; any edit is a version bump and a re-ingest. v1.10.0.

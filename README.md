@@ -143,6 +143,38 @@ full provenance in [`results/published/`](results/published/); the rulings
 in `docs/DECISIONS.md` ("Gate 4-i read", "Gate 4-ii read", "Gate 4-iii
 read").
 
+**Phase 3 — conflict and the deterministic screens (2026-09-15 → 16, no API, $0).**
+The write side gained SPEC's dedup steps 3–5 and write-path step 4 with no
+LLM: a frozen, hashed negation lexicon, a value-substitution screen over
+normalized triples, a token-entropy gate, and supersession — a fact that
+conflicts with an earlier one under one of three rules (negation, a
+functional predicate such as residence or employer, a changed number on the
+same residue) leaves exactly one active fact, the loser at salience 0 with
+the winner pointing at it. LongMemEval's history is built non-conflicting,
+so the slice can only guard, not falsify: the retrieval probe read ANY@10
+93/95 and ALL@10 83/95 unchanged, 0 evidence rounds lost, 326 fact pairs
+kept apart that the old screen had merged, evidence ranks identical on
+99/100 questions, and 46 facts superseded across the 100 stores. The
+falsification is a seeded, CI-run demo set of 100 authored pairs
+(`evals/probes/conflict_demo.py`, `python -m evals.probes.conflict_demo
+--seed 0`; the exit code is the gate):
+
+| family | pairs | mnimi (screens + supersede) | exact-dedup (the v1.9 write path) | pre-registered |
+| --- | ---: | ---: | ---: | --- |
+| value change (functional 15, count 15) | 30 | **30** | 0 | ≥ 27 |
+| negation (marker 15, antonym 15) | 30 | **30** | 0 | ≥ 27 |
+| dated update (in order 10, reversed 10) | 20 | **20** | 0 | ≥ 18 |
+| controls: paraphrase 10 + unrelated 10 (must not conflict) | 20 | **20** | 20 | 20 |
+
+Identical after `add()` and after `consolidate()`; identical under the real
+BGE embedder. The same rounds through the real 1.7B extractor instead of the
+authored facts (descriptive, never the gate): 42 of 80 pairs came out keyed
+on the authored pair and all 42 resolved correctly, 0 controls were touched,
+and the rest are rounds the model returned `[]` on. **No benchmark score
+moved and none is claimed**: the read path does not read `salience` until
+Phase 4, so a superseded fact still renders. Rulings in `docs/DECISIONS.md`
+("Phase 3 pre-registration" through "Phase 3 closes").
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked
@@ -298,18 +330,23 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.8.0. The block above is the locked contract; what ships today is
-narrower. Built: per-round ingestion with an exact-match plus cosine dedup
-screen (`dedup_cosine_threshold=0.95`), top-k retrieval over `sqlite-vec`, the
-one shared context renderer (two framings, text and JSON, one pinned hash per
-framing), the `memory_meta` guard that refuses a store built
-by a different embedder or embed template, the real `BAAI/bge-small-en-v1.5`
-embedder behind the `[embed]` extra (the default import path is a numpy hashing
-placeholder), and the full five-arm eval harness. Not built: extraction (the
-one LLM the library will ever call), conflict resolution, decay and the salience
-multiplier — `consolidate()` is a no-op — and `export()`; `recall()` currently
-returns plain records without the score. `docs/SPEC.md` § "v1 as built" is the
-exact list; the rest of SPEC describes the target.
+Pre-alpha, v1.10.0. The block above is the locked contract; what ships today
+is narrower. Built: per-round ingestion; the one LLM the library will ever
+call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
+extra) whose facts are stored beside each round; dedup as exact match, one
+cosine probe (`dedup_cosine_threshold=0.95`) and, for facts, the negation,
+value-substitution and entropy screens; conflict resolution and supersession
+over a frozen, hashed lexicon (`consolidate()` is the same decision as an
+idempotent pass); top-k retrieval over `sqlite-vec`; the one shared context
+renderer (two framings, three units, one pinned hash each); the `memory_meta`
+guard (sixteen rows) that refuses a store built under different pins; the
+real `BAAI/bge-small-en-v1.5` embedder behind the `[embed]` extra (the default
+import path is a numpy hashing placeholder); and the full five-arm eval
+harness. Not built: decay and the salience multiplier, ranking, the
+salience-0 exclusion on the read path (a superseded fact still renders),
+`export()`; `recall()` currently returns plain records without the score.
+`docs/SPEC.md` § "v1 as built" is the exact list; the rest of SPEC describes
+the target.
 
 See [docs/SPEC.md](docs/SPEC.md) for the contract,
 [docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions, and

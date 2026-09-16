@@ -90,6 +90,29 @@ resolution. Both roles are in extraction scope.
   `access_count` — inert under the eval protocol.
 - **Salience 0 means superseded, and only that.** Decay clamps at `decay_floor`
   (0.15): it down-ranks, never excludes.
+- **Conflict (Phase 3, built 2026-09-15/16; gates 3-i and 3-ii passed, `mnimi docs/PHASE3.md` D1–D12):**
+  only fact records conflict; a round is evidence and is never superseded (D1).
+  The negation lexicon (`mnimi/conflict/lexicon.py`: 19 contractions, 20
+  markers, ten antonym groups) and the normalization tables plus fourteen
+  functional predicate groups (`normalize.py`) are **frozen and hashed** —
+  `negation_lexicon_hash = 330604b5772e…`, `conflict_rules_hash = 7d19c48828c8…`,
+  both `memory_meta` rows, both pinned by tests; an edit is a version bump, a
+  new hash, a re-ingest and a dated DECISIONS entry, never in place and never to
+  make a gate pass. Normalization is exact match after a fixed rewrite — no
+  lemmatization, no fuzzy matching (D3). Two facts on one `pair_key` conflict
+  **only under a rule** — `negation` (one object, opposite polarity),
+  `functional` (a frozen group, two positive values), `numeric` (different
+  numbers on one residue) — otherwise they are two facts (D2, CHANGELOG #17: a
+  bare same-pair rule would have zeroed 33,963 true facts on the cache); the
+  assistant's facts never conflict. One ordering: effective time (`valid_time`
+  else the session date), session date, raw `ts`, the user's span over the
+  assistant's, id — greater wins (D6); loser `salience = 0`, winner
+  `supersedes` = the last loser's id, `superseded {old_id}: {rule} {pair_key}:
+  {old} -> {new}` at INFO on `mnimi.memory`. `conflict_resolution = True` is
+  the one switch (screens, entropy gate, supersession); `False` is the v1.9
+  write path byte for byte. **The read path is untouched (D8):** a superseded
+  fact still ranks and renders until Phase 4 reads `salience`, so nothing in
+  Phase 3 moved a benchmark number and none is claimed.
 - **Benchmark = LongMemEval** (`longmemeval_s`, ~500 questions). The harness in
   `evals/` is the source of truth.
 - **Baselines — five systems, roles marked.** `no_memory` (the floor);
@@ -147,15 +170,21 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 
 - **`memory_meta` guard.** Embedder name/revision/dim, embed-template hash,
   extractor model/quant/runtime/decode-hash/prompt-hash, negation-lexicon hash,
-  prefilter-lexicon hash. Written once at DB creation, all checked on load,
-  mismatch raises. (Extraction era, 2026-09-13: thirteen rows written and
-  validated — the four embedder rows, the R4 chunk pair, the five extractor rows
-  or the literal `"none"`, `negation_lexicon_hash="none"` until Phase 3,
-  `prefilter_lexicon_hash`, `fact_embed_template_hash`, `resolver_version`; a
-  v1.8 store is refused.) Editing a lexicon or prompt is a versioned migration plus re-ingest
+  conflict-rules hash, prefilter-lexicon hash. Written once at DB creation, all
+  checked on load, mismatch raises. (**Sixteen rows** since Phase 3, 2026-09-15
+  — the four embedder rows, the R4 chunk pair, the five extractor rows or the
+  literal `"none"`, `negation_lexicon_hash` live at `330604b5772e…`,
+  `conflict_rules_hash` `7d19c48828c8…`, `prefilter_lexicon_hash`,
+  `fact_embed_template_hash`, `resolver_version`; the v1.9 header's "thirteen"
+  was a miscount of fifteen; a v1.8 or v1.9 store is refused.) Editing a lexicon or prompt is a versioned migration plus re-ingest
   — never an in-place edit under a run.
 - **Normalize at the boundary.** Any insert path that bypasses `embeddings.py`
   breaks ranking correctness silently.
+- **The screens only ever route a pair away from a merge.** They never drop a
+  record the v1.9 path kept, and rounds go through the v1.9 screens byte for
+  byte; `conflict_resolution=False` IS the v1.9 write path (a test compares
+  stored contents). Gate 3-i's reading of this: 326 keeps, 0 new drops, no
+  round moved, records conserved at 83,788.
 - **Config, not constants.** Every threshold reads from `MemoryConfig`. No
   hardcoded threshold, no hardcoded `k=5` in write- or read-path logic.
 - **Ingestion granularity is per-round**, and `naive_rag` must match mnimi's
@@ -291,7 +320,9 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   90 at n=100 on gpt-4o; the primary is a pre-registered null (b=1, c=6).
   Phase 1 closed 2026-09-13 (81/82 vs 82, b=2, c=3); Phase 2 closed
   2026-09-15: extraction adopted, mnimi 84 vs naive_rag 79 (b=7, c=2,
-  p=0.18 — ahead, not significant; the verdict is Phase 5's n=500).
+  p=0.18 — ahead, not significant; the verdict is Phase 5's n=500). Phase 3
+  closed 2026-09-16 at $0: gates 3-i and 3-ii passed, the screens and supersede
+  are the library default; no benchmark number moved and none is claimed (D8).
 
 ## Scope rule
 
@@ -345,9 +376,18 @@ python -m evals.probes.prefilter_rate --limit 100             # stage-1 drop rat
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor none  --render-unit turns       --run-dir runs/mnimi__100q_gpt4o_p2base --verify-drift results/published/mnimi__100q_gpt4o_k10
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --run-dir runs/mnimi__100q_gpt4o_extract
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit facts       --run-dir runs/mnimi__100q_gpt4o_extract_facts
+# Phase 3 (PHASE3, 2026-09-15/16; $0). The two knobs are pins (schema /9); `--conflict-resolution off`
+# is the v1.9 write path. The probe replays the cache (`misses: 0` or stop); identity says whether rows moved:
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --out runs/probe_mnimi_p3s.json
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --conflict-resolution off --dedup-entropy-gate 2.0 --out runs/probe_off.json
+python -m evals.probes.identity runs/probe_mnimi_p3.json runs/probe_mnimi_p3s.json   # identical N/100 on ranks, top-50, drops, stored
+python -m evals.probes.aggregate runs/probe_mnimi_p3s.json                            # keeps by screen; conflicts and supersessions by rule
+# gate 3-ii: the seeded demo set through ScriptedExtractor, mnimi vs the v1.9 path; the exit code IS the gate:
+python -m evals.probes.conflict_demo --seed 0 --out runs/conflict_demo.json
+python -m evals.probes.conflict_demo --seed 0 --embedder bge --extractor qwen3 --out runs/conflict_demo_qwen3.json  # descriptive, never the gate
 ```
 
-## Current state vs SPEC (as of v1.9.0, 2026-09-15; library = v1.8.0 + the extraction era, adopted)
+## Current state vs SPEC (as of v1.10.0, 2026-09-16; library = the extraction era + Phase 3's screens and supersede, both gates passed)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -357,7 +397,7 @@ ACTUAL" says why.
 
 **Shipped:**
 
-- `MemoryConfig` — eight fields: `dedup_cosine_threshold = 0.95`,
+- `MemoryConfig` — ten fields: `dedup_cosine_threshold = 0.95`,
   `top_k = 10`, `dedup_scope = "session"` (R3, adopted 2026-09-12 — `"store"`
   is the published local-family configuration), `query_instruction =
   BGE_QUERY_INSTRUCTION` (R5, adopted 2026-09-13 — `""` is the local-family
@@ -365,18 +405,23 @@ ACTUAL" says why.
   rounds, not windows — `Store.search_rounds`; measured worse, left off),
   `render_format = "text"` (v1.6.0), `render_unit = "round+facts"` (PHASE2 D5,
   adopted 2026-09-15: 84 vs `turns` 80, b=7, c=3; `facts` alone 78; `turns`
-  is v1's unit and what every other arm renders). Every
-  one is a harness flag and a pin (schema /8); the chunk knobs are also
+  is v1's unit and what every other arm renders), `dedup_entropy_gate = 2.0`
+  (Phase 3: SPEC's field at SPEC's default, untuned — gates the cosine merge of
+  facts after the two screens abstain) and `conflict_resolution = True` (Phase
+  3 D11: the one switch for the screens, the gate and supersession; `False` is
+  the v1.9 write path). Every
+  one is a harness flag and a pin (schema /9); the chunk knobs are also
   `memory_meta` keys. A knob no code reads is not present; the rest land with
   the stage that uses them.
 - The real ONNX BGE embedder behind the `[embed]` extra, revision-pinned;
   `HashingEmbedder` (256-dim, numpy-only) stays the default and the CI path.
-- The `memory_meta` guard — thirteen rows (the four embedder rows, the R4 chunk
-  pair, five extractor rows or `"none"`, `negation_lexicon_hash="none"` until
-  Phase 3, `prefilter_lexicon_hash`, `fact_embed_template_hash`,
+- The `memory_meta` guard — sixteen rows (the four embedder rows, the R4 chunk
+  pair, five extractor rows or `"none"`, `negation_lexicon_hash` live,
+  `conflict_rules_hash`, `prefilter_lexicon_hash`, `fact_embed_template_hash`,
   `resolver_version`), written at creation and validated at every open;
   mismatch raises `MemoryMetaError` before a query runs. A DB with a `memories`
-  table but no `memory_meta` is refused, not upgraded; so is a v1.8 store.
+  table but no `memory_meta` is refused, not upgraded; so is a v1.8 or a v1.9
+  store.
 - The embed/render split — `EMBED_TEMPLATE` + `embed_template_hash()` (frozen,
   in `memory_meta`) vs `RENDER_TEMPLATE` + `render_template_hash()`
   (reader-facing, in the harness pins). A test asserts the embed text stayed
@@ -418,6 +463,29 @@ ACTUAL" says why.
   100/100. Gates read 2026-09-14/15: 4-i ANY@10 93/95 and ALL@10 83/95
   (both predictions held), 4-ii 18/20 = the k10 arm's, 4-iii adopted
   (DECISIONS "Gate 4-i read", "Gate 4-ii read", "Gate 4-iii read").
+- **The conflict era (PHASE3, 2026-09-15/16; `mnimi docs/PHASE3.md`, results in
+  `mnimi docs/PHASE3-RESULTS.md`).** `src/mnimi/conflict/`: `lexicon` (frozen,
+  `negation_lexicon_hash`), `normalize` (`normalize_triple`, `pair_key`,
+  `numeric_signature`, `conflict_rules_hash`), `screens` (`screen_pair` in SPEC
+  order — negation, value, `token_entropy_bits` gate; shared by the write path
+  and the probe through `memory.fact_verdict`), `supersede` (`conflict_between`
+  with the three rules, `beats` with the one ordering). `MemoryRecord.pair_key`
+  + index; `Store.{active_facts_by_pair,facts_with_pair_key,supersede}`;
+  `Memory._resolve_conflicts` after every stored fact in `add()`;
+  `consolidate()` live and idempotent; `ScriptedExtractor` (model-free,
+  pre-authored facts per round); pins schema /9 (`--conflict-resolution
+  {on,off}`, `--dedup-entropy-gate`); `evals/probes/{identity,conflict_demo}.py`.
+  Measured, all at $0: gate 3-i PASS (ANY@10 93/95, ALL@10 83/95, 0 evidence
+  lost, round drops 16/536 identical, fact/cosine 4,460 → 4,134 = 326 keeps,
+  records conserved 83,788, ranks identical 99/100; one pre-registration error
+  — fact/exact 392, not 379 — disclosed); the supersede probe identical to
+  Task 2's on 100/100 with 46 supersessions on the slice (functional 16,
+  numeric 30, negation 0; P1 not held — an extraction limit); gate 3-ii PASS
+  (100 seeded pairs: mnimi 80/80 conflicts + 20/20 controls after `add()` and
+  after `consolidate()` vs the v1.9 path's 0/80 + 20/20; the real-extractor
+  pass, descriptive only: 42/42 of the pairs the model keyed resolved, 57/200
+  rounds `[]`). Gates read in DECISIONS "Gate 3-i read", "Supersede lands",
+  "Gate 3-ii read", "Phase 3 closes".
 
 **Still absent:**
 
@@ -426,18 +494,23 @@ ACTUAL" says why.
   at the facade; the score is available one layer down.
 - `last_accessed`. `created_at` carries `ts` and plays the `system_time` role.
   (`raw`, the triple and `valid_time` exist on fact records since 2026-09-13.)
-- Conflict / supersede / decay. `salience` and `supersedes` are written, stored
-  and returned, and **read by nothing** — placed, not live.
+- Decay. Conflict / supersede are live (Phase 3); `salience` and `supersedes`
+  are written by supersession and **read by nothing on the read path** (D8) —
+  a superseded fact still ranks and renders until Phase 4's active-record
+  filter, which has to price the two false-positive classes Task 3 read on the
+  slice (containment refinements on `lives in`, enumerations on a numeric
+  residue).
 - The ranking layer. Order is raw vec0 L2 ascending, which for unit vectors is
   exactly cosine-descending — so v1 *collapses to* the spec'd default
   (`similarity 1.0`, `recency 0.0`, salience uniformly 1.0) by construction
-  rather than by computing it. Weights and the salience multiplier land with
-  decay.
+  rather than by computing it; salience-0 records are still ranked. Weights and
+  the salience multiplier land with decay.
 - `context_token_budget`, `raw` in the rendered block, the salience-0 exclusion,
   the active-record filter, `recall_min_relevance`.
-- `consolidate()` is a no-op stub — and `systems/mnimi.py` deliberately does not
-  call it, so the day it grows behaviour the benchmark cannot change without an
-  explicit edit in `evals/`.
+- `consolidate()` is live (the idempotent conflict pass; no decay in it yet) —
+  and `systems/mnimi.py` deliberately does not call it, so the benchmark cannot
+  change without an explicit edit in `evals/` (Phase 4.3 wires it as the
+  explicit decision).
 - `source` holds the round's roles (`"user+assistant"`), not the spec'd
   `conversation_id/turn_id/role` provenance pointer (deferred to Phase E).
 
@@ -450,6 +523,10 @@ ACTUAL" says why.
 - Do not read wall-clock time anywhere in scoring, decay, or ordering.
 - Do not put an LLM in the merge/conflict/decay loop, or on the read path.
 - Do not edit a pinned prompt, lexicon, or `EMBED_TEMPLATE` in place under a run.
+  `mnimi/conflict/lexicon.py` and `normalize.py` are frozen (hashes
+  `330604b5772e…` / `7d19c48828c8…`, pinned by tests): an edit is a version
+  bump, a new hash, a re-ingest and a dated DECISIONS entry — and never to make
+  a gate pass.
 - Do not select a dedup threshold against LongMemEval again — further threshold
   selection on this benchmark is prohibited, and the 0.95 selection evidence
   cannot be regenerated.

@@ -4,7 +4,7 @@ The contract. Signatures here are locked; changing them is a breaking change.
 Storage backend: SQLite + sqlite-vec for v1.
 
 Most of this document is the **target**. For what the library actually does
-today, read **§v1 as built (v1.3.0)** first — it is the shipped state, with
+today, read **§v1 as built (v1.10.0)** first — it is the shipped state, with
 per-section `**v1 as built:**` notes throughout marking where code and target
 diverge. Never assume a spec'd field exists; check that section, then the code.
 
@@ -57,6 +57,38 @@ score.
     disclosed there: the extractor runs on the GPU (`n_gpu_layers=99`), a
     deviation from this document's CPU-only pin, measured 50/50 byte-stable
     across a shuffled restart in fresh processes.
+17. **Write-path step 4 narrowed: a same-pair, different-object fact is a
+    conflict only under a rule — negation, functional or numeric — and is
+    otherwise a second fact (Phase 3 D2, pre-registered 2026-09-15; adopted at
+    gates 3-i and 3-ii, 2026-09-15/16).** Step 4's "a new fact contradicting an
+    existing one" read literally would supersede every same-`(subject,
+    predicate)` fact with a different object. Measured on the extraction cache
+    before any code ran on the slice (23,302 rounds, 55,841 facts): 5,705
+    `(subject, predicate)` groups per store hold two or more objects and
+    33,963 facts sit in them — `user|has` alone 1,788 (a cat *and* a sister),
+    `assistant|explained` 4,146. The literal rule would zero tens of thousands
+    of true facts, invisibly in Phase 3 and catastrophically the day the
+    read path excludes salience 0. So a same-pair pair with two value-sized
+    objects is *routed away from the merge* (both stored), and it is
+    *superseded* only when the objects are one value with opposite polarity
+    (`negation`), or the predicate is in the frozen `FUNCTIONAL` groups —
+    residence, employer, occupation, origin, vehicle, partner, name, weight,
+    school, age, height, phone, email, birthday — with two positive values
+    (`functional`), or both objects carry a number, the numbers differ and the
+    residues match (`numeric`); the assistant's facts never conflict. Two
+    further deviations ride with it: the ordering is one *effective time*
+    (`valid_time` when set, else the session date) rather than a class
+    priority, so a 2015-dated fact does not beat a 2023 assertion; and
+    `supersedes` points at the *last* loser (one integer). Evidence: gate 3-i
+    (the screens keep 326 of 4,460 cosine fact drops, ANY@10 93/95 and ALL@10
+    83/95 unchanged, 0 evidence lost, ranks identical on 99/100); the Task 3
+    probe identical on 100/100 with 46 supersessions on the slice (functional
+    16, numeric 30, negation 0 — about half the numeric ones enumerations and
+    nine functional ones containment refinements, the exact-match rules' known
+    false-positive classes, priced by Phase 4); gate 3-ii on the deterministic
+    demo set: 80/80 conflict pairs to one active fact with the expected value,
+    20/20 controls untouched, against the v1.9 path's 0/80 + 20/20 (DECISIONS
+    "Gate 3-i read", "Supersede lands", "Gate 3-ii read", "Phase 3 closes").
 11. **Decay floor added.** Salience decays toward `decay_floor` (default 0.15),
     never to zero; salience 0 is reserved exclusively for superseded records.
     Decay can now only down-rank old evidence, never exclude it — closing the
@@ -133,7 +165,7 @@ score.
 
 ---
 
-## v1 as built (v1.9.0, 2026-09-15; library: the extraction era — fact records, per-kind dedup, render units — adopted at gate 4-iii)
+## v1 as built (v1.10.0, 2026-09-16; library: the extraction era plus Phase 3 — the dedup screens, conflict resolution and supersede, adopted at gates 3-i and 3-ii)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -143,16 +175,17 @@ wires against this section, not against the target sections.**
 
 | Spec'd | v1 status | Where |
 |---|---|---|
-| `add` / `recall` / `get_context` / `consolidate` | shipped (`consolidate` is a no-op stub) | `memory.py` |
+| `add` / `recall` / `get_context` / `consolidate` | shipped — `consolidate(user_id)` is **live since Phase 3** (2026-09-15): the same conflict decision `add()` makes per fact, as an idempotent pass over the user's pair-keyed facts (twice = once; a no-op after `add()`); no decay in it yet, and the eval harness deliberately does not call it (Phase 4.3) | `memory.py` |
 | `export` | **not built** — the public surface is 4 of 5 methods | — |
-| `MemoryConfig` | **8 fields** — two of the spec'd nine plus six the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). Every one is a harness flag and a pin. A field no code reads is not present | `config.py` |
-| `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`. `created_at` carries `ts` and plays the `system_time` role; no `last_accessed`. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
+| `MemoryConfig` | **10 fields** — three of the spec'd nine plus seven the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). **Phase 3 (v1.10.0):** `dedup_entropy_gate=2.0` (this document's field at its default, untuned — it gates the cosine merge of FACT pairs after the two screens abstain) and `conflict_resolution=True` (D11, unforeseen: the one switch for the screens, the gate and supersession; `False` is the v1.9 write path byte for byte). Every one is a harness flag and a pin (schema /9). A field no code reads is not present | `config.py` |
+| `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`, **plus Phase 3's** `pair_key` (the normalized `subject|predicate` of a fact's triple, indexed on `(user_id, pair_key)`; `None` for rounds and null triples). `created_at` carries `ts` and plays the `system_time` role; no `last_accessed`. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
 | `ScoredRecord` | **not built** — `recall()` returns `list[MemoryRecord]`; the cosine is dropped at the facade | — |
-| `memory_meta` guard | **13 rows, all written and validated** (extraction era, 2026-09-13): the four v1 rows; `chunk_tokens` / `chunk_overlap` (R4); the five extractor rows (`extractor_model`, `extractor_quant`, `extractor_runtime`, `extractor_decode_hash`, `extractor_prompt_hash` — the literal `"none"` when a store is built without an extractor); `negation_lexicon_hash` (`"none"` until Phase 3); `prefilter_lexicon_hash`; `fact_embed_template_hash`; `resolver_version`. Any mismatch raises `MemoryMetaError` at open; a v1.8 store lacks the new rows and is refused, a no-extractor store opened with an extractor is refused, and vice versa | `store.py` |
+| `memory_meta` guard | **16 rows, all written and validated** (extraction era 2026-09-13: fifteen — the "thirteen" quoted at v1.9 was a miscount of the list that follows; Phase 3 2026-09-15: the sixteenth): the four v1 rows; `chunk_tokens` / `chunk_overlap` (R4); the five extractor rows (`extractor_model`, `extractor_quant`, `extractor_runtime`, `extractor_decode_hash`, `extractor_prompt_hash` — the literal `"none"` when a store is built without an extractor); `negation_lexicon_hash` (**live since Phase 3**: `330604b5772e…`, over the contractions, markers and antonym groups of `mnimi.conflict.lexicon`); `conflict_rules_hash` (Phase 3: `7d19c48828c8…`, over the normalization tables, the functional groups, `MAX_VALUE_TOKENS`, the rule ids and the ordering); `prefilter_lexicon_hash`; `fact_embed_template_hash`; `resolver_version`. Any mismatch raises `MemoryMetaError` at open; a v1.8 or a v1.9 store lacks rows and is refused, a no-extractor store opened with an extractor is refused, and vice versa | `store.py` |
 | `embed_template_hash` | **written and validated** (since v1.3.0, 2026-07-30). An edit to v1's content template (the session-date fold, the `"\n"` join) fails loudly at open with `MemoryMetaError` | `store.py:85, 99` |
 | Extraction | **built and adopted** (PHASE2, 2026-09-13; gate 4-iii 2026-09-15): `Memory(db_path, embedder, config, *, extractor=None)`. With an `Extractor` (the pinned `mnimi.extract.llama.QwenLlamaExtractor`, or CI's `RuleExtractor`) every round that survives the stage-1 pre-filter goes to the model once (on-disk cache) and each fact becomes a `kind="fact"` record beside the round's own v1 record — the hybrid store (D1). `None` — the constructor's default, because the model is an injected `[extract]` dependency — is the v1 write path; the harness's mnimi arm injects the pinned extractor unless `--extractor none` | `memory.py`, `extract/` |
-| Dedup | **steps 1-2, per kind**: exact-normalize collapse and ONE cosine probe (`k=1`) at `dedup_cosine_threshold`, a round against earlier rounds and a fact against earlier facts (D3); a round's exact key folds the session date, a fact's screens follow `dedup_scope`. No negation screen, no value-substitution screen, no entropy gate | `memory.py` |
-| Conflict / supersede / decay | not built. `salience` and `supersedes` are written, stored and returned, and **read by nothing** | — |
+| Dedup | **steps 1–5, per kind**: exact-normalize collapse and ONE cosine probe (`k=1`) at `dedup_cosine_threshold`, a round against earlier rounds and a fact against earlier facts (D3); a round's exact key folds the session date, a fact's screens follow `dedup_scope`. **Steps 3–5 since Phase 3, for facts** (`mnimi.conflict.screens.screen_pair`, this document's order): a cosine-pass fact pair with opposite polarity (negation), or one `pair_key` with two different value-sized objects (value substitution), or a side under `dedup_entropy_gate` bits of token-level entropy is KEPT — both records stored — and only a pair that passes all three merges. Rounds stay at steps 1–2; `conflict_resolution=False` is steps 1–2 for facts too. Measured on the slice (gate 3-i): 326 of Phase 2's 4,460 cosine fact drops kept (negation 150, value 170, low-entropy 6), no round moved, no evidence lost | `memory.py`, `conflict/screens.py` |
+| Conflict / supersede | **built** (Phase 3, 2026-09-15; `mnimi.conflict.supersede`): after every stored fact its ACTIVE same-`pair_key` facts are read store-wide through the index, and each genuine conflict — `negation` (one object, opposite polarity), `functional` (a frozen predicate group, two positive values), `numeric` (different numbers on one residue); the assistant's facts never conflict (D2) — is settled by one ordering: `valid_time` when set else the session date, then the session date, the raw `ts`, the user's span over the assistant's, the id (D6). Loser `salience = 0`; winner `supersedes` = the last loser's id; one line `superseded {old_id}: {rule} {pair_key}: {old} -> {new}` at INFO on `mnimi.memory`. The READ PATH does not read `salience` yet (D8): a superseded fact still ranks and renders. Gate 3-ii: 80/80 conflict pairs + 20/20 controls vs the v1.9 path's 0/80 + 20/20 | `conflict/supersede.py`, `memory.py`, `store.py` |
+| Decay | not built (Phase 4). `salience` is written only by supersession | — |
 | Ranking | not built. Result order is raw vec0 L2 ascending — no weights, no recency term, no salience multiplier | — |
 | Retriever extras | no active-record filter, no `recall_min_relevance`, no `last_accessed` update | — |
 | `get_context` locked block format | partly built. Each retrieved round's verbatim `turns` — full-timestamp header, `user:`/`assistant:` labels, **time-ordered oldest-first** — through one shared renderer with two formats (text / JSON) and, since the extraction era, three units: `turns` (v1), `round+facts` (the block under a `facts:` header with resolved dates), `facts` (`fact:` / `source:` lines). Still no token budget and no salience-0 exclusion | `memory.py` |
@@ -238,7 +271,9 @@ class Memory:
 - `export` — human-readable text/markdown dump of the store. No UI.
 
 **v1 as built:** four of the five exist. `export` is **not implemented**;
-`consolidate` is a no-op stub; `recall` returns `list[MemoryRecord]`, not
+`consolidate` is live since Phase 3 (the idempotent conflict pass over one
+user's pair-keyed facts — no decay in it yet, and the harness does not call
+it); `recall` returns `list[MemoryRecord]`, not
 `list[ScoredRecord]`. The default config is a module-level
 `_DEFAULT_CONFIG = MemoryConfig()` constant rather than a literal
 `MemoryConfig()` in the signature — semantically identical for a frozen
@@ -249,9 +284,15 @@ dataclass, and it keeps ruff's B008 (function call in default argument) quiet.
 Tunable parameters, passed at construction. Never hardcoded in write-path
 logic — every threshold below must read from here.
 
-**v1 as built (v1.8.0, Phase 1): two of these nine fields exist** —
-`dedup_cosine_threshold = 0.95` and `top_k = 10` — **plus five this list did
-not foresee**, each a harness flag and a pin: `dedup_scope = "session"`
+**v1 as built (v1.10.0, Phase 3): three of these nine fields exist** —
+`dedup_cosine_threshold = 0.95`, `top_k = 10` and, since Phase 3,
+`dedup_entropy_gate = 2.0` (this default, untuned; it gates the cosine merge
+of FACT pairs only, after the negation and value screens abstain — D5,
+token-level Shannon entropy, not Graphiti's character-level) — **plus six
+this list did not foresee**, each a harness flag and a pin:
+`conflict_resolution = True` (Phase 3 D11: one switch for the screens, the
+gate and supersession; `False` is the v1.9 write path byte for byte — the
+gate 3-ii baseline and the adoption rule's fallback), `dedup_scope = "session"`
 (R3, adopted 2026-09-12: the cosine gate only looks at the incoming round's
 own session), `query_instruction = BGE_QUERY_INSTRUCTION` (R5, adopted
 2026-09-13: the BGE model-card retrieval instruction on the query side
@@ -347,6 +388,14 @@ not exist. `salience` and `supersedes` exist, are persisted and returned, and
 are **read by no code path** — they are placed, not live. `source` currently
 holds the round's roles (`"user+assistant"`), not the spec'd
 `conversation_id/turn_id/role` pointer; provenance is deferred to Phase E.
+
+**Phase 3 as built (v1.10.0, 2026-09-16):** `pair_key` exists (the normalized
+`subject|predicate` of a fact's triple, `mnimi.conflict.normalize`, indexed on
+`(user_id, pair_key)`; `None` for rounds and null triples). `salience` and
+`supersedes` are now WRITTEN — `Store.supersede` sets the loser's salience to
+0 and points the winner's `supersedes` at the last loser it defeated (one
+integer, this table's shape) — and are still read by no read path (D8) until
+Phase 4's active-record filter and ranking land.
 
 ### `ScoredRecord` (read-side)
 
@@ -624,6 +673,19 @@ lexicon), `prefilter_lexicon_hash`, and two the list above did not foresee:
 hash did not move) and `resolver_version`. All written at creation, all
 validated at every open; a v1.8 store is refused.
 
+**Phase 3 (2026-09-15): sixteen rows.** The list above is fifteen rows, not
+thirteen (a miscount, corrected here). `negation_lexicon_hash` goes live —
+`330604b5772e…` over `CONTRACTIONS`, the sorted `MARKERS` and the `ANTONYMS`
+groups of `mnimi.conflict.lexicon` — and a sixteenth row the list did not
+foresee, `conflict_rules_hash` (`7d19c48828c8…`), covers the normalization
+tables, the `FUNCTIONAL` predicate groups, `MAX_VALUE_TOKENS`, the rule ids
+and the ordering: a different artifact with a different lifetime from the
+resolver's, so it is not folded into `resolver_version` (D3). Both are frozen
+at the Phase 3 commit and pinned by `tests/test_conflict.py`; an edit is a
+version bump, a new hash, a re-ingest and a dated DECISIONS entry — never an
+in-place change, and never to make a gate pass. A v1.9 store is refused at
+open.
+
 **Rationale:** reproducibility requires every artifact that determines the
 corpus or the vectors to be fixed for the life of a benchmark run. Quant tag
 and runtime version are included because Q4 vs Q8 changes logits and temp-0
@@ -669,7 +731,27 @@ Order of operations on the write side:
 **v1 as built (2026-09-13):** steps 1–3 exist behind an injected extractor —
 step 1 as the hybrid store, step 2 as `mnimi.extract.resolver` (anchored on
 `ts`; date, month or year precision; `None` for a vague mention or one the
-round does not contain), step 3 per record kind. Steps 4–5 are Phase 3–4.
+round does not contain), step 3 per record kind.
+
+**v1 as built (Phase 3, 2026-09-15/16):** step 4 exists —
+`Memory._resolve_conflicts` after every stored fact, and `consolidate()` as
+the same decision over the pair index — with one narrowing this step's "a new
+fact contradicting an existing one" did not have (CHANGELOG #17): two facts
+conflict only under one of three rules — `negation` (one object, opposite
+polarity), `functional` (the predicate is in the frozen `FUNCTIONAL` groups —
+residence, employer, occupation, origin, vehicle, partner, name, weight,
+school, age, height, phone, email, birthday — and both values are positive),
+`numeric` (both objects carry a number, the numbers differ, the residues
+match) — and the assistant's facts never conflict. The ordering is one
+*effective time* per fact (`valid_time` when set, else the session date),
+then the session date, the raw `ts`, the user's span over the assistant's,
+the id — this step's three cases and the mixed dated-vs-standing case by one
+key (D6). Candidates come from the `pair_key` index store-wide, not from the
+cosine gate (D2): since R3 the gate is session-scoped and the knowledge-update
+case lives across sessions. Step 5 (decay) is Phase 4. Falsified on the
+conflict demo set (gate 3-ii, `evals/probes/conflict_demo.py`): 80/80 conflict
+pairs resolve to exactly one active fact with the expected value, 20/20
+controls untouched, against the v1.9 path's 0/80.
 
 ## Dedup strategy (v1 — reconsider in later weeks)
 
@@ -724,7 +806,7 @@ ALL-evidence recall@10 rises 74 → 77 of 95, and the paired sitting read 79
 vs 77 (b=5, c=3). The cross-session case is exactly the one steps 3–4 above
 are for — a repeat or an update — and until extraction lands (`valid_time`,
 supersede) the library keeps such rounds rather than dropping them. Steps
-3–5 remain unbuilt.
+3–5 landed in Phase 3 (the note below).
 
 **v1 as built (extraction era, 2026-09-13): both screens run per kind.** A fact
 record is compared only with earlier fact records and a round record only with
@@ -734,7 +816,27 @@ drop the fact exactly where the round is short (D3). For facts both screens
 follow `dedup_scope` (their embed text has no date fold); for rounds the exact
 key still folds the date. The threshold is untouched.
 
-**v1 as built: steps 1 and 2 only, and nothing else.** `add()` normalizes
+**v1 as built (Phase 3, 2026-09-15): steps 3–5 exist, for facts.** A fact pair
+the cosine gate flags is read through `mnimi.conflict.screens.screen_pair` in
+the order above: the negation screen (polarity from the triple when it
+normalizes, else from the fact text, over the frozen hashed lexicon — markers,
+contractions, ten antonym groups), the value-substitution screen (one
+normalized `pair_key`, two different objects, both ≤ `MAX_VALUE_TOKENS = 6`
+tokens — 37 % of the extractor's objects are clauses and the screen abstains
+on them), and the entropy gate (`min(H, H') < dedup_entropy_gate`, token-level
+Shannon bits). A `keep` stores both records and hands the pair to step 4 of
+the write path; only a pair that passes all three is dropped, as in v1.9.
+Rounds never enter the screens; `conflict_resolution=False` is v1.9 for facts
+too (a test compares stored contents). Two widenings of the text above,
+disclosed: the value rule's *conflict candidates* come from the store-wide
+`pair_key` index rather than from cosine-gate-pass pairs (D2a — the
+session-scoped gate never sees the cross-session update), and a cosine-pass
+negation pair whose triples are null is superseded by `add()` alone (D7).
+The 0.95 threshold was not re-selected and the lexicon was not tuned against
+any gate; the screens only ever route a pair *away* from a merge (gate 3-i:
+326 keeps on the slice, every one a Phase 2 drop now stored, no round moved).
+
+**v1 as built (v1.3.0 → v1.9.0; superseded by the Phase 3 note above): steps 1 and 2 only.** `add()` normalizes
 (lowercase → strip punctuation → collapse whitespace) against the user's
 existing content, then fires exactly one `k=1` vector probe and drops the
 incoming round if `cos >= dedup_cosine_threshold`. Screens 3-5 need the triple
