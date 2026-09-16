@@ -406,3 +406,99 @@ These were listed as future work in prior notes but are resolved or superseded:
   flexibility** above.
 * *"cross-encoder reranker"* — SPEC previously double-listed it; consolidated
   under **Retrieval quality → In-process cross-encoder reranker** above.
+
+## Concurrency: parallel sessions writing overlapping facts (deferred)
+
+**Gate:** start only after valid (non-provisional) LongMemEval numbers are published.
+**Precondition:** confirm whether the negation screen / conflict records / supersession exist in the repo.
+If they don't, ship the lock + duplicate-race test only; the contradiction test lands with the screen.
+
+### Issue
+- Dedup is check-then-insert. If KNN and INSERT run in separate transactions, concurrent writers don't see each other's uncommitted records.
+- **Duplicate race** ("likes pizza" / "enjoys pizza"): redundant records. Annoying, not dangerous.
+- **Contradiction race** ("likes pizza" / "doesn't like pizza"): both active + unlinked, no conflict recorded. **The real bug.**
+- Storing both sides is intended (audit). The failure is both staying *active and unlinked*.
+- Doesn't affect LongMemEval (sequential ingestion). Real-use correctness only.
+
+### Corrections to the original plan
+- **"KNN + insert in one transaction" is the wrong check.** The right check: is `BEGIN IMMEDIATE` issued *before* the KNN?
+  - Python legacy mode opens an implicit BEGIN only before DML, not SELECT → KNN runs in autocommit → silent both-active bug.
+  - Python 3.12+ `autocommit=False` uses `BEGIN DEFERRED`. The read→write upgrade then returns SQLITE_BUSY immediately (ignores busy_timeout; stale snapshot = BUSY_SNAPSHOT). Fails loudly, still fails.
+- **Not the "OMEGA pattern."** OMEGA uses per-record content-hash CAS (`precondition_sha256`). CAS can't catch this race: the conflicting record doesn't exist at check time (phantom). Pessimistic `BEGIN IMMEDIATE` is the correct tool. busy_timeout + retry is generic SQLite.
+- **Screens inside the lock only work while they're deterministic.** An LLM judge (Phase E) can't run inside the lock → see escape hatch below.
+
+### Fix: serialize the decision, not the slow work
+```python
+conn = sqlite3.connect(path, timeout=5.0, isolation_level=None)  # own BEGIN; timeout = busy handler
+conn.execute("PRAGMA journal_mode=WAL")
+
+def add(self, text, said_at=None):
+    said_at = said_at or utcnow()          # captured at entry, before slow work
+    vec = self._embed(text)                # outside lock
+    with self._thread_lock:                # same-connection callers aren't serialized by SQLite
+        for attempt in range(5):
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e): raise
+                time.sleep(min(0.05 * 2**attempt, 1.0) * random.uniform(0.5, 1.5)); continue
+            try:
+                cands = self._knn(vec)
+                decision = self._screens(text, vec, cands)   # deterministic only
+                rid = self._apply(decision, said_at=said_at, committed_at=utcnow())
+                self.conn.execute("COMMIT"); return rid
+            except BaseException:
+                self.conn.execute("ROLLBACK"); raise
+        raise MemoryBusyError
+```
+- Retry the **whole decision** (re-run KNN), never just the INSERT.
+- `_thread_lock` is needed if one `Memory` instance is shared across threads / `asyncio.to_thread`. SQLite locks are per-connection; nested BEGIN on the same connection errors.
+- Never embed or call an LLM inside the lock.
+- Merge path: vec0 has no UPSERT → DELETE + INSERT inside the same transaction.
+
+### Ordering
+- Commit order ≠ utterance order. Supersession uses `said_at` (message time); keep `committed_at` separately for audit.
+- A late-arriving *older* fact is inserted already-superseded. It must not supersede the newer one.
+- Equal `said_at` → deterministic tiebreak (record id).
+
+### Tests
+- [ ] **T0 probe (10 min):**
+  - Inside `BEGIN IMMEDIATE`: insert into vec0 → KNN on the same connection sees it → `ROLLBACK` removes it. Verifies the pinned sqlite-vec version is transactional.
+  - Lock check: a second connection with busy_timeout=0 must get "locked" while the first holds IMMEDIATE.
+- [ ] **T1 deterministic red/green (the real proof):**
+  - 2 processes, `multiprocessing.Barrier(2)` before `add()`; each worker wraps `_knn` with a 50 ms sleep (no hook in prod code).
+  - 50 pairs, pass = 0 violations.
+  - **Mutation check:** swap in (a) legacy implicit BEGIN, (b) single `BEGIN DEFERRED`. Both must fail.
+- [ ] **T2 stress:**
+  - Sequential control arm first: run all 1,000 pairs single-process; keep only pairs the screen catches 100%. Otherwise screen misses get counted as race failures.
+  - Lockstep: both processes walk pairs in the same order, barrier per pair (shuffling kills collisions).
+  - Variants: 2 processes; 4 threads on one instance.
+  - Pass: 0 both-active-unlinked pairs, 0 lost writes, 0 `MemoryBusyError`, 3/3 runs green.
+  - Record p50/p99 lock hold + wait.
+  - Duplicate race: same harness with paraphrase pairs; pass = 0 unmerged active duplicates.
+- [ ] **T3 ordering (needs supersession):**
+  - A: `said_at=t1`, slowed embed. B: `said_at=t2`, commits first.
+  - Assert `committed_at(A) > committed_at(B)` (proves the scenario happened).
+  - Expected: B active, A superseded by B.
+
+### Gotchas
+- Windows spawn: top-level worker functions; each process opens its own connection and loads sqlite-vec.
+- Test DB in `tmp_path`, never OneDrive or a network share (WAL + sync locking breaks).
+- vec0 KNN is brute-force → lock hold grows with store size. Measure p99 hold at 10k / 100k records; >~20 ms → revisit.
+
+### Done / timebox
+- One sitting (~3h): T0 + T1 + T2-duplicates. Contradiction T2 + T3 wait for screen/supersession.
+- Done = T1 red→green with both mutations failing, T2 at 0 violations ×3, hold-time numbers recorded.
+
+### Further out
+- **LLM-in-screen escape hatch (optimistic):**
+  1. Read a `store_generation` counter.
+  2. Run KNN + LLM judge outside the lock.
+  3. `BEGIN IMMEDIATE` and compare the generation.
+  4. If it changed, re-judge only the new ids (bounded retries).
+- Near-simultaneous contradictions may be user corrections/ambiguity, not true updates. "Newer wins" may be wrong there.
+
+### Refs
+- https://docs.python.org/3/library/sqlite3.html (transaction control, `autocommit`)
+- https://berthub.eu/articles/posts/a-brief-post-on-sqlite3-database-locked-despite-timeout/ (DEFERRED upgrade → BUSY)
+- https://www.sqlite.org/lang_transaction.html
