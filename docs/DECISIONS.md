@@ -2472,3 +2472,108 @@ question 1; and it let one keyed assistant fact through (`assistant|read: yes ->
 null-triple side hid the subject — D2 says the assistant never conflicts, so the subject is now
 read from either side; the probe was re-run at the committed code and the two runs' supersession
 lines differ by exactly that line (`runs/probe_mnimi_p3s_run1.*` kept). → Task 4, gate 3-ii.
+
+## Gate 3-ii read: the demo set — mnimi 80/80 conflicts + 20/20 controls vs exact-dedup 0/80 + 20/20 — PASS (2026-09-16)
+
+**The instrument (PHASE3 Task 4, PLAN 3.3).** `evals/probes/conflict_demo.py`: `generate(seed=0)`
+builds the 100 pre-registered pairs from frozen template tables through `random.Random(0)` —
+value-change 30 (15 `functional`: residence 3, employer 3, occupation 3, vehicle 2, partner 2,
+school 2; 15 `count`: countables 7, "tried n of X's recipes" 4, "about n followers" 4), negation
+30 (15 `marker`: `no longer` ×6, `can't … anymore` 3, `not … anymore` 3, `never` 3; 15
+`antonym`: love/hate, started/stopped, joined/left, bought/sold, trust/distrust, 3 each),
+dated-update 20 (10 `in-order`, 10 `reversed` — the later-`valid_time` fact ingested first from
+the earlier session, "I moved to Chicago on March 3rd" in February against "Back in 2016 I lived
+in Portland" in September), paraphrase 10 and unrelated 10 as controls. Each pair is two rounds
+(a user turn, a short assistant turn) in LongMemEval-shaped sessions — an early one (Jan–Mar
+2023) and a late one (Jun–Sep 2023), the same session for the paraphrase controls — with one
+pre-authored `ExtractedFact` per round handed back by `ScriptedExtractor`, so the write path
+(pre-filter, resolver, both screens, the pair index, supersession, `consolidate()`) runs end to
+end with no model. One fresh `Memory` per pair, `MemoryConfig()` defaults with only
+`conflict_resolution` toggled, `HashingEmbedder`. Every user turn is unique, so one script serves
+the set; `generate(0) == generate(0)` and the family sizes are asserted by
+`tests/test_conflict_demo.py`, whose gate test IS the pre-registered criterion and prints the
+table (suite 344 → 348). Command: `PYTHONPATH=src python -m evals.probes.conflict_demo --seed 0
+--out runs/conflict_demo.json` from the worktree at the Task 4 tree (committed as the Task 4
+commit, parent `3ffb959`); exit 0 is the gate, the JSON the artifact.
+
+**The gate, against the pre-registration (D10):**
+
+| family | pairs | mnimi after `add()` / after `consolidate()` | exact-dedup (v1.9 path) | pre-registered | |
+| --- | --- | --- | --- | --- | --- |
+| value-change | 30 | **30 / 30** | 0 / 0 | ≥ 27 | PASS |
+| negation | 30 | **30 / 30** | 0 / 0 | ≥ 27 | PASS |
+| dated-update | 20 | **20 / 20** | 0 / 0 | ≥ 18 | PASS |
+| = conflicts | 80 | **80 / 80** | 0 / 0 | ≥ 72, strictly above baseline | PASS |
+| paraphrase | 10 | 10 / 10 | 10 / 10 | 10 | PASS |
+| unrelated | 10 | 10 / 10 | 10 / 10 | 10 | PASS |
+| = controls | 20 | **20 / 20** | 20 / 20 | 20 | PASS |
+
+Failure ids: none. By rule, the mnimi run found and settled exactly the conflicts the set was
+built to hold — functional 35 (15 value-change + 20 dated), numeric 15, negation 30 — 80
+supersessions, every winner's `supersedes` pointing at its loser, 0 on the controls (paraphrase
+and unrelated pairs are candidates on the index — 40 candidate reads — and `conflict_between`
+abstains on every one). The baseline stores both facts of every conflict pair active
+(`2 active facts on the pair key, expected exactly one` on all 80), as pre-registered: the
+"exactly one active" reading is what supersession exists to make true, and the v1.9 path never
+touches `salience`. `consolidate()` after `add()` changed nothing on any pair (idempotent, D7).
+
+**What the hashing pass did not exercise, disclosed.** Under `HashingEmbedder` no fact pair
+reached the 0.95 cosine gate — `pairs_screened = 0` on all 100 pairs — so the screens of Task 2
+(negation, value, entropy) were not on the path here: every conflict went through the pair
+index (D2a) and every control was kept apart by the gate, not by a screen. The same set under
+the real embedder (`--embedder bge`, `runs/conflict_demo_bge.json`; descriptive, the `[embed]`
+extra): the table is identical cell for cell (80/80 + 20/20 vs 0/80 + 20/20), and 8 of the 10
+same-session paraphrase pairs did trip the gate — `pairs_screened 8`, all 8 read
+`merge/duplicate` by `screen_pair` (same pair key, same object, same polarity), the other 2 sat
+below 0.95 and stayed as two active facts. Both are the "correct" reading for a paraphrase. The
+cross-session conflict pairs never reach the gate under either embedder (session scope, R3),
+which is exactly the case D2's index exists for.
+
+**The descriptive pass through the real extractor (never the gate).** `--embedder bge
+--extractor qwen3 --out runs/conflict_demo_qwen3.json` (CUDA on PATH, `ggml_cuda_init: found 1
+CUDA devices`; the demo's own cache `.cache/extract/conflict_demo_e15153f8….sqlite`, never the
+corpus file — 200 misses on the mnimi run, 200 hits on the baseline run; 0 truncated outputs, 0
+pre-filter skips). The same 200 natural-language rounds, the model's own triples instead of the
+authored ones, the same reading against the authored pair key and value. Per family
+(conflict-able = both rounds yield a fact on one non-null pair key; correct = D10's reading):
+
+| family / subfamily | pairs | conflict-able | on the authored key | correct (add = consolidate) |
+| --- | --- | --- | --- | --- |
+| value-change / functional | 15 | 12 | 11 | 11 |
+| value-change / count | 15 | 10 | 10 | 10 |
+| negation / marker | 15 | 8 | 7 | 7 |
+| negation / antonym | 15 | 2 | 2 | 2 |
+| dated-update / in-order | 10 | 4 | 4 | 4 |
+| dated-update / reversed | 10 | 8 | 8 | 8 |
+| **= conflicts** | **80** | **44** | **42** | **42** |
+| paraphrase | 10 | 2 | 2 | 8 |
+| unrelated | 10 | 1 | 1 | 1 |
+
+Read: **every pair the model made conflict-able on the authored key resolved correctly (42/42)**,
+and the two conflict-able pairs it did not are the rules abstaining as designed — both facts of
+`value-change/functional/10` came out as `user | owns | Honda Civic` / `Kia Soul` (`own` is not a
+functional group, so two cars are two facts), and both of `negation/marker/05` came out with the
+assistant as subject (`assistant | noted | the user can eat spicy food`), which D2 says never
+conflicts. **0 supersessions on the 20 controls.** The other 38 conflict misses and the 11
+control misses are all upstream of the screens: the 1.7B extractor returned `[]` on 57 of the
+200 rounds (28.5 % — a bare one-sentence round with a one-line acknowledgement, against 10.9 %
+on the corpus), put 4 more into the assistant's mouth, and keyed a few elsewhere (`user | says |
+can eat red meat`; "I drive a Nissan Leaf" → `owns`, "I'm dating Priya" → no triple). The
+antonym family is where it hurts most (2/15: the model seldom emits both sides of love/hate,
+started/stopped as triples on one key), the numeric rule where it hurts least (10/15). The
+dated pairs the model did key resolved on `valid_time` in both orders (reversed 8/8, in-order
+4/4 of the keyed ones: `moved to | Chicago | 2022-03-03` beat `lived in | Portland | 2016` from a
+later session). This is the honest ceiling of screens + extractor together on this set, and it
+is an extraction ceiling: PHASE3-RESULTS § Task 4 keeps the model's triples per pair. It is not
+the gate, was never pre-registered as one, and changes no decision.
+
+**Decision: PASS.** Both gates of the pre-registration have passed (3-i on 2026-09-15, 3-ii
+here); by the adoption rule the screens and supersession ship as the library default
+(`MemoryConfig.conflict_resolution = True`, the harness following) — nothing changes in this
+commit, the default has stood since Task 2 pending this read. No lexicon, normalization or
+threshold was touched between the pre-registration and this read. What the demo does and does
+not claim: it is deterministic and CI-run (seeded, asserted byte-identical per seed); it
+falsifies the mechanism on authored triples, not the extractor's — the descriptive pass above
+is the honest ceiling of the two together — and the read path still renders a superseded fact
+(D8), so nothing here moves a benchmark number until Phase 4 reads `salience`. → Task 5, close
+Phase 3 at v1.10.0.
