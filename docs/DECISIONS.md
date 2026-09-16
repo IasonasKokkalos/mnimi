@@ -2494,7 +2494,7 @@ the set; `generate(0) == generate(0)` and the family sizes are asserted by
 `tests/test_conflict_demo.py`, whose gate test IS the pre-registered criterion and prints the
 table (suite 344 → 348). Command: `PYTHONPATH=src python -m evals.probes.conflict_demo --seed 0
 --out runs/conflict_demo.json` from the worktree at the Task 4 tree (committed as the Task 4
-commit, parent `3ffb959`); exit 0 is the gate, the JSON the artifact.
+commit, parent `20a0f4f`); exit 0 is the gate, the JSON the artifact.
 
 **The gate, against the pre-registration (D10):**
 
@@ -2650,3 +2650,11 @@ extraction limit the demo exposed, outside this phase's scope: the 1.7B extracto
 28.5 % of one-sentence rounds (10.9 % on the corpus) and seldom emits both sides of an antonym
 pair as triples — the screens can only resolve what the model keys. (e) The lexicon and the
 normalization tables stay frozen; any edit is a version bump and a re-ingest. v1.10.0.
+
+**Commit hashes after the merge (2026-09-16).** `main` had gained `fe70e76` (a FUTURE.md
+section) after the branch was cut, so `feature/conflict` was rebased onto it and `main`
+fast-forwarded to `0a165d9`, both pushed. The rebase rewrote the six Phase 3 hashes. Each pair
+has the same subject and the same patch-id, and each pair's trees differ only by
+`docs/FUTURE.md`: `e936ff8` → `9a324c7`, `bba655e` → `d2f905e`, `6918e60` → `c9863d7`, `3ffb959` → `20a0f4f`, `2f48d59` → `0de8971`, `8fbb018` → `0a165d9`. The probe and demo runs of "Gate 3-i read", "Supersede
+lands" and "Gate 3-ii read" ran at the old hashes, on the same code; the entries in this file and
+the private docs now cite the new ones.
