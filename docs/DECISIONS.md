@@ -2658,3 +2658,114 @@ has the same subject and the same patch-id, and each pair's trees differ only by
 `docs/FUTURE.md`: `e936ff8` → `9a324c7`, `bba655e` → `d2f905e`, `6918e60` → `c9863d7`, `3ffb959` → `20a0f4f`, `2f48d59` → `0de8971`, `8fbb018` → `0a165d9`. The probe and demo runs of "Gate 3-i read", "Supersede
 lands" and "Gate 3-ii read" ran at the old hashes, on the same code; the entries in this file and
 the private docs now cite the new ones.
+
+## Phase 4 pre-registration: decay, ranking and the read side (2026-09-16)
+
+Recorded before any Phase 4 code ran on the slice. Baseline for the phase: v1.10.0 on `main`
+(`0a165d9`; `c5d46c9` records the Phase 3 hash map) — the read path does not read `salience`.
+The gpt-4o family's adopted number is Phase 2's `mnimi__100q_gpt4o_extract` (84/100, `82aa8b5`).
+Probe references: Phase 3's `runs/probe_mnimi_p3s.json` (the supersede probe, `20a0f4f`: ANY@10
+93/95, ALL@10 83/95, 0 evidence lost, 78,710 stored, 46 facts superseded) and
+`runs/probe_mnimi_p3base.json` (the no-extractor probe, `c9863d7`). The task-level plan is
+`mnimi docs/PHASE4.md` (D1–D12, Tasks 1–10); its numbers doc is `mnimi docs/PHASE4-RESULTS.md`.
+Phase 4 spends ≈ $2.6 of API.
+
+**What was measured at design time, disclosed.** Two readings, neither of which ranked, scored or
+read an evidence round, a question or an answer. (1) The slice's session dates (dataset
+timestamps only): 0 unparseable; a question's history spans 10 days at the median, 53 at p90,
+155 at most; the question date falls 0 days after the latest session at the median, 30 at most;
+at SPEC's 30-day half-life a round's decay factor is 0.891 at the median and 0.616 at p90, and
+1.6 % of rounds reach the 0.15 floor. (2) The extraction cache's `salience` values (55,841
+facts): user facts 30,730 of 30,750 at 1.0; assistant facts 21,734 of 24,530 at 0.5 and 918 at
+0.25 — the extractor's salience is a speaker flag in effect, so SPEC's salience multiplier halves
+most of the assistant's facts before any decay. A throwaway reference implementation in a scratch
+copy of `c5d46c9`, outside the repository, ran the plan's tests (391 passing, ruff clean) so the
+plan's test code is checked; it is not committed and is not the implementation.
+
+**Design (PHASE4.md D1–D12), in brief.**
+- D1 `now_logical` = the user's `created_at` with the greatest `created_at_key` (ties: the
+  greater string), `None` when none is dated; `logical_days` = whole days between anchor dates,
+  0 when undated or negative. Never the wall clock, never the question date.
+- D2 `last_accessed`: a column, `created_at` at insert, `now_logical` on every record `recall()`
+  returns (one UPDATE after the relevance drop). Under the eval protocol it cannot move a
+  number; shipped because SPEC lists it and decay reads it.
+- D3 Decay in `consolidate()`, after the conflict pass, persisted, rounds and facts:
+  `salience = max(min(decay_floor, initial_salience), initial_salience *
+  0.5 ** (days(now_logical, last_accessed) / decay_half_life_days))` for every record with
+  salience > 0. `initial_salience` is a new column (the inserted value, never updated), so a pass
+  is a pure function of stored fields (twice = once) and an access restores. Salience 0 is never
+  decayed. `decayed {id}: {days} days since last access, salience {old} -> {new}` at INFO on
+  `mnimi.memory`. No decay arithmetic on the read path.
+- D4 `ranking`: `"similarity"` = `Store.search_rounds` untouched (the landing default);
+  `"score"` = SPEC's `(w_sim·relevance + w_rec·recency)·salience` with `recency =
+  0.5 ** (days(now_logical, created_at) / decay_half_life_days)`, a round scored by its best
+  record, the exact top-k over rounds by score (`rank_rounds`: batches of k, 4k, … until
+  `max(w_sim·c_last + w_rec, 0) < score_k`). SPEC's "top-k by vector, then attach scores" is read
+  as selection by score: read literally, decay could never change what reaches the reader.
+  Invariant: default weights and a uniform salience of 1.0 give `search_rounds`' result exactly.
+- D5 `active_only` (landing default `False`): the KNN and the renderer's `facts:` header skip
+  salience-0 records; rounds always stay. Priced by gate 4-ii before it ships.
+- D6 `ScoredRecord(record, relevance, recency, salience, score)`; `recall() ->
+  list[ScoredRecord]`; `get_context` unwraps (rendered bytes unchanged); the probe reads
+  `Memory._rank`, the same function without the write-back.
+- D7 `recall_min_relevance = 0.0`, applied after the top-k only when > 0 (0.0 is off by
+  definition); never set in a run.
+- D8 `MnimiSystem(consolidate=)`: one `consolidate()` per store after the last session, before
+  the question; flag `--consolidate`, off until the sitting, pinned. The day the benchmark can
+  change.
+- D9 Pins schema /10 (`active_only`, `ranking`, `salience_weights`, `recall_min_relevance`,
+  `decay_half_life_days`, `decay_floor`, `consolidate`, `decay_rules_hash`; mnimi only;
+  `HARNESS_PARITY_FIELDS` unchanged). `memory_meta` gains a seventeenth row, `decay_rules_hash =
+  d4a0bcf07330…`, over the frozen `mnimi.decay.DECAY_RULES` (pinned by a test); a v1.10 store is
+  refused at open.
+- D10, D11 below. D12: v1.11.0; the probe is Tier 2 given the pins and the cache; the sitting is
+  "score reproducible within 6/100 flips; text not reproducible".
+
+**Gate 4-i (identity under defaults, no API, PHASE4 Task 7).** From the worktree at the Task 7
+commit, the cache replaying with `misses: 0`: (a) `python -m evals.probes.retrieval --system
+mnimi --extractor qwen3 --limit 100 --out runs/probe_mnimi_p4i.json` is identical to
+`runs/probe_mnimi_p3s.json` on evidence ranks, top-50 sessions, drops and stored for **100/100**
+questions, with 46 supersessions; (b) the same with `--extractor none --ranking score
+--active-only on --out runs/probe_mnimi_p4ibase.json` is identical to
+`runs/probe_mnimi_p3base.json` on **100/100**. A difference is a bug in Tasks 2–7, fixed before
+gate 4-ii and disclosed; this entry is not amended.
+
+**Gate 4-ii (the exclusion priced, no API, Task 8).** `--extractor qwen3 --active-only on
+--ranking similarity --out runs/probe_mnimi_p4x.json` against `p4i`: PASS iff **ANY@10 ≥ 93/95,
+ALL@10 ≥ 83/95, and 0 evidence rounds leave the top-10**; validity: `misses: 0`, 46
+supersessions, 0 stale facts under the top-10 rounds. Reported beside it: the 46 supersessions of
+`runs/probe_mnimi_p3s.log` classified by hand — refinement, enumeration, coexisting (the three
+false-positive classes) or update, the false positives reported as a range — expected ≥ 29
+lines (Phase 3 named 13 refinement and 16 enumeration lines); per question, superseded
+facts against stale facts under its top-10 rounds at `p4i`; the top-10 evidence rounds carried
+by a superseded fact at `p4i`. Reported, not gated: `p4s` (`--ranking score`, `active_only` per
+the gate) against `p4x`, and `p4d` (plus `--consolidate on`) against `p4s`. Predictions: **P1**
+`p4x` identical to `p4i` on ≥ 95/100; **P2** `p4s` identical to `p4x` on ≤ 50/100; **P3** `p4d`
+identical to `p4s` on ≤ 50/100.
+
+**Gate 4-iii (the sitting: n=100, gpt-4o family, one clean commit — Task 8's; Task 9).** Three
+mnimi arms through the Batch API with `--extractor qwen3 --render-unit round+facts`, one arm in
+flight at a time: **A** `--active-only off --ranking similarity --consolidate off`
+(`--verify-drift results/published/mnimi__100q_gpt4o_extract`, descriptive: Phase 3's kept facts
+may change some prompts); **B** `--active-only on --ranking score --consolidate off`
+(`--active-only off` if gate 4-ii failed); **C** B's flags with `--consolidate on`. Rules (b = the
+second arm's wins in `python -m evals.stats <first> <second>`):
+- `MemoryConfig.ranking` defaults to `"score"` iff b ≥ c on A → B.
+- `evals.knobs.MNIMI_DEFAULT_CONSOLIDATE` becomes `True` iff `"score"` is adopted AND b ≥ c on
+  B → C.
+- `MemoryConfig.active_only` defaults to `True` iff gate 4-ii passed.
+- SPEC's decay-on/off ablation is B → C: X = score(C) − score(B), reported with b, c, p and
+  whether it lies inside the family's 6/100-flip drift, whatever its sign. A → C is descriptive.
+- A loss leaves the v1.10 default; code, flags and tests stay. The mnimi vs naive_rag primary is
+  not re-paired (Phase 5's n=500 reads it).
+
+**Budget.** PLAN carried $1 for one arm. The sitting is three arms at ≈ $0.87 each with judges
+(the `round+facts` arm: reader $0.7746, judge ≈ $0.09) — **≈ $2.6**, ≈ $4.0 projected upper
+bound — against $36.26 remaining; Phase 5 keeps its $14.25.
+
+**Prohibited in this phase.** No LLM anywhere new; no clock; no value of `decay_half_life_days`,
+`decay_floor`, `salience_weights` or `recall_min_relevance` other than SPEC's in any run, and no
+selection among values; no change to 0.95, `k=10`, `EMBED_TEMPLATE`, `FACT_EMBED_TEMPLATE`, the
+extractor, the lexicon, the normalization tables, the reader prompt, the renderer's templates or
+`naive_rag`; no edit to `DECAY_RULES` after Task 2's commit; the extractor's salience is priced,
+not overridden.
