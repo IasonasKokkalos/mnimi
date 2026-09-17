@@ -338,3 +338,50 @@ def test_mnimi_pins_declare_the_phase3_rows_and_naive_rag_does_not():
     assert default["dedup_entropy_gate"] == 2.0 and default["conflict_resolution"] is True
     naive = _naive().retrieval_pins()
     assert "conflict_resolution" not in naive and "negation_lexicon_hash" not in naive
+
+
+# -- Phase 4 Task 6: the read side's pins and the consolidate wiring --------------------------
+
+
+def test_mnimi_pins_declare_the_phase4_rows_and_naive_rag_does_not():
+    from mnimi.decay import decay_rules_hash
+
+    pins = _mnimi(config=MemoryConfig(ranking="score", active_only=True, decay_floor=0.2),
+                  consolidate=True).retrieval_pins()
+    assert (pins["ranking"], pins["active_only"], pins["consolidate"]) == ("score", True, True)
+    assert pins["decay_floor"] == 0.2 and pins["decay_half_life_days"] == 30.0
+    assert pins["salience_weights"] == {"similarity": 1.0, "recency": 0.0}
+    assert type(pins["salience_weights"]) is dict, "canonical JSON needs a plain dict"
+    assert pins["recall_min_relevance"] == 0.0 and pins["decay_rules_hash"] == decay_rules_hash()
+    default = _mnimi().retrieval_pins()
+    assert (default["ranking"], default["active_only"], default["consolidate"]) == (
+        "similarity", False, False)
+    naive = _naive().retrieval_pins()
+    assert not {"ranking", "active_only", "consolidate", "decay_rules_hash"} & set(naive)
+
+
+def _consolidations(wired: bool) -> list[int]:
+    """Consolidate calls seen after each step of a question's life, for one arm."""
+    system = _mnimi(consolidate=wired)
+    calls: list[str] = []
+    system._memory.consolidate = calls.append
+    seen = []
+    system.add(_round("I planted tomatoes", "Nice."))
+    system.add(_round("my violin lesson moved", "Noted.", ts="2023-05-21"))
+    system.get_context("tomatoes")
+    seen.append(len(calls))
+    system.get_context("tomatoes")  # nothing added since: no second pass
+    seen.append(len(calls))
+    system.add(_round("booked a ferry", "Enjoy.", ts="2023-05-22"))
+    system.get_context("ferry")
+    seen.append(len(calls))
+    system.reset()
+    system._memory.consolidate = calls.append
+    system.get_context("anything")  # a fresh store, nothing added
+    seen.append(len(calls))
+    return seen
+
+
+def test_mnimi_consolidates_once_per_store_before_the_question_only_when_wired():
+    assert _consolidations(True) == [1, 1, 2, 2]
+    assert _consolidations(False) == [0, 0, 0, 0]

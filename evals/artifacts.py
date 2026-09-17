@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/9"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/10"
 
 
 def fingerprint(text: str) -> str:
@@ -451,6 +451,14 @@ def build_pins(
     conflict_resolution: bool | None = None,
     negation_lexicon_hash: str | None = None,
     conflict_rules_hash: str | None = None,
+    active_only: bool | None = None,
+    ranking: str | None = None,
+    salience_weights: dict | None = None,
+    recall_min_relevance: float | None = None,
+    decay_half_life_days: float | None = None,
+    decay_floor: float | None = None,
+    consolidate: bool | None = None,
+    decay_rules_hash: str | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -543,6 +551,16 @@ def build_pins(
     ids). Declared by mnimi only — naive_rag has no facts — and, like the
     render unit, outside ``HARNESS_PARITY_FIELDS``: the arms still pair.
 
+    Schema /10 (2026-09-17, Phase 4) added the read side and decay:
+    ``active_only`` (a superseded fact neither ranks nor renders), ``ranking``
+    (``similarity`` = the v1.10 read path, ``score`` = SPEC's), ``salience_weights``,
+    ``recall_min_relevance``, ``decay_half_life_days``, ``decay_floor`` (six
+    ``MemoryConfig`` fields), ``consolidate`` (whether the arm calls
+    ``Memory.consolidate`` once per store before the question — the harness
+    wiring, PHASE4 D8) and ``decay_rules_hash`` (the frozen decay rules, also a
+    ``memory_meta`` row). Declared by mnimi only; outside
+    ``HARNESS_PARITY_FIELDS``, so the ablation's arms pair.
+
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
     prompt on a different transport is a different configuration family; a
@@ -623,6 +641,15 @@ def build_pins(
         "conflict_resolution": conflict_resolution,
         "negation_lexicon_hash": negation_lexicon_hash,
         "conflict_rules_hash": conflict_rules_hash,
+        # Schema /10 (PHASE4): the read side and decay.
+        "active_only": active_only,
+        "ranking": ranking,
+        "salience_weights": salience_weights,
+        "recall_min_relevance": recall_min_relevance,
+        "decay_half_life_days": decay_half_life_days,
+        "decay_floor": decay_floor,
+        "consolidate": consolidate,
+        "decay_rules_hash": decay_rules_hash,
     }
 
 

@@ -23,11 +23,12 @@ class MnimiSystem(MemorySystem):
     spec'd, tested and versioned. An adapter that reshaped messages or
     re-ranked results would be scoring the adapter.
 
-    ``consolidate()`` is **not** called. It is a no-op stub at v1 so calling it
-    could not change this number, but wiring it in now would mean that the day
-    it grows merge/conflict/decay behaviour, the benchmark silently changes
-    without an edit in ``evals/``. When it does something, adding the call is
-    the explicit decision it should be.
+    ``consolidate()`` is called only when the arm is built with
+    ``consolidate=True`` (PHASE4 D8): once per store, after every session is
+    ingested and before the question is ranked (``consolidate_if_wired``). Its
+    conflict pass is a no-op after ``add()``; its decay pass is what reaches
+    the ranking under ``ranking="score"``. The flag is a pin, so the day the
+    wiring moves the number is an explicit edit in ``evals/``, never a silent one.
 
     ``extractor`` (PHASE2 D6) is the one LLM, injected exactly as the embedder
     is; ``None`` is the v1 arm (rounds only). It is wrapped in the on-disk
@@ -42,6 +43,7 @@ class MnimiSystem(MemorySystem):
         config: MemoryConfig | None = None,
         extractor=None,
         extraction_cache: str | Path | None = None,
+        consolidate: bool = False,
     ) -> None:
         # Built once and reused across every question: constructing the real
         # embedder loads a ~130MB ONNX graph, and a full run resets 500 times.
@@ -61,6 +63,8 @@ class MnimiSystem(MemorySystem):
                 extractor.pins
             )
             self._extractor = CachedExtractor(extractor, path)
+        self._consolidate = bool(consolidate)
+        self._pending = False
         self._scratch = ScratchDb("mnimi-eval-")
         self._memory: Memory | None = None
         self.reset()
@@ -71,6 +75,7 @@ class MnimiSystem(MemorySystem):
         # pin whatever the hub currently serves instead of what ran.
         from mnimi.conflict.lexicon import negation_lexicon_hash
         from mnimi.conflict.normalize import conflict_rules_hash
+        from mnimi.decay import decay_rules_hash
         from mnimi.extract import prefilter
         from mnimi.extract.protocol import PIN_KEYS
         from mnimi.extract.resolver import RESOLVER_VERSION
@@ -113,6 +118,15 @@ class MnimiSystem(MemorySystem):
                 "conflict_resolution": self._config.conflict_resolution,
                 "negation_lexicon_hash": negation_lexicon_hash(),
                 "conflict_rules_hash": conflict_rules_hash(),
+                # Phase 4 (schema /10): the read side, decay and the wiring.
+                "active_only": self._config.active_only,
+                "ranking": self._config.ranking,
+                "salience_weights": dict(self._config.salience_weights),
+                "recall_min_relevance": self._config.recall_min_relevance,
+                "decay_half_life_days": self._config.decay_half_life_days,
+                "decay_floor": self._config.decay_floor,
+                "consolidate": self._consolidate,
+                "decay_rules_hash": decay_rules_hash(),
             }
         )
         return pins
@@ -123,12 +137,26 @@ class MnimiSystem(MemorySystem):
         self._memory = Memory(
             str(self._scratch.next()), self._embedder, self._config, extractor=self._extractor
         )
+        self._pending = False
 
     def add(self, messages: list[dict]) -> None:
         self._memory.add(messages, user_id=EVAL_USER_ID)
+        self._pending = True
 
     def get_context(self, query: str) -> str:
+        self.consolidate_if_wired()
         return self._memory.get_context(query, EVAL_USER_ID)
+
+    def consolidate_if_wired(self) -> None:
+        """One ``Memory.consolidate`` per store, before the question (PHASE4 D8).
+
+        Only when the arm was built with ``consolidate=True`` and something was
+        added since the last call. ``get_context`` calls it; so does the
+        retrieval probe, before it ranks, so the probe sees the arm's store.
+        """
+        if self._consolidate and self._pending:
+            self._memory.consolidate(EVAL_USER_ID)
+        self._pending = False
 
     # -- diagnostics, not part of the MemorySystem contract --------------------
 

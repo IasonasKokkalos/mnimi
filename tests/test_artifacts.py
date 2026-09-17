@@ -85,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/9"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -344,7 +344,7 @@ class TestOpenAITransportCli:
 
         assert rc == 0, capsys.readouterr().err
         pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
-        assert pins["artifact_schema"] == "mnimi-eval-artifact/9"
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/10"
         assert pins["reader_transport"] == "openai"
         assert pins["reader_model"] == "gpt-4o-2024-08-06"
         assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
@@ -1289,7 +1289,8 @@ def test_build_system_hands_every_knob_to_both_retrieval_arms(monkeypatch):
 
     captured = {}
     monkeypatch.setattr(
-        mnimi_mod, "MnimiSystem", lambda config: captured.__setitem__("mnimi", config)
+        mnimi_mod, "MnimiSystem",
+        lambda config, consolidate=False: captured.__setitem__("mnimi", config)
     )
     monkeypatch.setattr(
         naive_mod, "NaiveRagSystem", lambda config: captured.__setitem__("naive", config)
@@ -1334,7 +1335,7 @@ def test_build_system_hands_extractor_and_render_unit_to_mnimi(monkeypatch):
     captured = {}
 
     class Fake:
-        def __init__(self, config, extractor=None, extraction_cache=None):
+        def __init__(self, config, extractor=None, extraction_cache=None, consolidate=False):
             captured.update(config=config, extractor=extractor, cache=extraction_cache)
 
     monkeypatch.setattr(mnimi_mod, "MnimiSystem", Fake)
@@ -1364,9 +1365,9 @@ def test_mnimi_extracts_by_default_and_only_mnimi():
 # -- Phase 3 Task 2 (schema /9): the screens' pins ------------------------------------------
 
 
-def test_phase3_pins_move_the_pins_hash_and_the_schema_is_9():
+def test_phase3_pins_move_the_pins_hash():
     baseline = artifacts.pins_hash(_pins())
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/9"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
     assert artifacts.pins_hash(_pins(dedup_entropy_gate=2.0)) != baseline
     assert artifacts.pins_hash(_pins(conflict_resolution=True)) != baseline
     assert artifacts.pins_hash(_pins(negation_lexicon_hash="330604b5772e")) != baseline
@@ -1385,7 +1386,8 @@ def test_build_system_hands_the_conflict_flags_to_mnimi(monkeypatch):
 
     captured = {}
     monkeypatch.setattr(
-        mnimi_mod, "MnimiSystem", lambda config: captured.__setitem__("mnimi", config)
+        mnimi_mod, "MnimiSystem",
+        lambda config, consolidate=False: captured.__setitem__("mnimi", config)
     )
     build_system("mnimi", conflict_resolution=False, dedup_entropy_gate=1.0)
     assert captured["mnimi"].conflict_resolution is False
@@ -1402,6 +1404,75 @@ def test_resume_extras_repeat_the_conflict_flags():
     args = argparse.Namespace(render_format="text", dedup_scope=None, query_instruction=None,
                               chunk_tokens=0, chunk_overlap=64, top_k=None, extractor=None,
                               render_unit=None, conflict_resolution="off",
-                              dedup_entropy_gate=1.5, verify_drift=None)
+                              dedup_entropy_gate=1.5, verify_drift=None,
+                              active_only=None, ranking=None, salience_weights=None,
+                              recall_min_relevance=None, decay_half_life_days=None,
+                              decay_floor=None, consolidate=None)
     extras = evals_main._resume_extras(args)
     assert "--conflict-resolution off" in extras and "--dedup-entropy-gate 1.5" in extras
+
+
+# -- Phase 4 Task 6 (schema /10): the read side, decay and the wiring -----------------------
+
+
+def test_phase4_pins_move_the_pins_hash_and_the_schema_is_10():
+    baseline = artifacts.pins_hash(_pins())
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
+    moved = dict(active_only=True, ranking="score", recall_min_relevance=0.0,
+                 salience_weights={"similarity": 1.0, "recency": 0.0}, decay_floor=0.15,
+                 decay_half_life_days=30.0, consolidate=False, decay_rules_hash="d4a0bcf07330")
+    for key, value in moved.items():
+        assert _pins()[key] is None, f"{key}: declared by mnimi only"
+        assert artifacts.pins_hash(_pins(**{key: value})) != baseline, key
+    assert artifacts.pins_hash(_pins(ranking="score")) != artifacts.pins_hash(
+        _pins(ranking="similarity"))
+
+
+def test_read_path_flags_parse_into_knobs_and_repeat_on_resume():
+    import argparse
+
+    from evals import knobs
+
+    parser = argparse.ArgumentParser()
+    knobs.add_read_path_flags(parser)
+    unset = parser.parse_args([])
+    assert knobs.read_path_knobs(unset) == {} and knobs.consolidate_flag(unset) is None
+    assert knobs.read_path_resume_extras(unset) == []
+    args = parser.parse_args(["--active-only", "on", "--ranking", "score", "--salience-weights",
+                              "similarity=1.0,recency=0.0", "--recall-min-relevance", "0.0",
+                              "--decay-half-life-days", "30", "--decay-floor", "0.15",
+                              "--consolidate", "on"])
+    assert knobs.read_path_knobs(args) == {
+        "active_only": True, "ranking": "score", "recall_min_relevance": 0.0,
+        "salience_weights": {"similarity": 1.0, "recency": 0.0},
+        "decay_half_life_days": 30.0, "decay_floor": 0.15,
+    }
+    assert knobs.consolidate_flag(args) is True
+    assert knobs.read_path_resume_extras(args) == [
+        "--active-only on", "--ranking score", "--salience-weights similarity=1.0,recency=0.0",
+        "--recall-min-relevance 0.0", "--decay-half-life-days 30.0", "--decay-floor 0.15",
+        "--consolidate on",
+    ]
+    for bad in ("similarity=1.0", "similarity=x,recency=0", "similarity:1,recency:0"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            knobs.parse_salience_weights(bad)
+
+
+def test_build_system_hands_the_read_path_and_the_wiring_to_mnimi(monkeypatch):
+    import evals.systems.mnimi as mnimi_mod
+    from evals import knobs
+    from evals.__main__ import build_system
+
+    captured = {}
+
+    def fake(config, consolidate=False):
+        captured.update(config=config, consolidate=consolidate)
+
+    monkeypatch.setattr(mnimi_mod, "MnimiSystem", fake)
+    build_system("mnimi", read_path={"ranking": "score", "active_only": True,
+                                     "decay_half_life_days": 60.0}, consolidate=True)
+    assert (captured["config"].ranking, captured["config"].active_only) == ("score", True)
+    assert captured["config"].decay_half_life_days == 60.0 and captured["consolidate"] is True
+    build_system("mnimi")
+    assert captured["config"].ranking == "similarity" and captured["config"].active_only is False
+    assert captured["consolidate"] is knobs.MNIMI_DEFAULT_CONSOLIDATE is False

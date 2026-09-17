@@ -14,7 +14,7 @@ from pathlib import Path
 # Stdlib-only, so importing these here keeps `python -m evals --help` from
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
-from . import artifacts, pricing
+from . import artifacts, knobs, pricing
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
 
 # Phase A pins. Reader is a local Ollama model; judge is the paper's validated
@@ -64,6 +64,8 @@ def build_system(
     extractor_cache: str | None = None,
     conflict_resolution: bool | None = None,
     dedup_entropy_gate: float | None = None,
+    read_path: dict | None = None,
+    consolidate: bool | None = None,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
@@ -72,6 +74,11 @@ def build_system(
     through the shared ``MemoryConfig`` like ``dedup_scope``: only mnimi reads
     them (naive_rag has no facts) and only mnimi pins them; ``None`` is the
     library default for each.
+
+    ``read_path`` (PHASE4, ``evals.knobs.read_path_knobs``) carries the six
+    read-side ``MemoryConfig`` keywords the flags set, the same way; only mnimi
+    reads and pins them. ``consolidate`` reaches mnimi only; ``None`` is
+    ``knobs.MNIMI_DEFAULT_CONSOLIDATE``.
 
     ``extractor`` (``none`` / ``qwen3``, PHASE2) reaches mnimi only — naive_rag
     never extracts, that is the comparison — and ``render_unit`` reaches mnimi
@@ -90,24 +97,25 @@ def build_system(
         query_instruction = BGE_QUERY_INSTRUCTION
     from mnimi import MemoryConfig
 
-    knobs = dict(
+    config_knobs = dict(
         render_format=render_format,
         chunk_tokens=chunk_tokens,
         chunk_overlap=chunk_overlap,
     )
     if dedup_scope is not None:  # else the library default (session since R3)
-        knobs["dedup_scope"] = dedup_scope
+        config_knobs["dedup_scope"] = dedup_scope
     if query_instruction is not None:  # else the library default (BGE since R5)
-        knobs["query_instruction"] = query_instruction
+        config_knobs["query_instruction"] = query_instruction
     if top_k is not None:  # the one pre-registered alternative to k=10 (R6)
-        knobs["top_k"] = top_k
+        config_knobs["top_k"] = top_k
     if render_unit is not None:  # else the library default (round+facts since v1.9.0)
-        knobs["render_unit"] = render_unit
+        config_knobs["render_unit"] = render_unit
     if conflict_resolution is not None:  # else the library default (PHASE3 D11)
-        knobs["conflict_resolution"] = conflict_resolution
+        config_knobs["conflict_resolution"] = conflict_resolution
     if dedup_entropy_gate is not None:  # else SPEC's 2.0
-        knobs["dedup_entropy_gate"] = dedup_entropy_gate
-    config = MemoryConfig(**knobs)
+        config_knobs["dedup_entropy_gate"] = dedup_entropy_gate
+    config_knobs.update(read_path or {})  # PHASE4: an unset flag is absent
+    config = MemoryConfig(**config_knobs)
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -128,11 +136,13 @@ def build_system(
         from .probes.retrieval import build_extractor
         from .systems.mnimi import MnimiSystem
 
+        wired = knobs.MNIMI_DEFAULT_CONSOLIDATE if consolidate is None else consolidate
         extractor_obj = build_extractor(extractor)
         if extractor_obj is None:
-            return MnimiSystem(config=config)
+            return MnimiSystem(config=config, consolidate=wired)
         return MnimiSystem(
-            config=config, extractor=extractor_obj, extraction_cache=extractor_cache
+            config=config, extractor=extractor_obj, extraction_cache=extractor_cache,
+            consolidate=wired,
         )
     raise SystemExit(f"unknown system: {name}")
 
@@ -299,6 +309,7 @@ def _resume_extras(args) -> str:
         extras.append(f"--conflict-resolution {args.conflict_resolution}")
     if args.dedup_entropy_gate is not None:
         extras.append(f"--dedup-entropy-gate {args.dedup_entropy_gate}")
+    extras.extend(knobs.read_path_resume_extras(args))
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -527,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
         "not auto-merged (MemoryConfig.dedup_entropy_gate, SPEC step 5). Pinned. Default: "
         "the library's 2.0; never tuned against the benchmark.",
     )
+    knobs.add_read_path_flags(parser)
     parser.add_argument(
         "--render-format",
         default="text",
@@ -775,6 +787,8 @@ def main(argv: list[str] | None = None) -> int:
                 None if args.conflict_resolution is None else args.conflict_resolution == "on"
             ),
             dedup_entropy_gate=args.dedup_entropy_gate,
+            read_path=knobs.read_path_knobs(args),
+            consolidate=knobs.consolidate_flag(args),
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
