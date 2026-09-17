@@ -391,6 +391,8 @@ class Memory:
         if config.ranking not in RANKINGS:
             raise ValueError(f"unknown ranking {config.ranking!r}; expected one of {RANKINGS}")
         check_weights(config.salience_weights)
+        if not -1.0 <= config.recall_min_relevance <= 1.0:
+            raise ValueError("recall_min_relevance must lie in [-1, 1]")
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -620,7 +622,9 @@ class Memory:
         relevance; ``"score"`` is ``mnimi.ranking.rank_rounds``.
         """
         if self.config.ranking == RANKING_SIMILARITY:
-            hits = self.store.search_rounds(query_embedding, user_id=user_id, k=k)
+            hits = self.store.search_rounds(
+                query_embedding, user_id=user_id, k=k, active_only=self.config.active_only
+            )
             return [
                 score_hit(record, cosine, now, self.config.decay_half_life_days, None)
                 for record, cosine in hits
@@ -633,6 +637,7 @@ class Memory:
             weights=self.config.salience_weights,
             half_life_days=self.config.decay_half_life_days,
             now=now,
+            active_only=self.config.active_only,
         )
 
     def recall(self, query: str, user_id: str) -> list[ScoredRecord]:
@@ -640,9 +645,20 @@ class Memory:
 
         ``k`` counts rounds: a round's records (R4 windows; the round record and
         its facts) collapse to one ``ScoredRecord``, the round's representative.
+        Then SPEC §Retriever's two extras (PHASE4 D7, D2): rounds below
+        ``recall_min_relevance`` are dropped when the floor is above 0, and every
+        returned record's ``last_accessed`` becomes ``now_logical``.
         """
         now = self._now_logical(user_id)
-        return self._rank(self._query_embedding(query), user_id, self.config.top_k, now)
+        hits = self._rank(self._query_embedding(query), user_id, self.config.top_k, now)
+        floor = self.config.recall_min_relevance
+        if floor > 0:
+            hits = [hit for hit in hits if hit.relevance >= floor]
+        if hits and now is not None:
+            self.store.touch([hit.record.id for hit in hits], now)
+            for hit in hits:
+                hit.record.last_accessed = now
+        return hits
 
     def get_context(self, query: str, user_id: str) -> str:
         """Assemble recalled memories into a single context string for a reader.
@@ -664,7 +680,9 @@ class Memory:
             records,
             fmt=self.config.render_format,
             unit=self.config.render_unit,
-            facts_of=lambda round_key: self.store.facts_of(user_id, round_key),
+            facts_of=lambda round_key: self.store.facts_of(
+                user_id, round_key, active_only=self.config.active_only
+            ),
         )
 
     def consolidate(self, user_id: str) -> None:

@@ -869,7 +869,7 @@ def test_negation_across_sessions_supersedes_and_the_round_is_untouched(tmp_path
 
 
 def test_read_path_is_untouched_a_superseded_fact_still_renders(tmp_path):
-    m = _scripted_memory(tmp_path / "r.db", _VALUE_SCRIPT)
+    m = _scripted_memory(tmp_path / "r.db", _VALUE_SCRIPT, active_only=False)
     _two_sessions(m, list(_VALUE_SCRIPT))
     context = m.get_context("where does the user live", "u")
     assert "The user lives in Boston." in context and "The user lives in Seattle." in context
@@ -1086,7 +1086,8 @@ def test_score_ranking_reads_the_stored_salience(tmp_path):
     # the round is represented by its own record.
     ranked = {}
     for ranking in ("similarity", "score"):
-        m = _scripted_memory(tmp_path / f"{ranking}.db", _VALUE_SCRIPT, ranking=ranking)
+        m = _scripted_memory(tmp_path / f"{ranking}.db", _VALUE_SCRIPT, ranking=ranking,
+                             active_only=False)
         _two_sessions(m, list(_VALUE_SCRIPT))
         ranked[ranking] = {hit.record.created_at: hit for hit in m.recall("Boston", "u")}
     january = "2023/01/10 (Tue) 09:00"
@@ -1094,3 +1095,66 @@ def test_score_ranking_reads_the_stored_salience(tmp_path):
     assert ranked["similarity"][january].record.salience == 0.0
     assert ranked["score"][january].record.kind == "round"
     assert ranked["score"][january].score == ranked["score"][january].relevance > 0
+
+
+# -- Phase 4 Task 5: the retriever extras -------------------------------------------------
+
+
+def test_config_has_the_retriever_extras_and_validates_them(tmp_path):
+    config = MemoryConfig()
+    assert config.active_only is False and config.recall_min_relevance == 0.0
+    with pytest.raises(ValueError, match="recall_min_relevance"):
+        Memory(str(tmp_path / "bad.db"), HashingEmbedder(), MemoryConfig(recall_min_relevance=1.5))
+
+
+def test_active_only_hides_a_superseded_fact_from_ranking_and_rendering(tmp_path):
+    for ranking in ("similarity", "score"):
+        m = _scripted_memory(tmp_path / f"a-{ranking}.db", _VALUE_SCRIPT, active_only=True,
+                             ranking=ranking)
+        _two_sessions(m, list(_VALUE_SCRIPT))
+        hits = m.recall("Boston", "u")
+        assert all(hit.record.salience > 0 for hit in hits), ranking
+        assert {hit.record.created_at for hit in hits} == {"2023/01/10 (Tue) 09:00",
+                                                           "2023/06/10 (Sat) 09:00"}, ranking
+        context = m.get_context("where does the user live", "u")
+        assert "The user lives in Boston." not in context, ranking
+        assert "The user lives in Seattle." in context, ranking
+        assert "user: Quick note: I live in Boston now." in context, "the round is evidence (D1)"
+
+
+def test_recall_min_relevance_zero_is_off_by_definition(tmp_path):
+    from mnimi import ScoredRecord
+
+    m = _aged_memory(tmp_path)
+    (record,) = [r for r in m.store.active_records("u") if r.created_at == _OLD]
+    negative = ScoredRecord(record=record, relevance=-0.2, recency=1.0, salience=1.0, score=-0.2)
+    m._rank = lambda *args: [negative]
+    assert m.recall("anything", "u") == [negative], "0.0 skips the drop; it is not 'cosine >= 0'"
+    assert record.last_accessed == _NEW, "and the returned record was written back"
+
+
+def test_recall_min_relevance_drops_below_the_floor_and_nothing_fills_in(tmp_path):
+    m = _aged_memory(tmp_path)
+    relevances = sorted(hit.relevance for hit in m.recall("tomatoes in the garden", "u"))
+    assert len(relevances) == 2 and relevances[0] < relevances[1]
+    floor = (relevances[0] + relevances[1]) / 2
+    floored = Memory(str(tmp_path / "aged.db"), HashingEmbedder(),
+                     MemoryConfig(recall_min_relevance=floor))
+    assert [hit.relevance for hit in floored.recall("tomatoes in the garden", "u")] == [
+        relevances[1]]
+
+
+def test_recall_writes_last_accessed_on_the_returned_records_only(tmp_path):
+    m = _aged_memory(tmp_path, top_k=1)
+    mid = "2023/05/31 (Wed) 09:00"
+    m.add([_message("the dentist appointment is on friday", ts=mid)], user_id="u")
+    m.consolidate("u")
+    (hit,) = m.recall("planted tomatoes in the community garden", "u")
+    assert hit.record.created_at == _OLD and hit.record.last_accessed == _NEW
+    rows = {r.created_at: r for r in m.store.active_records("u")}
+    assert rows[_OLD].last_accessed == _NEW, "written back: now_logical"
+    assert rows[mid].last_accessed == mid, "not returned, not touched"
+    m.consolidate("u")
+    rows = {r.created_at: r for r in m.store.active_records("u")}
+    assert rows[_OLD].salience == 1.0, "the access restored it (D2, D3)"
+    assert rows[mid].salience == pytest.approx(0.5 ** (30 / 30))

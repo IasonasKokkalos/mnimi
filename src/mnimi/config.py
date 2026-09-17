@@ -72,6 +72,21 @@ class MemoryConfig:
     extractor's salience (0.5 on most of the assistant's facts) and decay reach
     the ranking only here. A harness flag (``--ranking``) and a pin."""
 
+    active_only: bool = False
+    """Whether the read path sees only ACTIVE records, ``salience > 0`` (SPEC
+    §Retriever, §get_context; PHASE4 D5): a superseded fact neither ranks nor
+    renders under a round's ``facts:`` header. Rounds are never superseded, so
+    every round stays. ``False`` — the default until gate 4-ii prices it — is the
+    v1.10 read path. A harness flag (``--active-only``) and a pin."""
+
+    recall_min_relevance: float = 0.0
+    """A relevance floor on ``recall``'s returned rounds (SPEC §MemoryConfig,
+    PHASE4 D7): after the top-k, a round whose ``relevance`` is below it is
+    dropped and nothing fills its place. ``0.0`` is off by definition — the drop
+    is skipped, whatever the cosines. Unmeasured, never set in a run (the FUTURE
+    trigger, distractor-driven reading failures, has not fired). Must lie in
+    [-1, 1]. A harness flag (``--recall-min-relevance``) and a pin."""
+
     salience_weights: Mapping[str, float] = field(
         default_factory=lambda: MappingProxyType({"similarity": 1.0, "recency": 0.0})
     )

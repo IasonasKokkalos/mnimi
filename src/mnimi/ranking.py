@@ -81,11 +81,12 @@ def rank_rounds(
     weights: Mapping[str, float],
     half_life_days: float,
     now: str | None,
+    active_only: bool = False,
 ) -> list[ScoredRecord]:
     """The ``k`` best rounds by score, exact over the user's records (PHASE4 D4)."""
     fetch = k
     while True:
-        hits = store.search(query_embedding, user_id=user_id, k=fetch)
+        hits = store.search(query_embedding, user_id=user_id, k=fetch, active_only=active_only)
         best: dict = {}
         for record, cosine in hits:
             candidate = score_hit(record, cosine, now, half_life_days, weights)

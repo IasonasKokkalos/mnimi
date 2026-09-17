@@ -287,9 +287,13 @@ class Store:
         self.db.commit()
         return record
 
-    def _knn(self, kind: str, embedding: list[float], user_id: str, k: int) -> list[sqlite3.Row]:
+    def _knn(
+        self, kind: str, embedding: list[float], user_id: str, k: int, active_only: bool = False
+    ) -> list[sqlite3.Row]:
         # KNN over the vector index is global, so we over-fetch and then filter
-        # by user — otherwise a busy neighbour could crowd out the queried user.
+        # by user (and, with active_only, by salience > 0) — otherwise a busy
+        # neighbour could crowd out the queried user.
+        active = " AND m.salience > 0" if active_only else ""
         return self.db.execute(
             f"""
             WITH knn AS (
@@ -300,7 +304,7 @@ class Store:
             SELECT {_COLUMNS}, knn.distance
             FROM knn
             JOIN memories m ON m.id = knn.memory_id
-            WHERE m.user_id = ?
+            WHERE m.user_id = ?{active}
             ORDER BY knn.distance
             """,
             (sqlite_vec.serialize_float32(embedding), max(k * 8, k), user_id),
@@ -313,7 +317,12 @@ class Store:
         return row is not None
 
     def search(
-        self, embedding: list[float], user_id: str, k: int, kind: str | None = None
+        self,
+        embedding: list[float],
+        user_id: str,
+        k: int,
+        kind: str | None = None,
+        active_only: bool = False,
     ) -> list[tuple[MemoryRecord, float]]:
         """Return the ``k`` nearest memories for ``user_id`` with cosine similarity.
 
@@ -322,6 +331,9 @@ class Store:
         and merges by distance, rounds first on a tie. With no fact records in
         the store the unscoped search is the v1 query, row for row.
 
+        ``active_only`` (PHASE4 D5) leaves out records with ``salience = 0``,
+        i.e. superseded facts.
+
         Vectors are unit-length (embeddings.py normalizes at the boundary), so
         L2 distance converts exactly: cos = 1 − d²/2. This is the ONE place the
         conversion happens; callers compare genuine cosine numbers.
@@ -329,20 +341,20 @@ class Store:
         if kind is not None and kind not in KINDS:
             raise ValueError(f"unknown record kind {kind!r}; expected one of {KINDS}")
         if kind is None:
-            rows = self._knn(KIND_ROUND, embedding, user_id, k)
+            rows = self._knn(KIND_ROUND, embedding, user_id, k, active_only)
             if self._has_facts(user_id):
                 rows = sorted(
-                    [*rows, *self._knn(KIND_FACT, embedding, user_id, k)],
+                    [*rows, *self._knn(KIND_FACT, embedding, user_id, k, active_only)],
                     key=lambda row: row["distance"],
                 )
         else:
-            rows = self._knn(kind, embedding, user_id, k)
+            rows = self._knn(kind, embedding, user_id, k, active_only)
         return [
             (self._row_to_record(row), 1.0 - (row["distance"] ** 2) / 2.0) for row in rows[:k]
         ]
 
     def search_rounds(
-        self, embedding: list[float], user_id: str, k: int
+        self, embedding: list[float], user_id: str, k: int, active_only: bool = False
     ) -> list[tuple[MemoryRecord, float]]:
         """The ``k`` nearest *rounds*: every record of one round counts once.
 
@@ -358,7 +370,7 @@ class Store:
         """
         fetch = k
         while True:
-            hits = self.search(embedding, user_id=user_id, k=fetch)
+            hits = self.search(embedding, user_id=user_id, k=fetch, active_only=active_only)
             seen: set = set()
             distinct: list[tuple[MemoryRecord, float]] = []
             for record, cosine in hits:
@@ -390,11 +402,17 @@ class Store:
             ).fetchall()
         return [(row["created_at"], row["content"]) for row in rows]
 
-    def facts_of(self, user_id: str, round_key: str) -> list[MemoryRecord]:
-        """The fact records of one round, in insertion order — the render header."""
+    def facts_of(
+        self, user_id: str, round_key: str, active_only: bool = False
+    ) -> list[MemoryRecord]:
+        """The fact records of one round, in insertion order — the render header.
+
+        ``active_only`` (PHASE4 D5): superseded facts are left out.
+        """
+        active = " AND m.salience > 0" if active_only else ""
         rows = self.db.execute(
             f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? AND m.round_key = ? "
-            f"AND m.kind = ? ORDER BY m.id",
+            f"AND m.kind = ?{active} ORDER BY m.id",
             (user_id, round_key, KIND_FACT),
         ).fetchall()
         return [self._row_to_record(row) for row in rows]

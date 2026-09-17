@@ -113,8 +113,8 @@ class _Observed:
         store.search = self.search
         store.insert = self.insert
 
-    def search(self, embedding, user_id, k, kind=None):
-        hits = self._search(embedding, user_id=user_id, k=k, kind=kind)
+    def search(self, embedding, user_id, k, kind=None, active_only=False):
+        hits = self._search(embedding, user_id=user_id, k=k, kind=kind, active_only=active_only)
         if k == 1:
             self.probes.append(hits)
         return hits
