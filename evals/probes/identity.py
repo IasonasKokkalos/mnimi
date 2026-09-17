@@ -38,6 +38,29 @@ def compare(a: list[QuestionProbe], b: list[QuestionProbe]) -> tuple[list[str], 
     return identical, differing
 
 
+def evidence_moves(a: list[QuestionProbe], b: list[QuestionProbe], k: int = 10) -> dict:
+    """Evidence rounds that crossed the top-k boundary from A to B (PHASE4 gate 4-ii).
+
+    ``{"left": [...], "entered": [...]}``, each item ``(question_id, evidence index,
+    rank in A, rank in B)`` with -1 for "not in the top-50".
+    """
+    b_by_id = {row.question_id: row for row in b}
+    left, entered = [], []
+    for row in a:
+        other = b_by_id.get(row.question_id)
+        if other is None:
+            continue
+        for index, (rank_a, rank_b) in enumerate(
+            zip(row.evidence_ranks, other.evidence_ranks, strict=True)
+        ):
+            inside_a, inside_b = 0 < rank_a <= k, 0 < rank_b <= k
+            if inside_a and not inside_b:
+                left.append((row.question_id, index, rank_a, rank_b))
+            elif inside_b and not inside_a:
+                entered.append((row.question_id, index, rank_a, rank_b))
+    return {"left": left, "entered": entered}
+
+
 def format_report(a: list[QuestionProbe], b: list[QuestionProbe]) -> str:
     identical, differing = compare(a, b)
     lines = [f"identical {len(identical)}/{len(a)} (on {', '.join(COMPARED)})"]
@@ -45,6 +68,13 @@ def format_report(a: list[QuestionProbe], b: list[QuestionProbe]) -> str:
         lines.append(f"row counts differ: {len(a)} vs {len(b)}")
     for qid in differing:
         lines.append(f"  differs: {qid}")
+    moves = evidence_moves(a, b)
+    lines.append(f"evidence rounds leaving the top-10: {len(moves['left'])}")
+    for qid, index, rank_a, rank_b in moves["left"]:
+        lines.append(f"  left: {qid} evidence #{index} rank {rank_a} -> {rank_b}")
+    lines.append(f"evidence rounds entering the top-10: {len(moves['entered'])}")
+    for qid, index, rank_a, rank_b in moves["entered"]:
+        lines.append(f"  entered: {qid} evidence #{index} rank {rank_a} -> {rank_b}")
     return "\n".join(lines)
 
 

@@ -2769,3 +2769,44 @@ selection among values; no change to 0.95, `k=10`, `EMBED_TEMPLATE`, `FACT_EMBED
 extractor, the lexicon, the normalization tables, the reader prompt, the renderer's templates or
 `naive_rag`; no edit to `DECAY_RULES` after Task 2's commit; the extractor's salience is priced,
 not overridden.
+
+## Gate 4-i read: identity under defaults — 100/100 and 100/100 — PASS (2026-09-17)
+
+**The instrument.** Two retrieval probes from the worktree at the Task 7 tree (committed as the
+Task 7 commit; the probes ran on the tree that became it, before this entry was written), read
+with `evals.probes.identity` and `evals.probes.aggregate`. (a) `python -m evals.probes.retrieval
+--system mnimi --extractor qwen3 --limit 100 --out runs/probe_mnimi_p4i.json` — every Phase 4
+flag at its default, so `ranking="similarity"`, `active_only=False`, `--consolidate off` — 81 min,
+every round replayed from the Phase 2 cache (`'misses': 0` on 100/100 questions, 49,352 hits; the
+model was loaded on the GPU and never called; the cache holds 23,302 rows before and after).
+(b) the same with `--extractor none --ranking score --active-only on --out
+runs/probe_mnimi_p4ibase.json` — 55 min, concurrent with (a). Full tables, the preflight output
+and both aggregates verbatim: `mnimi docs/PHASE4-RESULTS.md` § Task 7.
+
+**The gate, against the pre-registration:**
+
+| | pre-registered | reading | |
+| --- | --- | --- | --- |
+| (a) `p4i` = `probe_mnimi_p3s.json` on evidence ranks, top-50 sessions, drops, stored | 100/100 | **100/100** | PASS |
+| (a) facts superseded | 46 | **46** (functional 16, numeric 30, negation 0) | PASS |
+| (a) cache misses | 0 | **0 on 100/100** | PASS |
+| (a) ANY@10 / ALL@10 | 93/95, 83/95 | **93/95, 83/95** | PASS |
+| (b) `p4ibase` = `probe_mnimi_p3base.json` | 100/100 | **100/100** | PASS |
+
+Stored, drops, keeps and the extraction counters are Phase 3's to the unit (78,710 stored; 16 /
+536 / 392 / 4,134; keeps 150 / 170 / 6; facts stored 54,515). Clause (b) is D4's invariant on real
+BGE stores rather than on hashing fixtures: default weights and a uniform salience of 1.0 make
+`rank_rounds` return `Store.search_rounds`' rounds in its order, record for record, with
+`active_only` on for good measure — no row moved.
+
+**The numbers Task 8 inherits** (the `p4i` aggregate's `read path:` line, the v1.10 read path):
+**5** salience-0 facts sit under the top-10 rounds and would be rendered, **1** top-10 evidence
+round is carried by a superseded record — `10e09553` evidence #0, the largemouth-bass question
+whose answer *is* the superseded value ("7 largemouth bass", superseded by the 7/22 trip's "9") —
+and **3** are carried by a down-weighted record (the extractor's 0.5 salience on an assistant
+fact). Records decayed: 0, `--consolidate` being off. Gate 4-ii prices exactly this.
+
+**Decision: PASS → Task 8.** Nothing in Tasks 2–7 moved a retrieval row, so the Phase 4 defaults
+are the v1.10 read path on the slice as pre-registered; the landing defaults stay
+(`ranking="similarity"`, `active_only=False`, `MNIMI_DEFAULT_CONSOLIDATE=False`) until gates 4-ii
+and 4-iii decide them.

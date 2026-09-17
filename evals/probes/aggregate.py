@@ -75,6 +75,28 @@ def summarize(rows: list[QuestionProbe]) -> dict:
         "evidence_lost_rows": evidence_lost,
         "rounds": sum(r.n_rounds for r in rows),
         "stored": sum(r.stored for r in rows),
+        # The Phase 4 read side (zero on older probe files: the getattr defaults).
+        "read_path": _read_path(answerable, rows),
+    }
+
+
+def _read_path(answerable: list[QuestionProbe], rows: list[QuestionProbe]) -> dict:
+    """Who carried the top-10 evidence rounds, the stale facts shown, the records decayed."""
+    superseded_carriers, downweighted_carriers = [], []
+    for r in answerable:
+        carriers = getattr(r, "evidence_carriers", []) or []
+        for index, (rank, carrier) in enumerate(zip(r.evidence_ranks, carriers, strict=False)):
+            if carrier is None or not 0 < rank <= 10:
+                continue
+            if carrier[1] == 0:
+                superseded_carriers.append((r.question_id, index))
+            elif carrier[1] < 1:
+                downweighted_carriers.append((r.question_id, index))
+    return {
+        "stale_facts_top10": sum(getattr(r, "stale_facts_top10", 0) for r in rows),
+        "decayed": sum(getattr(r, "decayed", 0) for r in rows),
+        "superseded_carriers_top10": superseded_carriers,
+        "downweighted_carriers_top10": downweighted_carriers,
     }
 
 
@@ -116,6 +138,16 @@ def format_summary(s: dict) -> str:
             + ", ".join(f"{k} {v}" for k, v in (s.get("conflicts") or {}).items())
             + f"; superseded {s.get('superseded', 0)}"
         )
+    rp = s.get("read_path") or {}
+    if any(rp.values()):
+        lines.append(
+            f"read path: stale facts under the top-10 rounds {rp['stale_facts_top10']}; "
+            f"top-10 evidence carried by a superseded record "
+            f"{len(rp['superseded_carriers_top10'])}, by a down-weighted one "
+            f"{len(rp['downweighted_carriers_top10'])}; records decayed {rp['decayed']}"
+        )
+        for qid, index in rp["superseded_carriers_top10"]:
+            lines.append(f"  carried by a superseded fact: {qid} evidence #{index}")
     x = s.get("extraction") or {}
     if x.get("rounds_sent_to_model"):
         sent = x["rounds_sent_to_model"]

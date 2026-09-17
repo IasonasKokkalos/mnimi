@@ -50,9 +50,15 @@ from mnimi.memory import (
     new_extraction_stats,
     round_pieces,
 )
-from mnimi.models import KIND_FACT, KIND_ROUND
+from mnimi.models import KIND_FACT, KIND_ROUND, ScoredRecord
 
 from ..dataset import DEFAULT_SAMPLE_SEED, SAMPLE_STRATIFIED, Question, load
+from ..knobs import (
+    MNIMI_DEFAULT_CONSOLIDATE,
+    add_read_path_flags,
+    consolidate_flag,
+    read_path_knobs,
+)
 from ..runner import _session_to_messages
 from ..systems.mnimi import EVAL_USER_ID
 
@@ -100,6 +106,14 @@ class QuestionProbe:
     screen_keeps: dict = field(default_factory=dict)
     conflicts: dict = field(default_factory=dict)
     superseded: int = 0
+    # The Phase 4 read side, per question (absent from Phase 3 probe files).
+    # evidence_carriers[i] is [kind, salience] of the record that ranked the i-th
+    # evidence round (aligned with evidence_ranks), None when it is not in the top-50;
+    # stale_facts_top10 counts the salience-0 facts the renderer would show under the
+    # top-10 rounds; decayed counts the records the arm's consolidate() moved.
+    evidence_carriers: list = field(default_factory=list)
+    stale_facts_top10: int = 0
+    decayed: int = 0
 
 
 class _Observed:
@@ -129,13 +143,31 @@ class _Observed:
 
 
 def _memory_of(system):
-    """``(store, embedder, config, query_embedding_fn, dedups, extractor)`` for either arm."""
+    """``(store, embedder, config, query_embedding_fn, dedups, extractor, rank_fn)`` for either arm.
+
+    ``rank_fn(query_embedding, k)`` is the arm's own read-path ranking as a list of
+    ``ScoredRecord``: mnimi's ``Memory._rank`` (PHASE4 D6, the function ``recall``
+    calls, without its write-back), naive_rag's ``Store.search_rounds``.
+    """
     if hasattr(system, "_memory"):  # MnimiSystem
         mem = system._memory
-        return mem.store, mem.embedder, mem.config, mem._query_embedding, True, mem.extractor
+
+        def rank_fn(query_embedding, k):
+            return mem._rank(query_embedding, EVAL_USER_ID, k, mem._now_logical(EVAL_USER_ID))
+
+        return (mem.store, mem.embedder, mem.config, mem._query_embedding, True, mem.extractor,
+                rank_fn)
     store, emb, config = system._store, system._embedder, system._config  # NaiveRagSystem
+
+    def rank_fn(query_embedding, k):
+        return [
+            ScoredRecord(record=r, relevance=c, recency=1.0, salience=r.salience, score=c)
+            for r, c in store.search_rounds(query_embedding, user_id=EVAL_USER_ID, k=k)
+        ]
+
     return (
-        store, emb, config, (lambda q: emb.embed([config.query_instruction + q])[0]), False, None
+        store, emb, config, (lambda q: emb.embed([config.query_instruction + q])[0]), False, None,
+        rank_fn,
     )
 
 
@@ -168,7 +200,7 @@ def _exact_key(piece, round_, config):
 def probe_question(system, q: Question) -> QuestionProbe:
     """Ingest one question's haystack through ``system`` and rank its evidence."""
     system.reset()
-    store, embedder, config, query_embedding, dedups, extractor = _memory_of(system)
+    store, embedder, config, query_embedding, dedups, extractor, rank_fn = _memory_of(system)
     observed = _Observed(store)
     # A retrieved record maps back to its round by record id: the walk below
     # mirrors the system's insert order exactly (asserted), so the n-th insert
@@ -257,16 +289,33 @@ def probe_question(system, q: Question) -> QuestionProbe:
                 )
             conflicts = {r: delta[f"conflicts_{r}"] for r in ("negation", "functional", "numeric")}
             superseded = delta["superseded"]
-        # The read path's own search: k counts rounds, every record of one
-        # round collapses to its best-ranked one (Store.search_rounds).
-        hits = store.search_rounds(query_embedding(q.question), user_id=EVAL_USER_ID, k=SEARCH_K)
+        # The arm's one consolidate() before the question, when it is wired (PHASE4 D8):
+        # exactly what get_context does, so the probe ranks the store the reader sees.
+        decay_stats = getattr(getattr(system, "_memory", None), "decay_stats", None)
+        decayed_before = decay_stats["decayed"] if decay_stats is not None else 0
+        wired = getattr(system, "consolidate_if_wired", None)
+        if wired is not None:
+            wired()
+        decayed = (decay_stats["decayed"] - decayed_before) if decay_stats is not None else 0
+        # The read path's own ranking: k counts rounds (PHASE4 D6).
+        hits = rank_fn(query_embedding(q.question), SEARCH_K)
     finally:
         observed.restore()
-    ranked = [id_to_round[r.id] for r, _cos in hits]
+    ranked = [id_to_round[hit.record.id] for hit in hits]
+    carriers: dict[tuple[str, int], list] = {}
+    for hit, key in zip(hits, ranked, strict=True):
+        carriers.setdefault(key, [hit.record.kind, hit.record.salience])
+    stale = 0
+    for hit in hits[:10]:
+        if hit.record.round_key is not None:
+            facts = store.facts_of(EVAL_USER_ID, hit.record.round_key,
+                                   active_only=config.active_only)
+            stale += sum(1 for fact in facts if fact.salience == 0)
     ranks: dict[tuple[str, int], int] = {}
     for rank, (sid, i) in enumerate(ranked, start=1):
         ranks.setdefault((sid, i), rank)
     evidence_ranks = [ranks.get((sid, i), -1) for (sid, i, ev) in all_rounds if ev]
+    evidence_carriers = [carriers.get((sid, i)) for (sid, i, ev) in all_rounds if ev]
     return QuestionProbe(
         question_id=q.question_id,
         category=q.category,
@@ -287,6 +336,9 @@ def probe_question(system, q: Question) -> QuestionProbe:
         screen_keeps=keeps,
         conflicts=conflicts,
         superseded=superseded,
+        evidence_carriers=evidence_carriers,
+        stale_facts_top10=stale,
+        decayed=decayed,
     )
 
 
@@ -315,14 +367,16 @@ def build_extractor(name: str | None):
 
 
 def build(system_name: str, config: MemoryConfig, extractor: str | None = None,
-          extractor_cache: str | None = None):
+          extractor_cache: str | None = None, consolidate: bool | None = None):
     if system_name == "mnimi":
         from ..systems.mnimi import MnimiSystem
 
+        wired = MNIMI_DEFAULT_CONSOLIDATE if consolidate is None else consolidate
         extractor_obj = build_extractor(extractor)
         if extractor_obj is None:
-            return MnimiSystem(config=config)
-        return MnimiSystem(config=config, extractor=extractor_obj, extraction_cache=extractor_cache)
+            return MnimiSystem(config=config, consolidate=wired)
+        return MnimiSystem(config=config, extractor=extractor_obj,
+                           extraction_cache=extractor_cache, consolidate=wired)
     if system_name == "naive_rag":
         from ..systems.naive_rag import NaiveRagSystem
 
@@ -331,8 +385,9 @@ def build(system_name: str, config: MemoryConfig, extractor: str | None = None,
 
 
 def run(system_name: str, limit: int, out: Path, config: MemoryConfig,
-        extractor: str | None = None, extractor_cache: str | None = None) -> list[QuestionProbe]:
-    system = build(system_name, config, extractor, extractor_cache)
+        extractor: str | None = None, extractor_cache: str | None = None,
+        consolidate: bool | None = None) -> list[QuestionProbe]:
+    system = build(system_name, config, extractor, extractor_cache, consolidate)
     questions = load(limit=limit, strategy=SAMPLE_STRATIFIED, seed=DEFAULT_SAMPLE_SEED)
     rows: list[QuestionProbe] = []
     started = time.time()
@@ -390,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         help="path of the extraction cache SQLite file (default: "
         ".cache/extract/<extractor pins hash>.sqlite)",
     )
+    add_read_path_flags(parser)
     args = parser.parse_args(argv)
     instruction = args.query_instruction
     if instruction == "bge":
@@ -409,8 +465,10 @@ def main(argv: list[str] | None = None) -> int:
         knobs["conflict_resolution"] = args.conflict_resolution == "on"
     if args.dedup_entropy_gate is not None:
         knobs["dedup_entropy_gate"] = args.dedup_entropy_gate
+    knobs.update(read_path_knobs(args))
     config = MemoryConfig(**knobs)
-    run(args.system, args.limit, Path(args.out), config, args.extractor, args.extractor_cache)
+    run(args.system, args.limit, Path(args.out), config, args.extractor, args.extractor_cache,
+        consolidate_flag(args))
     return 0
 
 

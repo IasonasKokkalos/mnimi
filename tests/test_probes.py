@@ -282,3 +282,74 @@ def test_probe_counts_conflicts_and_supersessions(tmp_path):
     off = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(conflict_resolution=False),
                       extractor=ScriptedExtractor(script), extraction_cache=tmp_path / "d.sqlite")
     assert retrieval.probe_question(off, _cross_session_question()).superseded == 0
+
+
+# -- Phase 4 Task 7: the probe reads the read path's ranking ---------------------------------
+
+
+def _boston_seattle_script():
+    from mnimi.extract.protocol import ExtractedFact
+
+    def fact(content, raw, obj):
+        return ExtractedFact(content, raw, None, "user", "lives in", obj, 1.0)
+
+    return {
+        "I live in Boston now, by the way.": [
+            fact("The user lives in Boston.", "user: I live in Boston now, by the way.", "Boston")],
+        "Update: I live in Seattle now.": [
+            fact("The user lives in Seattle.", "user: Update: I live in Seattle now.", "Seattle")],
+    }
+
+
+def test_probe_reports_carriers_and_the_stale_facts_the_reader_would_see(tmp_path):
+    from mnimi.extract.fake import ScriptedExtractor
+
+    rows = {}
+    for active_only in (False, True):
+        system = MnimiSystem(embedder=HashingEmbedder(),
+                             config=MemoryConfig(active_only=active_only),
+                             extractor=ScriptedExtractor(_boston_seattle_script()),
+                             extraction_cache=tmp_path / f"c{active_only}.sqlite")
+        rows[active_only] = retrieval.probe_question(system, _cross_session_question())
+    shown, hidden = rows[False], rows[True]
+    assert shown.superseded == hidden.superseded == 1
+    assert shown.stale_facts_top10 == 1, "January's superseded Boston fact renders by default"
+    assert hidden.stale_facts_top10 == 0, "active_only: nothing stale reaches the reader"
+    for row in rows.values():
+        (carrier,) = row.evidence_carriers
+        assert carrier[0] in ("round", "fact") and carrier[1] == 1.0
+    summary = aggregate.summarize([shown])
+    assert summary["read_path"]["stale_facts_top10"] == 1
+    assert "stale facts under the top-10 rounds 1" in aggregate.format_summary(summary)
+
+
+def test_probe_calls_the_arms_consolidate_before_it_ranks():
+    decayed = {}
+    for wired in (True, False):
+        system = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(), consolidate=wired)
+        decayed[wired] = retrieval.probe_question(system, _question()).decayed
+    assert decayed == {True: 1, False: 0}, "the one s2 round is a day older than now_logical"
+
+
+def test_identity_reports_evidence_rounds_crossing_the_top_10():
+    from evals.probes import identity
+
+    a = retrieval.QuestionProbe("q", "multi-session", False, 5, 2, 5, [3, 12], ["s"] * 5)
+    b = retrieval.QuestionProbe("q", "multi-session", False, 5, 2, 5, [11, 4], ["s"] * 5)
+    moves = identity.evidence_moves([a], [b])
+    assert moves == {"left": [("q", 0, 3, 11)], "entered": [("q", 1, 12, 4)]}
+    report = identity.format_report([a], [b])
+    assert "evidence rounds leaving the top-10: 1" in report and "left: q evidence #0" in report
+    assert "evidence rounds entering the top-10: 1" in report
+
+
+def test_aggregate_reports_who_carried_the_top_10_evidence():
+    row = retrieval.QuestionProbe("q", "knowledge-update", False, 5, 3, 5, [2, 5, 30], ["s"] * 5,
+                                  evidence_carriers=[["fact", 0.0], ["fact", 0.5], ["round", 0.0]],
+                                  stale_facts_top10=3, decayed=7)
+    rp = aggregate.summarize([row])["read_path"]
+    assert rp["superseded_carriers_top10"] == [("q", 0)], "rank 30 is outside the top-10"
+    assert rp["downweighted_carriers_top10"] == [("q", 1)]
+    assert (rp["stale_facts_top10"], rp["decayed"]) == (3, 7)
+    text = aggregate.format_summary(aggregate.summarize([row]))
+    assert "carried by a superseded fact: q evidence #0" in text and "records decayed 7" in text
