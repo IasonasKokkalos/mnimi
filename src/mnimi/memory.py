@@ -20,6 +20,7 @@ from .conflict.lexicon import negation_lexicon_hash
 from .conflict.normalize import conflict_rules_hash, normalize_triple
 from .conflict.screens import ACTION_KEEP, Verdict, screen_pair
 from .conflict.supersede import beats, conflict_between, reason
+from .decay import decay_rules_hash
 from .embeddings import Embedder
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
@@ -176,6 +177,8 @@ def guard_kwargs(extractor=None) -> dict:
         # conflict rules — both decide which facts stay active.
         "negation_lexicon_hash": negation_lexicon_hash(),
         "conflict_rules_hash": conflict_rules_hash(),
+        # Phase 4 (D9): the frozen decay and access rules.
+        "decay_rules_hash": decay_rules_hash(),
     }
 
 

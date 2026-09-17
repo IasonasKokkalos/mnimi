@@ -28,7 +28,7 @@ _VEC_TABLE = {KIND_ROUND: "vec_memories", KIND_FACT: "vec_facts"}
 _COLUMNS = (
     "m.id, m.user_id, m.content, m.created_at, m.salience, m.source, m.supersedes, "
     "m.turns, m.round_key, m.kind, m.fact, m.raw, m.subject, m.predicate, m.object, "
-    "m.valid_time, m.time_mention, m.pair_key"
+    "m.valid_time, m.time_mention, m.pair_key, m.last_accessed, m.initial_salience"
 )
 
 
@@ -57,6 +57,7 @@ class Store:
         resolver_version: str,
         negation_lexicon_hash: str,
         conflict_rules_hash: str,
+        decay_rules_hash: str,
         extractor_pins: dict | None = None,
         chunk_tokens: int = 0,
         chunk_overlap: int = 64,
@@ -84,6 +85,9 @@ class Store:
         # rules decide which facts stay active; both are frozen and hashed.
         self.negation_lexicon_hash = negation_lexicon_hash
         self.conflict_rules_hash = conflict_rules_hash
+        # Phase 4 (D9): the decay and access rules that produce the stored
+        # salience and last_accessed.
+        self.decay_rules_hash = decay_rules_hash
         self.resolver_version = resolver_version
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
@@ -120,6 +124,9 @@ class Store:
             # Phase 3 (D3/D12): the sixteenth row. A v1.9 store lacks it and
             # is refused at open.
             "conflict_rules_hash": self.conflict_rules_hash,
+            # Phase 4 (D9): the seventeenth row. A v1.10 store lacks it (and the
+            # last_accessed / initial_salience columns) and is refused at open.
+            "decay_rules_hash": self.decay_rules_hash,
         }
 
     def _init_schema(self) -> None:
@@ -188,7 +195,9 @@ class Store:
                 object       TEXT,
                 valid_time   TEXT,
                 time_mention TEXT,
-                pair_key     TEXT
+                pair_key     TEXT,
+                last_accessed    TEXT NOT NULL,
+                initial_salience REAL NOT NULL DEFAULT 1.0
             )
             """
         )
@@ -231,13 +240,21 @@ class Store:
             )
         if record.kind not in KINDS:
             raise ValueError(f"unknown record kind {record.kind!r}; expected one of {KINDS}")
+        if record.initial_salience is None:
+            record.initial_salience = record.salience
+        if record.last_accessed is None:
+            record.last_accessed = record.created_at
+        for name in ("salience", "initial_salience"):
+            value = getattr(record, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must lie in [0, 1], got {value!r} (PHASE4 D4)")
         cur = self.db.execute(
             """
             INSERT INTO memories
                 (user_id, content, created_at, salience, source, supersedes, turns, round_key,
                  kind, fact, raw, subject, predicate, object, valid_time, time_mention,
-                 pair_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pair_key, last_accessed, initial_salience)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.user_id,
@@ -257,6 +274,8 @@ class Store:
                 record.valid_time,
                 record.time_mention,
                 record.pair_key,
+                record.last_accessed,
+                record.initial_salience,
             ),
         )
         record.id = int(cur.lastrowid)
@@ -418,6 +437,44 @@ class Store:
         )
         self.db.commit()
 
+    def created_ats(self, user_id: str) -> list[str]:
+        """The distinct session timestamps of a user's records — ``now_logical``'s input."""
+        rows = self.db.execute(
+            "SELECT DISTINCT created_at FROM memories WHERE user_id = ? ORDER BY created_at",
+            (user_id,),
+        ).fetchall()
+        return [row["created_at"] for row in rows]
+
+    def active_records(self, user_id: str) -> list[MemoryRecord]:
+        """Every record of the user with ``salience > 0``, both kinds, in id order (decay)."""
+        rows = self.db.execute(
+            f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? AND m.salience > 0 "
+            f"ORDER BY m.id",
+            (user_id,),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
+    def set_saliences(self, updates: list[tuple[int, float]]) -> None:
+        """Write decayed saliences, ``[(record_id, salience)]``, in one transaction."""
+        if not updates:
+            return
+        self.db.executemany(
+            "UPDATE memories SET salience = ? WHERE id = ?",
+            [(salience, record_id) for record_id, salience in updates],
+        )
+        self.db.commit()
+
+    def touch(self, record_ids: list[int], last_accessed: str) -> None:
+        """Set ``last_accessed`` on the records ``recall()`` returned (PHASE4 D2)."""
+        if not record_ids:
+            return
+        marks = ", ".join("?" for _ in record_ids)
+        self.db.execute(
+            f"UPDATE memories SET last_accessed = ? WHERE id IN ({marks})",
+            (last_accessed, *record_ids),
+        )
+        self.db.commit()
+
     def count(self, user_id: str | None = None, kind: str | None = None) -> int:
         """Number of stored memories, optionally scoped to a user and a kind."""
         clauses, params = [], []
@@ -457,4 +514,6 @@ class Store:
             valid_time=row["valid_time"],
             time_mention=row["time_mention"],
             pair_key=row["pair_key"],
+            last_accessed=row["last_accessed"],
+            initial_salience=row["initial_salience"],
         )

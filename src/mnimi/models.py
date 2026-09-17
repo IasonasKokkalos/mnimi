@@ -59,8 +59,22 @@ class MemoryRecord:
     and never stamps wall-clock time. Plays SPEC's ``system_time`` role."""
 
     salience: float = 1.0
-    """How much this memory matters. Drives ranking and decay later. For a
-    fact record, the extractor's grammar-restricted estimate."""
+    """How much this memory matters, in [0, 1]: the ranking multiplier under
+    ``ranking="score"`` (PHASE4 D4). Written at insert (the extractor's
+    grammar-restricted estimate for a fact, 1.0 for a round), lowered toward
+    ``decay_floor`` by ``consolidate()`` (D3), set to 0 by supersession and
+    only by supersession."""
+
+    initial_salience: float | None = None
+    """The salience the record was inserted with; never updated (PHASE4 D3).
+    Decay recomputes ``salience`` from it, so a pass is a pure function of
+    stored fields (twice = once) and an access restores the full value at the
+    next pass. ``Store.insert`` fills it from ``salience`` when unset."""
+
+    last_accessed: str | None = None
+    """The session timestamp this record was last returned by ``recall()`` at
+    (``now_logical``), initialized to ``created_at`` at insert (SPEC
+    §MemoryRecord, PHASE4 D2). Decay counts days from it."""
 
     source: str = "message"
     """Provenance, e.g. ``"user+assistant"`` (the round's roles)."""

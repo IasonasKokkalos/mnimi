@@ -336,9 +336,9 @@ def test_meta_guard_requires_the_phase3_rows_and_refuses_a_v19_store(tmp_path):
     rows = dict(store.db.execute("SELECT key, value FROM memory_meta").fetchall())
     assert rows["negation_lexicon_hash"] == negation_lexicon_hash() != "none"
     assert rows["conflict_rules_hash"] == conflict_rules_hash()
-    # Sixteen rows: the four embedder rows, the R4 pair, five extractor rows,
-    # the four extraction-era rows (negation lexicon now live), and this one.
-    assert len(rows) == 16
+    # Seventeen rows since Phase 4: the four embedder rows, the R4 pair, five
+    # extractor rows, the four extraction-era rows, this one, decay_rules_hash.
+    assert len(rows) == 17
     store.db.execute("DELETE FROM memory_meta WHERE key = 'conflict_rules_hash'")
     store.db.execute("UPDATE memory_meta SET value = 'none' WHERE key = 'negation_lexicon_hash'")
     store.db.commit()
@@ -385,3 +385,68 @@ def test_supersede_updates_salience_and_the_winner_link(tmp_path):
     store.supersede(loser.id, winner.id)  # idempotent at the store too
     assert store.active_facts_by_pair("u", "user|lives in")[0].supersedes == loser.id
     assert store.active_facts_by_pair("u", "user|other") == []
+
+
+# -- Phase 4 Task 2: last_accessed, initial_salience, the seventeenth guard row ---------------
+
+
+def test_meta_guard_requires_decay_rules_hash_and_refuses_a_v110_store(tmp_path):
+    from mnimi.decay import decay_rules_hash
+
+    store = _open(tmp_path / "p4.db")
+    rows = dict(store.db.execute("SELECT key, value FROM memory_meta").fetchall())
+    assert rows["decay_rules_hash"] == decay_rules_hash() and len(rows) == 17
+    store.db.execute("DELETE FROM memory_meta WHERE key = 'decay_rules_hash'")
+    store.db.commit()
+    store.close()
+    with pytest.raises(MemoryMetaError, match="decay_rules_hash"):
+        _open(tmp_path / "p4.db")
+
+
+def test_insert_initializes_last_accessed_and_initial_salience(tmp_path):
+    store = _open(tmp_path / "la.db")
+    vec = [1.0] + [0.0] * 255
+    fact = store.insert(MemoryRecord(user_id="u", content="f", embedding=vec,
+                                     created_at="2023/05/20 (Sat) 09:00", kind="fact",
+                                     fact="f", raw="assistant: f", salience=0.5))
+    assert fact.last_accessed == "2023/05/20 (Sat) 09:00" and fact.initial_salience == 0.5
+    given = store.insert(MemoryRecord(user_id="u", content="g", embedding=vec,
+                                      created_at="2023-05-20", last_accessed="2023-06-01",
+                                      salience=0.3, initial_salience=1.0))
+    rows = {r.id: r for r in store.active_records("u")}
+    assert (rows[fact.id].last_accessed, rows[fact.id].initial_salience) == (
+        "2023/05/20 (Sat) 09:00", 0.5)
+    assert (rows[given.id].last_accessed, rows[given.id].salience,
+            rows[given.id].initial_salience) == ("2023-06-01", 0.3, 1.0)
+
+
+def test_insert_refuses_a_salience_outside_the_unit_interval(tmp_path):
+    store = _open(tmp_path / "range.db")
+    for field in ({"salience": 1.5}, {"salience": -0.1}, {"initial_salience": 2.0}):
+        with pytest.raises(ValueError, match="salience"):
+            store.insert(MemoryRecord(user_id="u", content="x", embedding=None,
+                                      created_at="2023-05-20", **field))
+    assert store.count("u") == 0
+
+
+def test_decay_store_reads_and_writes(tmp_path):
+    store = _open(tmp_path / "rw.db")
+    vec = [1.0] + [0.0] * 255
+    a = store.insert(MemoryRecord(user_id="u", content="a", embedding=vec,
+                                  created_at="2023/05/20 (Sat) 09:00"))
+    b = store.insert(MemoryRecord(user_id="u", content="b", embedding=vec,
+                                  created_at="2023/06/01 (Thu) 08:00"))
+    c = store.insert(MemoryRecord(user_id="u", content="c", embedding=vec,
+                                  created_at="2023/06/01 (Thu) 08:00", salience=0.0))
+    store.insert(MemoryRecord(user_id="other", content="d", embedding=vec, created_at="2024-01-01"))
+    assert store.created_ats("u") == ["2023/05/20 (Sat) 09:00", "2023/06/01 (Thu) 08:00"]
+    assert [r.id for r in store.active_records("u")] == [a.id, b.id], "salience 0 is not active"
+    store.set_saliences([(a.id, 0.25), (b.id, 0.5)])
+    store.touch([a.id], "2023/06/01 (Thu) 08:00")
+    rows = {r.id: r for r in store.active_records("u")}
+    assert rows[a.id].salience == 0.25 and rows[a.id].initial_salience == 1.0
+    assert rows[a.id].last_accessed == "2023/06/01 (Thu) 08:00"
+    assert rows[b.id].salience == 0.5 and rows[b.id].last_accessed == "2023/06/01 (Thu) 08:00"
+    store.set_saliences([])
+    store.touch([], "2099-01-01")
+    assert c.id not in {r.id for r in store.active_records("u")}
