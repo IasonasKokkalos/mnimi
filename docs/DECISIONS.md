@@ -2810,3 +2810,65 @@ fact). Records decayed: 0, `--consolidate` being off. Gate 4-ii prices exactly t
 are the v1.10 read path on the slice as pre-registered; the landing defaults stay
 (`ranking="similarity"`, `active_only=False`, `MNIMI_DEFAULT_CONSOLIDATE=False`) until gates 4-ii
 and 4-iii decide them.
+
+## Gate 4-ii read: the exclusion priced — ANY@10 93/95, ALL@10 83/95, 0 evidence rounds left — PASS (2026-09-17)
+
+**The instrument.** `python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100
+--active-only on --ranking similarity --out runs/probe_mnimi_p4x.json` (58 min, cache replayed with
+`'misses': 0` on 100/100, 23,302 rows before and after), read with `evals.probes.aggregate` and
+`evals.probes.identity` against gate 4-i's `runs/probe_mnimi_p4i.json`. Beside it, reported and not
+gated: `p4s` (`--ranking score`, 46 min) and `p4d` (the same plus `--consolidate on`, 46 min). All
+three at HEAD = the Task 7 commit `77f4b97` plus the fix `0ccdaa9` below; $0. Full tables, the
+classified 46 and all three aggregates verbatim: `mnimi docs/PHASE4-RESULTS.md` § Task 8.
+
+**The gate, against the pre-registration:**
+
+| | pre-registered | `p4i` | `p4x` | |
+| --- | --- | --- | --- | --- |
+| ANY@10 | ≥ 93/95 | 93/95 | **93/95** | PASS |
+| ALL@10 | ≥ 83/95 | 83/95 | **83/95** | PASS |
+| evidence rounds leaving the top-10 | 0 | — | **0** | PASS |
+| validity: misses / supersessions / stale facts under the top-10 | 0 / 46 / — | 0 / 46 / 5 | **0 / 46 / 0** | ok |
+
+The exclusion's whole cost on the slice is one row: `10e09553`'s first evidence round falls from
+rank 1 to rank 6 — still retrieved, now carried by the round's own record instead of the superseded
+"7 largemouth bass" fact that the question actually asks for. Four other rows differ only outside
+the top-10 (first divergence at ranks 13, 34, 35, 38). Five stale facts stop being rendered.
+
+**The 46 supersessions, classified by hand under D5's rubric** (each reason quotes its log line;
+the source turn decides where the line cannot): refinement **11**, enumeration **17**, coexisting
+**13**, coexisting? **2**, update **3**. False positives as a range: **low 28** (refinement +
+enumeration), **high 43** (plus coexisting and the undecided rows). The pre-registration expected
+≥ 29 lines: **held on the high reading, not on the low one** — two `midtown -> downtown san
+francisco` rows leave refinement (the source shows a stay against a base) and `segment 3 ->
+segment 4` joins enumeration (Phase 4's own rubric example; Phase 3 filed it as an update). Only
+three of 46 lines are the "value changed" case the rule is for. Two extraction failure modes
+account for much of the rest: dropped hyphens in ranges (`6-7 hours` → `67`) and third-party
+numbers attributed to the user (two personas' ages and incomes, a word problem's minutes).
+
+**The two reported probes.** `p4s` (SPEC's score, no decay) reorders most top-50 lists — 33/100
+identical — but moves no evidence round across the top-10 boundary and leaves ANY@10 / ALL@10 at
+93 / 83; down-weighted carriers fall 3 → 0, because a round's own record outranks its 0.5-salience
+facts. `p4d` (score + `--consolidate on`, 60,545 records decayed) is the first configuration in
+this phase to move recall: **ANY@10 93 → 89, ALL@10 83 → 75**, 13 evidence rounds leaving the
+top-10 and 2 entering, the loss concentrated in knowledge-update (ALL@10 14 → 8) while
+temporal-reasoning gains a row. Decay at SPEC's values is therefore expected to cost the sitting's
+arm C, not to help it — recorded here before the arms run.
+
+**Predictions:** P1 held (`p4x` = `p4i` on 95/100, bar ≥ 95), P2 held (`p4s` = `p4x` on 33/100,
+bar ≤ 50), P3 held (`p4d` = `p4s` on 13/100, bar ≤ 50).
+
+**One crash and its fix, disclosed.** The first `p4d` run raised `sqlite3.OperationalError: k value
+in knn query too large, provided 6400 and the limit is 4096` on question 1. `Store._knn` requested
+`max(k * 8, k)` rows without clamping to sqlite-vec's 4,096 limit, so any caller wanting more than
+512 rows raised; `rank_rounds`' exact-top-k loop reaches 800 once decayed saliences lower the k-th
+score (the bound assumes salience 1.0). Latent since v1 — `search_rounds` grows the same way.
+Fixed at the source in `0ccdaa9` (`min(max(k * 8, k), MAX_KNN_ROWS)`, `MAX_KNN_ROWS = 4096`) with a
+regression test; tests 391 → 392. The clamp binds only above 512 rows and every earlier probe call
+was below it (they completed), so no reading taken before the fix moved and gate 4-i stands. Task 8
+was specified as "no code": the sitting's commit therefore carries `src/mnimi/store.py` and
+`tests/test_store.py` beside this entry, and nothing else.
+
+**Decision: PASS.** Arms B and C run `--active-only on`, and `MemoryConfig.active_only` defaults to
+`True` in Task 9's adoption commit. No lexicon, rule, threshold or other default was touched in
+response to any number above.
