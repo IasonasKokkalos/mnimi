@@ -24,6 +24,14 @@ from .models import KIND_FACT, KIND_ROUND, KINDS, MemoryRecord
 #: (``negation_lexicon_hash`` carried it until Phase 3 built the lexicon.)
 GUARD_NONE = "none"
 
+#: sqlite-vec refuses a KNN query whose ``k`` is above this (its compiled-in
+#: limit), so the ``k * 8`` over-fetch below is clamped to it: a caller asking
+#: for more rows than the index will hand back gets every row it has, not an
+#: ``OperationalError``. Only a caller wanting more than 512 rows is affected —
+#: ``rank_rounds`` reaches that when decayed saliences lower the k-th score and
+#: its exact-top-k loop has to read deep into the store (PHASE4 D4).
+MAX_KNN_ROWS = 4096
+
 _VEC_TABLE = {KIND_ROUND: "vec_memories", KIND_FACT: "vec_facts"}
 _COLUMNS = (
     "m.id, m.user_id, m.content, m.created_at, m.salience, m.source, m.supersedes, "
@@ -292,7 +300,10 @@ class Store:
     ) -> list[sqlite3.Row]:
         # KNN over the vector index is global, so we over-fetch and then filter
         # by user (and, with active_only, by salience > 0) — otherwise a busy
-        # neighbour could crowd out the queried user.
+        # neighbour could crowd out the queried user. The over-fetch is capped at
+        # the extension's own limit (MAX_KNN_ROWS): past it the query raises
+        # instead of returning fewer rows, and fewer rows is what the callers
+        # already handle (a short result ends rank_rounds' and search_rounds' loops).
         active = " AND m.salience > 0" if active_only else ""
         return self.db.execute(
             f"""
@@ -307,7 +318,11 @@ class Store:
             WHERE m.user_id = ?{active}
             ORDER BY knn.distance
             """,
-            (sqlite_vec.serialize_float32(embedding), max(k * 8, k), user_id),
+            (
+                sqlite_vec.serialize_float32(embedding),
+                min(max(k * 8, k), MAX_KNN_ROWS),
+                user_id,
+            ),
         ).fetchall()
 
     def _has_facts(self, user_id: str) -> bool:

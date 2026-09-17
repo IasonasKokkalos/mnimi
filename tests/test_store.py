@@ -450,3 +450,16 @@ def test_decay_store_reads_and_writes(tmp_path):
     store.set_saliences([])
     store.touch([], "2099-01-01")
     assert c.id not in {r.id for r in store.active_records("u")}
+def test_search_survives_a_k_whose_overfetch_exceeds_the_vec0_limit(tmp_path):
+    # sqlite-vec caps a KNN query at k = 4096 rows; _knn asks for k * 8 to leave
+    # room for the user filter, so a caller asking for more than 512 rows used to
+    # raise "k value in knn query too large". rank_rounds grows its candidate pool
+    # (k, 4k, 16k, ...) and reaches 800 once decayed saliences lower the k-th score
+    # (PHASE4 Task 8: the p4d probe died there on question 1).
+    store = _open(tmp_path / "knnlimit.db")
+    vec = [1.0] + [0.0] * 255
+    for i in range(3):
+        store.insert(MemoryRecord(user_id="u", content=f"r{i}", embedding=vec,
+                                  created_at="2023-05-20"))
+    assert len(store.search(vec, "u", k=800)) == 3, "every record the user has, no raise"
+    assert len(store.search_rounds(vec, "u", k=800)) == 3
