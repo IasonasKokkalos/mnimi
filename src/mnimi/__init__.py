@@ -2,5 +2,6 @@
 
 from .config import MemoryConfig
 from .memory import Memory
+from .models import ScoredRecord
 
-__all__ = ["Memory", "MemoryConfig"]
+__all__ = ["Memory", "MemoryConfig", "ScoredRecord"]

@@ -7,7 +7,9 @@ present; a config field nothing reads is dead weight.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from .embeddings import BGE_QUERY_INSTRUCTION
 
@@ -59,6 +61,26 @@ class MemoryConfig:
     down-ranks, never excludes; 0 is reserved for supersession. A record
     inserted below the floor keeps its initial value (decay never raises).
     Must lie in (0, 1]. A harness flag (``--decay-floor``) and a pin."""
+
+    ranking: str = "similarity"
+    """How ``recall`` orders rounds (PHASE4 D4). ``"similarity"`` — the default
+    until gate 4-iii decides — is the v1.10 read path byte for byte:
+    ``Store.search_rounds``, a round by its most similar record, stored salience
+    not read. ``"score"`` is SPEC §Ranking: every record scored
+    ``(w_sim * relevance + w_rec * recency) * salience``, a round by its best
+    record, the exact top-k by score (``mnimi.ranking.rank_rounds``); the
+    extractor's salience (0.5 on most of the assistant's facts) and decay reach
+    the ranking only here. A harness flag (``--ranking``) and a pin."""
+
+    salience_weights: Mapping[str, float] = field(
+        default_factory=lambda: MappingProxyType({"similarity": 1.0, "recency": 0.0})
+    )
+    """SPEC §Ranking's two weights, read only under ``ranking="score"``:
+    ``similarity`` on the cosine, ``recency`` on
+    ``0.5 ** (days since the record's session / decay_half_life_days)``. SPEC's
+    defaults: similarity alone (LongMemEval §5.1); a recency weight > 0 is a
+    FUTURE item with a trigger and is never set in a run. Exactly those two keys,
+    each finite and >= 0. A harness flag (``--salience-weights``) and a pin."""
 
     dedup_scope: str = "session"
     """Where the cosine dedup screen looks for a duplicate.

@@ -24,7 +24,8 @@ from .decay import decay_rules_hash, decayed_salience, logical_days, now_logical
 from .embeddings import Embedder
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
-from .models import KIND_FACT, KIND_ROUND, MemoryRecord
+from .models import KIND_FACT, KIND_ROUND, MemoryRecord, ScoredRecord
+from .ranking import RANKING_SIMILARITY, RANKINGS, check_weights, rank_rounds, score_hit
 from .store import Store
 
 log = logging.getLogger("mnimi.memory")
@@ -387,6 +388,9 @@ class Memory:
             raise ValueError("decay_half_life_days must be > 0")
         if not 0 < config.decay_floor <= 1:
             raise ValueError("decay_floor must lie in (0, 1]")
+        if config.ranking not in RANKINGS:
+            raise ValueError(f"unknown ranking {config.ranking!r}; expected one of {RANKINGS}")
+        check_weights(config.salience_weights)
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -606,15 +610,39 @@ class Memory:
         (embedding,) = self.embedder.embed([self.config.query_instruction + query])
         return embedding
 
-    def recall(self, query: str, user_id: str) -> list[MemoryRecord]:
-        """Raw retrieval: the nearest stored rounds, no assembly.
+    def _rank(
+        self, query_embedding: list[float], user_id: str, k: int, now: str | None
+    ) -> list[ScoredRecord]:
+        """The ``k`` best rounds under ``config.ranking``, no side effect (PHASE4 D4, D6).
 
-        ``k`` counts rounds: a round's records (R4 windows; the round record
-        and its facts) collapse to the best-ranked one (``Store.search_rounds``).
+        One function for ``recall`` and the retrieval probe, so the two cannot
+        disagree. ``"similarity"`` is ``Store.search_rounds`` untouched, score =
+        relevance; ``"score"`` is ``mnimi.ranking.rank_rounds``.
         """
-        query_embedding = self._query_embedding(query)
-        hits = self.store.search_rounds(query_embedding, user_id=user_id, k=self.config.top_k)
-        return [record for record, _cosine in hits]
+        if self.config.ranking == RANKING_SIMILARITY:
+            hits = self.store.search_rounds(query_embedding, user_id=user_id, k=k)
+            return [
+                score_hit(record, cosine, now, self.config.decay_half_life_days, None)
+                for record, cosine in hits
+            ]
+        return rank_rounds(
+            self.store,
+            query_embedding,
+            user_id,
+            k,
+            weights=self.config.salience_weights,
+            half_life_days=self.config.decay_half_life_days,
+            now=now,
+        )
+
+    def recall(self, query: str, user_id: str) -> list[ScoredRecord]:
+        """Retrieval: the ``top_k`` best rounds with their component scores, no assembly.
+
+        ``k`` counts rounds: a round's records (R4 windows; the round record and
+        its facts) collapse to one ``ScoredRecord``, the round's representative.
+        """
+        now = self._now_logical(user_id)
+        return self._rank(self._query_embedding(query), user_id, self.config.top_k, now)
 
     def get_context(self, query: str, user_id: str) -> str:
         """Assemble recalled memories into a single context string for a reader.
@@ -631,7 +659,7 @@ class Memory:
         ``content``, which is the embed text and stays frozen when this format
         evolves.
         """
-        records = _time_ordered(self.recall(query, user_id))
+        records = _time_ordered([hit.record for hit in self.recall(query, user_id)])
         return render_records(
             records,
             fmt=self.config.render_format,

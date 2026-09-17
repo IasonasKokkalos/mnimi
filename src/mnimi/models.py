@@ -122,3 +122,25 @@ class MemoryRecord:
     store-wide without a vector (PHASE3 D2). ``None`` for round records and
     for facts whose triple is null or empties under normalization. Derived,
     never rendered, never embedded."""
+
+
+@dataclass(frozen=True)
+class ScoredRecord:
+    """A retrieved record with its ranking components — ``Memory.recall``'s return type.
+
+    SPEC §ScoredRecord. ``record`` is the round's representative: the record
+    of the round that ranked it (under ``ranking="score"`` the round's
+    best-scoring record; under ``"similarity"`` its most similar one).
+    """
+
+    record: MemoryRecord
+    relevance: float
+    """Cosine of the query and the record, ``1 - d**2 / 2`` (``Store.search``'s number)."""
+    recency: float
+    """``0.5 ** (logical days from the record's session to now_logical / half-life)``;
+    1.0 when either side is undated (PHASE4 D4)."""
+    salience: float
+    """The record's stored salience when it was ranked."""
+    score: float
+    """The rank: ``relevance`` under ``ranking="similarity"``;
+    ``(w_sim * relevance + w_rec * recency) * salience`` under ``"score"``."""

@@ -149,15 +149,15 @@ def test_role_is_metadata_not_embedded_in_content(tmp_path):
     (content,) = memory.store.contents("u1")
     assert "user:" not in content and "assistant:" not in content
 
-    [record] = memory.recall("dinner", "u1")
-    assert record.source == "user+assistant"
+    [hit] = memory.recall("dinner", "u1")
+    assert hit.record.source == "user+assistant"
 
 
 def test_round_record_carries_the_session_ts(tmp_path):
     memory = _memory(tmp_path)
     memory.add([_message("I moved to Thessaloniki", ts="2023-07-01")], user_id="u1")
-    [record] = memory.recall("where do I live", "u1")
-    assert record.created_at == "2023-07-01"
+    [hit] = memory.recall("where do I live", "u1")
+    assert hit.record.created_at == "2023-07-01"
 
 
 def test_add_requires_ts_on_messages(tmp_path):
@@ -289,7 +289,8 @@ def test_stored_record_carries_verbatim_turns_for_rendering(tmp_path):
         ],
         user_id="u1",
     )
-    [record] = memory.recall("dinner", "u1")
+    [hit] = memory.recall("dinner", "u1")
+    record = hit.record
     assert record.turns == [
         {"role": "user", "content": "what should I cook for the dinner party?"},
         {"role": "assistant", "content": "a mushroom risotto pairs well"},
@@ -543,7 +544,7 @@ def test_recall_counts_rounds_not_windows_when_chunking(tmp_path):
     m.add([_message(long_turn), _message("ok", role="assistant")], user_id="u")
     m.add([_message("something else entirely, about gardening", ts="2023-05-21")], user_id="u")
     recalled = m.recall("fact3 fact4 fact5", "u")
-    assert len(recalled) == 2 and len({r.round_key for r in recalled}) == 2
+    assert len(recalled) == 2 and len({hit.record.round_key for hit in recalled}) == 2
     assert m.get_context("fact3", "u").count("[Session date:") == 2, "two rounds, both rendered"
 
 
@@ -779,9 +780,9 @@ def test_fact_records_carry_their_pair_key(tmp_path):
     m.add([_message("I moved to Seattle.", ts="2023-05-20")], user_id="u")
     m.add([_message("I feel happy about it all.", ts="2023-05-21")], user_id="u")
     by_key = {}
-    for record in m.recall("Seattle happy", "u"):
-        assert record.pair_key is None or record.kind == "fact", "a round has no pair key"
-        for fact in m.store.facts_of("u", record.round_key):
+    for hit in m.recall("Seattle happy", "u"):
+        assert hit.record.pair_key is None or hit.record.kind == "fact", "a round has no pair key"
+        for fact in m.store.facts_of("u", hit.record.round_key):
             by_key[fact.fact] = fact.pair_key
     assert by_key == {"The user moved to Seattle.": "user|lives in", "The user feels happy.": None}
 
@@ -1051,3 +1052,45 @@ def test_decay_runs_whatever_conflict_resolution_says(tmp_path):
     m = _aged_memory(tmp_path, conflict_resolution=False)
     m.consolidate("u")
     assert _saliences(m)["I planted tomatoes in the community garden"] == (0.25, 1.0)
+
+
+# -- Phase 4 Task 4: the ranking layer, ScoredRecord, recall() --------------------------------
+
+
+def test_config_has_the_ranking_fields_and_validates_them(tmp_path):
+    config = MemoryConfig()
+    assert config.ranking == "similarity"
+    assert dict(config.salience_weights) == {"similarity": 1.0, "recency": 0.0}
+    for bad in ({"ranking": "bm25"}, {"salience_weights": {"similarity": 1.0}}):
+        with pytest.raises(ValueError, match="ranking|salience_weights"):
+            Memory(str(tmp_path / "bad.db"), HashingEmbedder(), MemoryConfig(**bad))
+
+
+def test_recall_returns_scored_records_in_the_v110_order(tmp_path):
+    from mnimi import ScoredRecord
+
+    m = _aged_memory(tmp_path)
+    hits = m.recall("tomatoes in the garden", "u")
+    assert all(isinstance(hit, ScoredRecord) for hit in hits)
+    expected = m.store.search_rounds(m._query_embedding("tomatoes in the garden"), "u", k=10)
+    assert [(hit.record.id, hit.relevance) for hit in hits] == [(r.id, c) for r, c in expected]
+    assert all(hit.score == hit.relevance for hit in hits), "similarity: score is relevance"
+    by_ts = {hit.record.created_at: hit for hit in hits}
+    assert by_ts[_NEW].recency == 1.0 and by_ts[_OLD].recency == pytest.approx(0.25)
+    assert all(hit.salience == hit.record.salience == 1.0 for hit in hits)
+
+
+def test_score_ranking_reads_the_stored_salience(tmp_path):
+    # January Boston is superseded by June Seattle: under "similarity" the
+    # superseded fact still represents its round; under "score" it scores 0 and
+    # the round is represented by its own record.
+    ranked = {}
+    for ranking in ("similarity", "score"):
+        m = _scripted_memory(tmp_path / f"{ranking}.db", _VALUE_SCRIPT, ranking=ranking)
+        _two_sessions(m, list(_VALUE_SCRIPT))
+        ranked[ranking] = {hit.record.created_at: hit for hit in m.recall("Boston", "u")}
+    january = "2023/01/10 (Tue) 09:00"
+    assert ranked["similarity"][january].record.kind == "fact"
+    assert ranked["similarity"][january].record.salience == 0.0
+    assert ranked["score"][january].record.kind == "round"
+    assert ranked["score"][january].score == ranked["score"][january].relevance > 0
