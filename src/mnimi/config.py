@@ -47,6 +47,19 @@ class MemoryConfig:
     never touches a round record or the read path. A harness flag
     (``--conflict-resolution``) and a pin."""
 
+    decay_half_life_days: float = 30.0
+    """Logical days over which ``consolidate()`` halves an active record's
+    salience since its ``last_accessed`` (SPEC write path step 5, PHASE4 D3).
+    SPEC's default, unmeasured and never tuned on the benchmark; also the time
+    constant of the ``recency`` component (D4). Must be > 0. A harness flag
+    (``--decay-half-life-days``) and a pin."""
+
+    decay_floor: float = 0.15
+    """The salience decay never goes below (SPEC CHANGELOG #11): decay
+    down-ranks, never excludes; 0 is reserved for supersession. A record
+    inserted below the floor keeps its initial value (decay never raises).
+    Must lie in (0, 1]. A harness flag (``--decay-floor``) and a pin."""
+
     dedup_scope: str = "session"
     """Where the cosine dedup screen looks for a duplicate.
 

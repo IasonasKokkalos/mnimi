@@ -20,7 +20,7 @@ from .conflict.lexicon import negation_lexicon_hash
 from .conflict.normalize import conflict_rules_hash, normalize_triple
 from .conflict.screens import ACTION_KEEP, Verdict, screen_pair
 from .conflict.supersede import beats, conflict_between, reason
-from .decay import decay_rules_hash
+from .decay import decay_rules_hash, decayed_salience, logical_days, now_logical
 from .embeddings import Embedder
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
@@ -383,6 +383,10 @@ class Memory:
             )
         _check_render_format(config.render_format)
         _check_render_unit(config.render_unit)
+        if not config.decay_half_life_days > 0:
+            raise ValueError("decay_half_life_days must be > 0")
+        if not 0 < config.decay_floor <= 1:
+            raise ValueError("decay_floor must lie in (0, 1]")
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -399,6 +403,9 @@ class Memory:
         # The same for the Phase 3 stage: pairs screened and kept, conflicts
         # found and facts superseded (the probe reports them by category).
         self.conflict_stats = new_conflict_stats()
+        # The decay pass of consolidate() (PHASE4 D3): passes run, records whose
+        # stored salience moved, records now at the floor. Never a pin.
+        self.decay_stats = new_decay_stats()
 
     def add(self, messages, user_id: str) -> None:
         """Write path: one round record per user+assistant round, plus one fact
@@ -633,19 +640,49 @@ class Memory:
         )
 
     def consolidate(self, user_id: str) -> None:
-        """Resolve conflicts across one user's facts: an idempotent full pass (PHASE3 D7).
+        """Resolve conflicts, then decay: two idempotent passes (PHASE3 D7, PHASE4 D3).
 
-        The same decision ``add()`` makes per fact, applied to every pair of
-        active facts on one ``pair_key`` in ``(id_i < id_j)`` order — so a
-        store built by ``add()`` with ``conflict_resolution`` on is already
-        consistent and this is a no-op, and calling it twice is calling it
-        once. Reads the pair index only: a negation pair that met through the
-        cosine screen with null triples was settled by ``add()`` and is not
-        re-derived here. Decay (Phase 4) is not here yet. Deliberately not
-        called by the eval harness (``evals/systems/mnimi.py``).
+        The conflict pass (only when ``config.conflict_resolution``) is the
+        same decision ``add()`` makes per fact, applied to every pair of active
+        facts on one ``pair_key`` in ``(id_i < id_j)`` order — a no-op on a
+        store built by ``add()``; it reads the pair index only. The decay pass
+        (always) rewrites every active record's salience from its
+        ``initial_salience`` and its ``last_accessed`` against ``now_logical``
+        (``mnimi.decay``). Both are pure functions of stored fields: calling
+        ``consolidate`` twice is calling it once. The eval harness calls it
+        only when the arm is built with ``consolidate=True`` (PHASE4 D8).
         """
-        if not self.config.conflict_resolution:
-            return None
+        if self.config.conflict_resolution:
+            self._resolve_all_conflicts(user_id)
+        self._decay(user_id)
+        return None
+
+    def _now_logical(self, user_id: str) -> str | None:
+        """The latest session timestamp in the user's store (PHASE4 D1); never a clock."""
+        return now_logical(self.store.created_ats(user_id))
+
+    def _decay(self, user_id: str) -> None:
+        """SPEC write path step 5 over every active record of both kinds (PHASE4 D3)."""
+        now = self._now_logical(user_id)
+        self.decay_stats["passes"] += 1
+        if now is None:
+            return
+        updates: list[tuple[int, float]] = []
+        for record in self.store.active_records(user_id):
+            days = logical_days(now, record.last_accessed)
+            new = decayed_salience(record.initial_salience, days,
+                                   self.config.decay_half_life_days, self.config.decay_floor)
+            if new == record.salience:
+                continue
+            updates.append((record.id, new))
+            self.decay_stats["decayed"] += 1
+            self.decay_stats["at_floor"] += new == self.config.decay_floor
+            log.info("decayed %s: %d days since last access, salience %.4f -> %.4f",
+                     record.id, days, record.salience, new)
+        self.store.set_saliences(updates)
+
+    def _resolve_all_conflicts(self, user_id: str) -> None:
+        """The conflict pass of ``consolidate`` (PHASE3 D7), unchanged."""
         groups: dict[str, list[MemoryRecord]] = {}
         for fact in self.store.facts_with_pair_key(user_id):
             groups.setdefault(fact.pair_key, []).append(fact)
@@ -663,7 +700,6 @@ class Memory:
                         self._supersede(earlier, later, rule)
                     else:
                         self._supersede(later, earlier, rule)
-        return None
 
 
 def new_extraction_stats() -> dict:
@@ -677,6 +713,11 @@ def new_extraction_stats() -> dict:
         "truncated_inputs": 0,
         "facts": 0,
     }
+
+
+def new_decay_stats() -> dict:
+    """Counters of the decay pass (PHASE4 D3)."""
+    return {"passes": 0, "decayed": 0, "at_floor": 0}
 
 
 def new_conflict_stats() -> dict:

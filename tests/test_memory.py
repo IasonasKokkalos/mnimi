@@ -681,11 +681,11 @@ def test_config_has_the_phase3_fields_with_spec_defaults():
     assert MemoryConfig(conflict_resolution=False, dedup_entropy_gate=1.5).dedup_entropy_gate == 1.5
 
 
-def _fact(content, raw, subject=None, predicate=None, obj=None, when=None):
+def _fact(content, raw, subject=None, predicate=None, obj=None, when=None, salience=1.0):
     from mnimi.extract.protocol import ExtractedFact
 
     return ExtractedFact(content=content, raw=raw, when=when, subject=subject,
-                         predicate=predicate, object=obj, salience=1.0)
+                         predicate=predicate, object=obj, salience=salience)
 
 
 def _scripted_memory(db_path, script, **config):
@@ -897,7 +897,9 @@ def test_consolidate_is_idempotent_and_matches_add(tmp_path):
     off2 = _scripted_memory(tmp_path / "c3.db", _VALUE_SCRIPT, conflict_resolution=False)
     _two_sessions(off2, list(_VALUE_SCRIPT))
     off2.consolidate("u")
-    assert all(r.salience == 1.0 for r in off2.store.facts_with_pair_key("u")), "off means off"
+    facts = off2.store.facts_with_pair_key("u")
+    assert all(r.supersedes is None and r.salience > 0 for r in facts), (
+        "off means no supersession; decay is its own pass (PHASE4 D3)")
 
 
 def test_cosine_negation_pair_supersedes_only_without_a_pair_key(tmp_path):
@@ -940,3 +942,112 @@ def test_cosine_negation_pair_supersedes_only_without_a_pair_key(tmp_path):
     for text in mixed:
         a.add([_message(text, ts="2023-05-20")], user_id="u")
     assert a.conflict_stats["kept_negation"] == 1 and a.conflict_stats["superseded"] == 0
+
+
+# -- Phase 4 Task 3: decay inside consolidate() ----------------------------------------------
+
+
+def test_config_has_the_decay_fields_with_spec_defaults_and_validates_them(tmp_path):
+    config = MemoryConfig()
+    assert config.decay_half_life_days == 30.0 and config.decay_floor == 0.15
+    for bad in ({"decay_half_life_days": 0.0}, {"decay_floor": 0.0}, {"decay_floor": 1.5}):
+        with pytest.raises(ValueError, match="decay"):
+            Memory(str(tmp_path / "bad.db"), HashingEmbedder(), MemoryConfig(**bad))
+
+
+_OLD, _NEW, _LATER = "2023/05/01 (Mon) 09:00", "2023/06/30 (Fri) 09:00", "2023/08/29 (Tue) 09:00"
+
+
+def _saliences(m):
+    return {r.content.split("] ", 1)[1]: (r.salience, r.initial_salience)
+            for r in m.store.active_records("u") if r.kind == "round"}
+
+
+def _aged_memory(tmp_path, **config):
+    m = Memory(str(tmp_path / "aged.db"), HashingEmbedder(), MemoryConfig(**config))
+    m.add([_message("I planted tomatoes in the community garden", ts=_OLD)], user_id="u")
+    m.add([_message("my violin lesson moved to thursdays", ts=_NEW)], user_id="u")
+    return m
+
+
+def test_consolidate_decays_every_active_record_by_logical_age(tmp_path):
+    m = _aged_memory(tmp_path)
+    m.consolidate("u")
+    assert _saliences(m) == {
+        "I planted tomatoes in the community garden": (0.25, 1.0),  # 60 days, two half-lives
+        "my violin lesson moved to thursdays": (1.0, 1.0),  # the session now_logical names
+    }
+    assert m.decay_stats == {"passes": 1, "decayed": 1, "at_floor": 0}
+
+
+def test_consolidate_decays_facts_from_their_extracted_salience(tmp_path):
+    script = {"Which trellis should I buy for my tomatoes?": [
+        _fact("The assistant recommended a cedar trellis.", "assistant: get a cedar trellis",
+              "assistant", "recommended", "cedar trellis", salience=0.5)]}
+    m = _scripted_memory(tmp_path / "f.db", script)
+    m.add([_message("Which trellis should I buy for my tomatoes?", ts="2023/05/31 (Wed) 09:00"),
+           _message("Get a cedar trellis.", role="assistant", ts="2023/05/31 (Wed) 09:00")],
+          user_id="u")
+    m.add([_message("my violin lesson moved to thursdays", ts=_NEW)], user_id="u")
+    m.consolidate("u")
+    (fact,) = [r for r in m.store.active_records("u") if r.kind == "fact"]
+    assert fact.initial_salience == 0.5 and fact.salience == pytest.approx(0.25)
+
+
+def test_decay_clamps_at_the_floor_and_never_touches_a_superseded_fact(tmp_path):
+    m = _scripted_memory(tmp_path / "s.db", _VALUE_SCRIPT)
+    _two_sessions(m, list(_VALUE_SCRIPT))  # January Boston, superseded by June Seattle
+    m.consolidate("u")
+    by_object = {r.object: r for r in m.store.facts_with_pair_key("u")}
+    assert by_object["Boston"].salience == 0.0, "salience 0 is supersession's, never decayed"
+    assert by_object["Seattle"].salience == 1.0
+    (old_round,) = [r for r in m.store.active_records("u")
+                    if r.kind == "round" and r.created_at.startswith("2023/01")]
+    assert old_round.salience == 0.15 and m.decay_stats["at_floor"] == 1
+
+
+def test_consolidate_twice_is_consolidate_once_exactly(tmp_path):
+    m = _aged_memory(tmp_path)
+    m.consolidate("u")
+    first = [(r.id, r.salience) for r in m.store.active_records("u")]
+    m.consolidate("u")
+    assert [(r.id, r.salience) for r in m.store.active_records("u")] == first
+    assert m.decay_stats["decayed"] == 1, "the second pass moved nothing"
+
+
+def test_an_access_restores_the_initial_salience_at_the_next_pass(tmp_path):
+    m = _aged_memory(tmp_path)
+    m.consolidate("u")
+    old = [r for r in m.store.active_records("u") if r.created_at == _OLD]
+    m.store.touch([old[0].id], _NEW)
+    m.consolidate("u")
+    assert _saliences(m)["I planted tomatoes in the community garden"] == (1.0, 1.0)
+
+
+def test_a_later_session_moves_now_logical(tmp_path):
+    m = _aged_memory(tmp_path)
+    m.consolidate("u")
+    m.add([_message("booked a ferry to the islands", ts=_LATER)], user_id="u")
+    m.consolidate("u")
+    assert _saliences(m) == {
+        "I planted tomatoes in the community garden": (0.15, 1.0),  # 120 days: 0.0625 clamps
+        "my violin lesson moved to thursdays": (0.25, 1.0),
+        "booked a ferry to the islands": (1.0, 1.0),
+    }
+
+
+def test_decay_logs_one_line_per_moved_record(tmp_path, caplog):
+    import logging
+
+    m = _aged_memory(tmp_path)
+    with caplog.at_level(logging.INFO, logger="mnimi"):
+        m.consolidate("u")
+    (old,) = [r for r in m.store.active_records("u") if r.created_at == _OLD]
+    assert f"decayed {old.id}: 60 days since last access, salience 1.0000 -> 0.2500" in caplog.text
+    assert caplog.text.count("decayed ") == 1
+
+
+def test_decay_runs_whatever_conflict_resolution_says(tmp_path):
+    m = _aged_memory(tmp_path, conflict_resolution=False)
+    m.consolidate("u")
+    assert _saliences(m)["I planted tomatoes in the community garden"] == (0.25, 1.0)
