@@ -2917,3 +2917,84 @@ Say of this family "score reproducible within 6/100 flips; text not reproducible
 **Cost:** readers $2.3316 + judges $0.2287 = **$2.5603** (pre-registered ≈ $2.6; projected upper
 bound $3.5075). Ledger: $16.2953 of $50, $33.7047 remaining. The three arms are published under
 `results/published/mnimi__100q_gpt4o_{p4base,p4rank,p4decay}/`.
+
+## Phase 4 closes: the SPEC deviations in one place, and what the phase leaves for Phase 5 (2026-09-18, v1.11.0)
+
+**Deviations from SPEC, each disclosed where it was decided and collected here** (PHASE4 D1–D12;
+"Phase 4 pre-registration", "Gate 4-i read", "Gate 4-ii read", "Gate 4-iii read"):
+
+1. **The retriever selects the top-k by score, not by vector then score** (D4, CHANGELOG #18).
+   §Retriever's "KNN top-k → attach component scores" would rank only what the vector already
+   chose, and since `get_context` re-sorts by time, salience and decay could never change what the
+   reader sees — the required decay ablation would have measured nothing. `rank_rounds` is exact
+   (growing batches, a sound stop bound) and equals `Store.search_rounds` under uniform salience:
+   tested in CI and measured 100/100 on the slice's real stores (gate 4-i(b)).
+2. **`initial_salience`, a column SPEC's table does not list** (D3). Decay recomputes `salience`
+   from it, so the pass is a pure function of stored fields — `consolidate()` twice is
+   `consolidate()` once, bit for bit — and an access restores the full value at the next pass. A
+   watermark column could do neither.
+3. **Decay never raises a salience and both kinds decay** (D3): `max(min(decay_floor,
+   initial_salience), …)` keeps a record inserted below the floor where it is, and rounds decay
+   with their facts (otherwise an old round would keep ranking on its undecayed round record while
+   only its facts sank).
+4. **The decay log line carries the record id** and Phase 3's ASCII arrow: `decayed {id}: {days}
+   days since last access, salience {old} -> {new}` (D3).
+5. **`recency` shares `decay_half_life_days`** — one time constant, no new knob (D4).
+6. **`ranking` and `active_only` are switches SPEC did not foresee** (D4, D5, D10), adopted at
+   `"score"` and `True` by the pre-registered rules; `"similarity"` / `False` remain the v1.10 read
+   path, byte for byte, and two tests pin it.
+7. **The `last_accessed` write-back covers each returned round's representative record** (D2), not
+   every fact the renderer shows under it — SPEC's "returned hits" read literally. Under the eval
+   protocol it cannot move a number (one query per fresh store) and it is shipped because SPEC
+   lists the field and decay reads it.
+8. **`recall_min_relevance = 0.0` means off by definition** (D7) — the drop is skipped rather than
+   applied as "cosine >= 0", and it is applied after the top-k, with nothing filling the gap. Never
+   set in a run.
+9. **The extractor's salience is SPEC's multiplier start, priced rather than overridden** (D4). On
+   the cache it is a speaker flag (user facts 30,730/30,750 at 1.0; assistant facts 21,734/24,530
+   at 0.5), so `"score"` halves most assistant facts before any decay. What that cost: nothing at
+   the reader — arm B (87) beat arm A (86) — and on the probe it moved one evidence round inside
+   the top-10 (`38146c39`, rank 5 → 10) while removing all three down-weighted top-10 carriers.
+10. **`consolidate()` reaches the harness behind a pinned switch** (D8), `--consolidate`, default
+    off; `MnimiSystem` marks a store pending on `add()` and consolidates once before the question.
+11. **Seventeen guard rows** (`decay_rules_hash`, D9) and **pins schema /10** (eight mnimi-only
+    keys). A v1.10 store is refused at open by name.
+12. **The salience-0 exclusion moved from PLAN row 5.1 into this phase** (D5) and was priced before
+    it shipped: gate 4-ii, 0 evidence rounds out of the top-10.
+13. **v1.11.0, not v2.0.0** (D12): `recall()` converged on SPEC's locked return type
+    (`list[ScoredRecord]`) rather than breaking it — v1.10's `list[MemoryRecord]` was the disclosed
+    divergence.
+
+**What the phase measured.** Gate 4-i: both probes identical to Phase 3's on **100/100** questions
+(46 supersessions, `misses: 0`, ANY@10 93/95, ALL@10 83/95) — Tasks 2–7 moved no retrieval row.
+Gate 4-ii: the exclusion costs the slice one evidence round five ranks (`10e09553`, 1 → 6, still
+retrieved) and hides five stale facts; ANY@10 and ALL@10 unchanged, **0** evidence rounds lost, so
+`active_only` ships on. The 46 supersessions classified by hand: refinement 11, enumeration 17,
+coexisting 13, undecided 2, update 3 — **28 to 43 of 46 are false positives** of the exact-match
+rules, two extraction failure modes behind much of it (dropped hyphens in ranges, third-party
+values attributed to the user). Reported probes: the score ranking leaves ANY@10 / ALL@10 at 93/83
+while reordering most top-50 lists; decay drops them to **89/75** with 13 evidence rounds out of
+the top-10. The sitting (three arms, one clean commit `25cde7f`, $2.5603): **86 / 87 / 81**, A → B
+b=2 c=1 (score adopted), B → C b=2 c=8 (**decay at −6 points**, not wired), A → C b=2 c=7. Tests
+348 → 392, ruff clean, CI reproduced on 3.11 and 3.12 with the `[dev]` extra alone before every
+commit. Hands-on ≈ 4.5 h against ≈ 25 planned, plus ≈ 7 h of unattended probe and batch time;
+$2.56 of $50, $33.70 remaining.
+
+**One bug found and fixed inside the phase, disclosed** ("Gate 4-ii read"): `Store._knn` never
+clamped its `k * 8` over-fetch to sqlite-vec's 4,096-row limit, so any caller wanting more than 512
+rows raised. `rank_rounds` reaches that depth once decayed saliences lower the k-th score; the
+limit was latent since v1 (`search_rounds` grows the same way). Fixed at the source with a
+regression test (`0ccdaa9`), the crashed run kept; the clamp binds only above 512 rows, so no
+earlier reading moved.
+
+**What it leaves for Phase 5.** (a) `export()` — the last of the five locked methods; (b)
+`context_token_budget` and `raw` in the rendered block — the fed-token lever, still untouched at
+~5,300 tokens a question; (c) concurrency (WAL, one write queue, `consolidate` serialized with
+`add`, FUTURE.md § Concurrency); (d) **the n=500 sitting, which SPEC §Benchmark contract requires
+to report decay-on vs decay-off**: with decay now off by default that means an extra decay-on arm
+beside the four, ≈ $3.5 by batch at n=500, and PLAN §4.1 is re-projected for it; (e) the source
+provenance pointer (`conversation_id/turn_id/role`), still Phase E; (f) two open questions this
+phase raised rather than settled — whether a shorter half-life or a recency weight > 0 would turn
+decay from a cost into a gain (both are FUTURE items with triggers, and neither may be selected on
+LongMemEval), and whether the exact-match conflict rules should learn containment, which the 46
+say costs 28–43 false supersessions today. v1.11.0.

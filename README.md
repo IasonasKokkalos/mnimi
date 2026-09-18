@@ -352,23 +352,26 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.10.0. The block above is the locked contract; what ships today
+Pre-alpha, v1.11.0. The block above is the locked contract; what ships today
 is narrower. Built: per-round ingestion; the one LLM the library will ever
 call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
 extra) whose facts are stored beside each round; dedup as exact match, one
 cosine probe (`dedup_cosine_threshold=0.95`) and, for facts, the negation,
 value-substitution and entropy screens; conflict resolution and supersession
-over a frozen, hashed lexicon (`consolidate()` is the same decision as an
-idempotent pass); top-k retrieval over `sqlite-vec`; the one shared context
-renderer (two framings, three units, one pinned hash each); the `memory_meta`
-guard (sixteen rows) that refuses a store built under different pins; the
-real `BAAI/bge-small-en-v1.5` embedder behind the `[embed]` extra (the default
+over a frozen, hashed lexicon; **the read side — SPEC's ranking
+(`(w_sim·relevance + w_rec·recency)·salience` over an exact top-k of rounds),
+`recall()` returning `ScoredRecord`, the salience-0 exclusion, the
+`last_accessed` write-back — and decay with its half-life and floor inside
+`consolidate()`**; the one shared context renderer (two framings, three units,
+one pinned hash each); the `memory_meta` guard (seventeen rows, decay's rules
+among them) that refuses a store built under different pins; the real
+`BAAI/bge-small-en-v1.5` embedder behind the `[embed]` extra (the default
 import path is a numpy hashing placeholder); and the full five-arm eval
-harness. Not built: decay and the salience multiplier, ranking, the
-salience-0 exclusion on the read path (a superseded fact still renders),
-`export()`; `recall()` currently returns plain records without the score.
-`docs/SPEC.md` § "v1 as built" is the exact list; the rest of SPEC describes
-the target.
+harness. Decay is built, measured and **off by default**: the pre-registered
+ablation read it at −6 points on n=100, so the harness calls `consolidate()`
+only behind `--consolidate`. Not built: `export()`, the context token budget,
+`raw` in the rendered block. `docs/SPEC.md` § "v1 as built" is the exact list;
+the rest of SPEC describes the target.
 
 See [docs/SPEC.md](docs/SPEC.md) for the contract,
 [docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions, and

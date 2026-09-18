@@ -87,9 +87,16 @@ resolution. Both roles are in extraction scope.
   records keep `EMBED_TEMPLATE` byte for byte, so no v1 vector moved.
 - **Ranking:** `score = (w_sim·relevance + w_rec·recency) · salience`, defaults
   `{similarity: 1.0, recency: 0.0}`. Salience is a multiplier, not a term. No
-  `access_count` — inert under the eval protocol.
-- **Salience 0 means superseded, and only that.** Decay clamps at `decay_floor`
-  (0.15): it down-ranks, never excludes.
+  `access_count` — inert under the eval protocol. **Built in Phase 4 and adopted**
+  (`MemoryConfig.ranking = "score"`): the k rounds are *selected* by score over an
+  exact candidate pool, not scored after a vector top-k (SPEC CHANGELOG #18) — read
+  literally, the spec'd order would make decay unable to change what the reader sees.
+  With uniform salience it equals `Store.search_rounds` record for record (tested;
+  gate 4-i(b) on 100 real stores).
+- **Salience 0 means superseded, and only that**, and `Store.insert` refuses a
+  salience outside [0, 1]. Decay clamps at `decay_floor` (0.15): it down-ranks,
+  never excludes. The read path reads salience since v1.11.0 — as the ranking
+  multiplier and, under `active_only`, as the active-record filter.
 - **Conflict (Phase 3, built 2026-09-15/16; gates 3-i and 3-ii passed, `mnimi docs/PHASE3.md` D1–D12):**
   only fact records conflict; a round is evidence and is never superseded (D1).
   The negation lexicon (`mnimi/conflict/lexicon.py`: 19 contractions, 20
@@ -113,6 +120,22 @@ resolution. Both roles are in extraction scope.
   write path byte for byte. **The read path is untouched (D8):** a superseded
   fact still ranks and renders until Phase 4 reads `salience`, so nothing in
   Phase 3 moved a benchmark number and none is claimed.
+- **Decay and the read side (Phase 4, built 2026-09-17/18; gates 4-i, 4-ii, 4-iii,
+  `mnimi docs/PHASE4.md` D1–D12).** All time stays logical: `now_logical` is the
+  user's latest dated session timestamp (`mnimi.decay`), never a clock and never the
+  question's date. Decay lives in `consolidate()` after the conflict pass, over every
+  record with `salience > 0` of both kinds: `salience = max(min(decay_floor,
+  initial_salience), initial_salience · 0.5 ** (days(now_logical, last_accessed) /
+  decay_half_life_days))`, one transaction, one `decayed {id}: …` line at INFO. The
+  rules are frozen and hashed — `decay_rules_hash = d4a0bcf07330…`, the seventeenth
+  `memory_meta` row — and `initial_salience` (the inserted value, never updated) is
+  what makes the pass idempotent and an access restorative. Adopted defaults:
+  `ranking="score"` (gate 4-iii: 87 vs 86, b=2, c=1) and `active_only=True` (gate
+  4-ii: 0 evidence rounds left the top-10). **Decay itself is built, measured and
+  off**: wired into the harness behind `--consolidate` only, because the sitting read
+  it at **−6 points** (81 vs 87, b=2, c=8) — SPEC's required decay-on/off ablation,
+  reported as the negative result it is. `recall()` returns `list[ScoredRecord]`;
+  `recall_min_relevance` ships at 0.0 (off by definition) and is never set in a run.
 - **Benchmark = LongMemEval** (`longmemeval_s`, ~500 questions). The harness in
   `evals/` is the source of truth.
 - **Baselines — five systems, roles marked.** `no_memory` (the floor);
@@ -171,12 +194,14 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 - **`memory_meta` guard.** Embedder name/revision/dim, embed-template hash,
   extractor model/quant/runtime/decode-hash/prompt-hash, negation-lexicon hash,
   conflict-rules hash, prefilter-lexicon hash. Written once at DB creation, all
-  checked on load, mismatch raises. (**Sixteen rows** since Phase 3, 2026-09-15
+  checked on load, mismatch raises. (**Seventeen rows** since Phase 4, 2026-09-17
   — the four embedder rows, the R4 chunk pair, the five extractor rows or the
   literal `"none"`, `negation_lexicon_hash` live at `330604b5772e…`,
   `conflict_rules_hash` `7d19c48828c8…`, `prefilter_lexicon_hash`,
-  `fact_embed_template_hash`, `resolver_version`; the v1.9 header's "thirteen"
-  was a miscount of fifteen; a v1.8 or v1.9 store is refused.) Editing a lexicon or prompt is a versioned migration plus re-ingest
+  `fact_embed_template_hash`, `resolver_version`, and Phase 4's `decay_rules_hash`
+  `d4a0bcf07330…` over the nine frozen lines of `mnimi.decay.DECAY_RULES`; the v1.9
+  header's "thirteen" was a miscount of fifteen; a v1.8, v1.9 or v1.10 store is
+  refused.) Editing a lexicon or prompt is a versioned migration plus re-ingest
   — never an in-place edit under a run.
 - **Normalize at the boundary.** Any insert path that bypasses `embeddings.py`
   breaks ranking correctness silently.
@@ -225,7 +250,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   session scope + the BGE query instruction, naive_rag 82, primary b=2, c=3.
   Phase 2 (2026-09-15, `043c0ea`): `mnimi__100q_gpt4o_{p2base,extract,extract_facts}`
   and `naive_rag__100q_gpt4o_p2` at `82aa8b5` — 80 / 84 / 78 / 79; extraction
-  adopted with `round+facts`; primary mnimi 84 vs naive_rag 79, b=7, c=2, p=0.18.**
+  adopted with `round+facts`; primary mnimi 84 vs naive_rag 79, b=7, c=2, p=0.18.
+  Phase 4 (2026-09-18, `378a19c`): the three-arm ablation at `25cde7f` —
+  `mnimi__100q_gpt4o_p4base` 86 (the v1.10 read path), `…_p4rank` **87** (SPEC's read
+  path, adopted), `…_p4decay` 81 (with decay, not adopted); A→B b=2 c=1, B→C b=2 c=8
+  (decay X=−6), `provisional: []` throughout.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **A run that cannot be projected cannot spend.** On the API family the
@@ -323,6 +352,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   p=0.18 — ahead, not significant; the verdict is Phase 5's n=500). Phase 3
   closed 2026-09-16 at $0: gates 3-i and 3-ii passed, the screens and supersede
   are the library default; no benchmark number moved and none is claimed (D8).
+  Phase 4 closed 2026-09-18 for $2.56: gates 4-i (identity 100/100) and 4-ii (the
+  exclusion priced, 0 evidence rounds lost) passed, and the three-arm sitting read
+  86 / 87 / 81 — SPEC's read path adopted (b=2, c=1), decay measured at −6 points
+  (b=2, c=8) and left off. The adopted arm is 87 beside the published naive_rag 79
+  and oracle 90, descriptively; the primary is Phase 5's n=500.
 
 ## Scope rule
 
@@ -385,9 +419,21 @@ python -m evals.probes.aggregate runs/probe_mnimi_p3s.json                      
 # gate 3-ii: the seeded demo set through ScriptedExtractor, mnimi vs the v1.9 path; the exit code IS the gate:
 python -m evals.probes.conflict_demo --seed 0 --out runs/conflict_demo.json
 python -m evals.probes.conflict_demo --seed 0 --embedder bge --extractor qwen3 --out runs/conflict_demo_qwen3.json  # descriptive, never the gate
+# Phase 4 (PHASE4, 2026-09-17/18). Seven read-path flags, pins schema /10; the probes are $0
+# and replay the cache (`misses: 0` or stop). gate 4-i (identity under the landing defaults):
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --out runs/probe_mnimi_p4i.json
+python -m evals.probes.retrieval --system mnimi --extractor none --limit 100 --ranking score --active-only on --out runs/probe_mnimi_p4ibase.json
+# gate 4-ii (the salience-0 exclusion priced) and the two reported probes:
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --active-only on --ranking similarity --out runs/probe_mnimi_p4x.json
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --active-only on --ranking score --out runs/probe_mnimi_p4s.json
+python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --active-only on --ranking score --consolidate on --out runs/probe_mnimi_p4d.json
+# gate 4-iii, the three-arm ablation sitting (one arm in flight at a time, never chained):
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only off --ranking similarity --consolidate off --run-dir runs/mnimi__100q_gpt4o_p4base --verify-drift results/published/mnimi__100q_gpt4o_extract
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only on --ranking score --consolidate off --run-dir runs/mnimi__100q_gpt4o_p4rank
+python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only on --ranking score --consolidate on --run-dir runs/mnimi__100q_gpt4o_p4decay
 ```
 
-## Current state vs SPEC (as of v1.10.0, 2026-09-16; library = the extraction era + Phase 3's screens and supersede, both gates passed)
+## Current state vs SPEC (as of v1.11.0, 2026-09-18; library = the extraction era, Phase 3's screens and supersede, and Phase 4's decay, ranking and read side — ranking and the salience-0 exclusion adopted, decay built and off)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -486,31 +532,35 @@ ACTUAL" says why.
   pass, descriptive only: 42/42 of the pairs the model keyed resolved, 57/200
   rounds `[]`). Gates read in DECISIONS "Gate 3-i read", "Supersede lands",
   "Gate 3-ii read", "Phase 3 closes".
+- **The read side (PHASE4, 2026-09-17/18; `mnimi docs/PHASE4.md`, results in
+  `mnimi docs/PHASE4-RESULTS.md`, report in `mnimi docs/PHASE4-REPORT.md`).**
+  `src/mnimi/decay.py` (`now_logical`, `logical_days`, `decayed_salience`, the frozen
+  `DECAY_RULES` + `decay_rules_hash`), `src/mnimi/ranking.py` (`recency`,
+  `combined_score`, `check_weights`, `score_hit`, `rank_rounds` — the exact top-k),
+  `ScoredRecord`, `MemoryRecord.{last_accessed, initial_salience}`, the salience range
+  check at insert, `Store.{created_ats, active_records, set_saliences, touch}` and the
+  `active_only` keyword through `_knn` / `search` / `search_rounds` / `facts_of`,
+  `Memory.{_rank, _now_logical, _decay, _resolve_all_conflicts, decay_stats}`, six new
+  `MemoryConfig` fields, `evals/knobs.py` (seven flags, one definition), pins schema
+  /10, `MnimiSystem(consolidate=)` with `consolidate_if_wired()`, and the probe's
+  carriers / stale-fact / decay counters plus `identity.evidence_moves`. Measured, all
+  on the slice at $0 except the sitting: gate 4-i PASS (100/100 identical to Phase 3's
+  probes, 46 supersessions, `misses: 0`), gate 4-ii PASS (ANY@10 93/95, ALL@10 83/95,
+  **0** evidence rounds out of the top-10; the 46 supersessions classified by hand —
+  28–43 of them false positives of the exact-match rules), the score probe unchanged at
+  93/83 and the decay probe down at 89/75; gate 4-iii (the sitting, $2.56) 86 / 87 / 81
+  with decay at −6 points. Tests 348 → 392.
 
 **Still absent:**
 
 - `export()` — the public surface is 4 of the 5 locked methods.
-- `ScoredRecord` — `recall()` returns `list[MemoryRecord]` and drops the cosine
-  at the facade; the score is available one layer down.
-- `last_accessed`. `created_at` carries `ts` and plays the `system_time` role.
-  (`raw`, the triple and `valid_time` exist on fact records since 2026-09-13.)
-- Decay. Conflict / supersede are live (Phase 3); `salience` and `supersedes`
-  are written by supersession and **read by nothing on the read path** (D8) —
-  a superseded fact still ranks and renders until Phase 4's active-record
-  filter, which has to price the two false-positive classes Task 3 read on the
-  slice (containment refinements on `lives in`, enumerations on a numeric
-  residue).
-- The ranking layer. Order is raw vec0 L2 ascending, which for unit vectors is
-  exactly cosine-descending — so v1 *collapses to* the spec'd default
-  (`similarity 1.0`, `recency 0.0`, salience uniformly 1.0) by construction
-  rather than by computing it; salience-0 records are still ranked. Weights and
-  the salience multiplier land with decay.
-- `context_token_budget`, `raw` in the rendered block, the salience-0 exclusion,
-  the active-record filter, `recall_min_relevance`.
-- `consolidate()` is live (the idempotent conflict pass; no decay in it yet) —
-  and `systems/mnimi.py` deliberately does not call it, so the benchmark cannot
-  change without an explicit edit in `evals/` (Phase 4.3 wires it as the
-  explicit decision).
+- `context_token_budget` and `raw` in the rendered block.
+- Decay in the *harness*: `consolidate()` is live and wired behind
+  `--consolidate`, but `MNIMI_DEFAULT_CONSOLIDATE = False` — gate 4-iii read decay
+  at −6 points, so no benchmark arm calls it unless asked. The library pass itself is
+  built and tested.
+- A recency weight > 0 and `recall_min_relevance` > 0: both ship at SPEC's defaults
+  (0.0), neither has ever been run — FUTURE.md items with triggers.
 - `source` holds the round's roles (`"user+assistant"`), not the spec'd
   `conversation_id/turn_id/role` provenance pointer (deferred to Phase E).
 
@@ -527,6 +577,9 @@ ACTUAL" says why.
   `330604b5772e…` / `7d19c48828c8…`, pinned by tests): an edit is a version
   bump, a new hash, a re-ingest and a dated DECISIONS entry — and never to make
   a gate pass.
+- Do not edit `mnimi.decay.DECAY_RULES` in place (hash `d4a0bcf07330…`, pinned by a
+  test): an edit is a version bump, a new hash, a re-ingest and a dated DECISIONS
+  entry, never in place and never to make a gate pass.
 - Do not select a dedup threshold against LongMemEval again — further threshold
   selection on this benchmark is prohibited, and the 0.95 selection evidence
   cannot be regenerated.
