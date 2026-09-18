@@ -551,10 +551,26 @@ ACTUAL" says why.
   93/83 and the decay probe down at 89/75; gate 4-iii (the sitting, $2.56) 86 / 87 / 81
   with decay at −6 points. Tests 348 → 392.
 
+- **Close-out (PHASE5 Tasks 9–10, 2026-09-18; `mnimi docs/PHASE5.md`).** `export()` — the
+  fifth and last locked public method: `src/mnimi/export.py` + `Store.all_records`, read-only
+  and deterministic, rounds through the one shared renderer (a test compares the bytes), a
+  superseded fact shown and **marked** rather than dropped, no clock, and unreachable from
+  `evals/systems/` (an import-graph test), which is why it cannot move a number. Concurrency:
+  one connection with WAL, `synchronous=NORMAL`, `BUSY_TIMEOUT_SECONDS = 30.0` and
+  `check_same_thread=False` (the store and the extraction cache alike), plus one
+  `threading.RLock` on `Memory` through a `_serialized` decorator over `add` / `consolidate` /
+  `recall`. The connection was thread-HOSTILE before this, not merely unserialized — a second
+  thread raised `ProgrammingError`, so the flag and the lock are one change. L17's third log
+  format went from `log.debug("kept: ...")` to `routed to conflict: {reason} on {pair}` at
+  INFO. Tests 392 → 407.
+
 **Still absent:**
 
-- `export()` — the public surface is 4 of the 5 locked methods.
-- `context_token_budget` and `raw` in the rendered block.
+- `context_token_budget` and `raw` in the rendered block — **decided, not pending** (PHASE5
+  D3/D4, 2026-09-18): SPEC's budget of 2000 would cut ~60 % of the measured context (the
+  adopted arm feeds 5,302 reader prompt tokens) and `raw` duplicates a span the adopted
+  `round+facts` block already renders verbatim. Both moved to `docs/FUTURE.md` with triggers,
+  so criterion (a) is "SPEC-complete **modulo two disclosed render deviations**", never bare.
 - Decay in the *harness*: `consolidate()` is live and wired behind
   `--consolidate`, but `MNIMI_DEFAULT_CONSOLIDATE = False` — gate 4-iii read decay
   at −6 points, so no benchmark arm calls it unless asked. The library pass itself is

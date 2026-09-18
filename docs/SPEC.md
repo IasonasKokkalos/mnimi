@@ -196,7 +196,7 @@ wires against this section, not against the target sections.**
 | Spec'd | v1 status | Where |
 |---|---|---|
 | `add` / `recall` / `get_context` / `consolidate` | shipped — `consolidate(user_id)` runs the Phase 3 conflict pass and then **Phase 4's decay pass** (2026-09-17): every active record's salience is rewritten from its `initial_salience` and `last_accessed` against `now_logical`, so both passes are pure functions of stored fields (twice = once). `recall()` returns `list[ScoredRecord]`. The eval harness calls `consolidate()` only when an arm is built with `consolidate=True` (`--consolidate`, default **off** since gate 4-iii read decay at −6 points) | `memory.py` |
-| `export` | **not built** — the public surface is 4 of 5 methods | — |
+| `export` | **built** (Phase 5, 2026-09-18): `export(user_id) -> str`, the fifth and last locked method. A read-only, deterministic dump — no embedder, no model, no query, no clock (the header's "now" is `now_logical`). Records group by session oldest-first; each round renders through the ONE shared renderer (a test compares the bytes against `render_records`, so the dump can never become a second format) and its facts follow as indented lines carrying `salience`, `initial_salience` when it differs, `valid_time`, `pair_key` and `supersedes`. A superseded fact is shown and **marked**, never dropped — a dump whose omissions are invisible is not an audit trail. `MemoryConfig.render_format` is deliberately not consulted: one format, because this library has one renderer. No module under `evals/systems/` may import it (an import-graph test), which is what makes it unable to move a benchmark number | `export.py`, `memory.py` |
 | `MemoryConfig` | **16 fields** — three of the spec'd nine plus seven the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). **Phase 3 (v1.10.0):** `dedup_entropy_gate=2.0` (this document's field at its default, untuned — it gates the cosine merge of FACT pairs after the two screens abstain) and `conflict_resolution=True` (D11, unforeseen: the one switch for the screens, the gate and supersession; `False` is the v1.9 write path byte for byte). **Phase 4 (v1.11.0):** `decay_half_life_days=30.0` and `decay_floor=0.15` (SPEC's values, validated in `Memory()`, never tuned), `ranking="score"` (adopted at gate 4-iii: 87 vs 86, b=2, c=1; `"similarity"` is the v1.10 read path), `active_only=True` (adopted at gate 4-ii: 0 evidence rounds left the top-10), `salience_weights={similarity 1.0, recency 0.0}` (SPEC's) and `recall_min_relevance=0.0` (off by definition, never set in a run). Every one is a harness flag and a pin (schema /10). A field no code reads is not present | `config.py` |
 | `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`, **plus Phase 3's** `pair_key` (the normalized `subject|predicate` of a fact's triple, indexed on `(user_id, pair_key)`; `None` for rounds and null triples). **plus Phase 4's** `last_accessed` (`TEXT NOT NULL`, `created_at` at insert, `now_logical` on every record `recall()` returns) and `initial_salience` (`REAL NOT NULL`, the value the record was inserted with, never updated — decay recomputes `salience` from it). `created_at` carries `ts` and plays the `system_time` role; `Store.insert` refuses a salience outside [0, 1]. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
 | `ScoredRecord` | **built** (Phase 4, 2026-09-17): a frozen dataclass `record, relevance, recency, salience, score` exported from `mnimi`; `recall()` returns `list[ScoredRecord]` in score order, `record` being the round's representative. `get_context` unwraps `.record` and renders exactly as before (the render tests pin the bytes) | `models.py`, `memory.py` |
@@ -304,6 +304,12 @@ signature, reached rather than broken, which is why this is v1.11.0 and not v2.0
 `consolidate` runs the conflict pass and then the decay pass (both idempotent); the eval
 harness calls it only behind `--consolidate`, which gate 4-iii left off. `export` is still
 the one method that does not exist.
+
+**v1 as built (Phase 5, 2026-09-18):** **all five exist.** `export(user_id) -> str` landed as
+the locked signature; `Store.all_records` is the read behind it — a new method, because
+`active_records` filters `salience > 0` (it is decay's input) while export must show a
+superseded record rather than hide it. The
+public surface is now exactly the five methods this document locks, and it stays there.
 
 ## `MemoryConfig`
 
@@ -1233,6 +1239,28 @@ SQLite serializes writers even in WAL mode. All writes go through a single
 connection/queue; WAL enabled for concurrent reads. Background
 `consolidate()` must not race a live `add()` — same queue.
 
+**v1 as built (Phase 5, 2026-09-18): built, as a lock rather than a queue.** `Store` opens
+**one** connection with `PRAGMA journal_mode=WAL`, `PRAGMA synchronous=NORMAL`, a
+`BUSY_TIMEOUT_SECONDS = 30.0` busy timeout (python's default is 5 s) and
+`check_same_thread=False`; `CachedExtractor` takes the same timeout. `Memory` holds one
+`threading.RLock`, applied through a `_serialized` decorator to the three methods that write —
+`add`, `consolidate` and `recall` (whose `last_accessed` write-back is a write) — so
+`consolidate()` cannot race a live `add()`. Re-entrant because these call into one another
+(`get_context` calls `recall`; `consolidate` calls the conflict and decay passes).
+
+Two disclosed deviations from the sentence above. **(a) A lock, not a queue.** A queue means a
+thread and a command object per operation; a lock over three call sites is what a
+single-process library needs, and "one file, no server" is the whole pitch. **(b) The
+connection was not merely unserialized — it was thread-hostile.** `sqlite3.connect` defaults
+to `check_same_thread=True`, so a second thread raised `ProgrammingError` before any lock could
+matter; SPEC's "single connection" therefore needs that flag **and** the lock, and the flag is
+only safe *because* the lock exists. A test runs two threads of five `add()` calls each and
+asserts all ten rounds land — it fails on the pre-Phase-5 code with that `ProgrammingError`.
+
+What made this concrete rather than theoretical: Phase 5's n=500 corpus pass is the first time
+this repository has run **two processes against one SQLite file**, and a bare connection turns
+that into `database is locked` instead of a wait.
+
 ## Benchmark contract — `evals.base.MemorySystem`
 
 Separate from `Memory`. Any system under test implements `reset()`,
@@ -1332,6 +1360,16 @@ which now means running the decay-on arm beside the default decay-off one.
   - standing: `"decayed: {days} since last access, salience {old} → {new}"`
   - conflict: `"superseded {old_id}: {reason}"`
   - screens: `"routed to conflict: {negation|value-substitution} on {pair}"`
+
+**v1 as built (Phase 5, 2026-09-18): all three log formats live, and `export()` exists.**
+The decay line (`decayed {id}: {days} days since last access, salience {old} -> {new}`) and the
+supersede line (`superseded {old_id}: {rule} {pair_key}: {old} -> {new}`) shipped in Phases 4
+and 3; the screens' line was `log.debug("kept: %s")` until Phase 5 raised it to INFO in the
+wording above. `SCREEN_LOG_NAMES` maps the screens' internal reason `value` to SPEC's
+`value-substitution`; the entropy gate is a third case this sentence predates and logs as
+`low-entropy`. Every line is INFO on the `mnimi.memory` logger. `export()` dumps the store as
+described in the as-built table: the original fact is recoverable from the dump without a
+reverse lookup, which is what this section asks for.
 
 **Out of scope:** dashboard, card UI, visual memory browser — integrating
 developer's job.
