@@ -1158,3 +1158,52 @@ def test_recall_writes_last_accessed_on_the_returned_records_only(tmp_path):
     rows = {r.created_at: r for r in m.store.active_records("u")}
     assert rows[_OLD].salience == 1.0, "the access restored it (D2, D3)"
     assert rows[mid].salience == pytest.approx(0.5 ** (30 / 30))
+
+
+# --- PHASE5 Task 10 (D12): the write lock and SPEC's third decision log ----------
+
+
+def test_the_write_lock_is_reentrant(tmp_path):
+    # consolidate() calls into paths that take the same lock (D12), so a plain
+    # Lock would deadlock the moment the harness wired it.
+    m = Memory(str(tmp_path / "l.db"), HashingEmbedder())
+
+    with m._lock:
+        with m._lock:
+            pass  # a non-reentrant lock hangs here
+
+
+def test_concurrent_adds_from_two_threads_land_every_round(tmp_path):
+    import threading
+
+    m = Memory(str(tmp_path / "t.db"), HashingEmbedder())
+    errors: list[BaseException] = []
+
+    def writer(tag: str) -> None:
+        try:
+            for i in range(5):
+                m.add([_message(f"{tag} note number {i} about gardening")], user_id="u")
+        except BaseException as exc:  # noqa: BLE001 - the test reports whatever escaped
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(t,)) for t in ("alpha", "beta")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"a concurrent add raised: {errors}"
+    assert m.store.count("u") == 10
+
+
+def test_a_kept_pair_logs_routed_to_conflict_at_info(tmp_path, caplog):
+    import logging
+
+    m = _scripted_memory(tmp_path / "log.db", _VALUE_SCRIPT)
+    with caplog.at_level(logging.INFO, logger="mnimi.memory"):
+        for text in _VALUE_SCRIPT:
+            m.add([_message(text, ts="2023-05-20")], user_id="u")
+
+    lines = [r.getMessage() for r in caplog.records
+             if r.getMessage().startswith("routed to conflict:")]
+    assert lines == ["routed to conflict: value-substitution on user|lives in"], caplog.text

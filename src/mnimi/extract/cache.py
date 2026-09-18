@@ -38,7 +38,16 @@ class CachedExtractor:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.stats = {"hits": 0, "misses": 0}
-        self.db = sqlite3.connect(str(self.path))
+        # Imported here, not at module scope: ``mnimi.store`` imports
+        # ``extract.protocol``, so a top-level import back would be a cycle.
+        from ..store import BUSY_TIMEOUT_SECONDS
+
+        # The same contention behaviour as a store (PHASE5 D12). The corpus pass
+        # is the case that motivated it: one process writing this file for days
+        # while another wants to read it.
+        self.db = sqlite3.connect(
+            str(self.path), timeout=BUSY_TIMEOUT_SECONDS, check_same_thread=False
+        )
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS extractions (key TEXT PRIMARY KEY, "
             "raw_output TEXT NOT NULL, truncated INTEGER NOT NULL, "

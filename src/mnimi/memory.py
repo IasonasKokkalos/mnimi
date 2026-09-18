@@ -8,10 +8,12 @@ surface stays at four methods regardless.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import re
+import threading
 from string import Template
 from typing import NamedTuple
 
@@ -124,6 +126,13 @@ _RENDER_UNIT_TEMPLATES = {
 _FACT_LINE_T = Template("- ${fact}")
 _FACT_ITEM_T = Template("fact: ${fact}")
 _FACT_SOURCE_T = Template("source: ${raw}")
+
+
+#: SPEC §Human-readable memory names the screens' decision log
+#: "routed to conflict: {negation|value-substitution} on {pair}". The screens'
+#: internal reasons are shorter, and the entropy gate is a third case the
+#: sentence predates; this maps one to the other without renaming either.
+SCREEN_LOG_NAMES = {"value": "value-substitution"}
 
 
 def _check_render_format(fmt: str) -> str:
@@ -355,6 +364,24 @@ def render_records(
     return "\n".join(lines)
 
 
+def _serialized(method):
+    """Run the method under ``Memory``'s one write lock (SPEC §Concurrency, PHASE5 D12).
+
+    The store holds a single connection shared across threads, so every path that
+    writes it is serialized here: ``add``, ``consolidate`` and ``recall`` (whose
+    ``last_accessed`` write-back is a write). The lock is re-entrant because these
+    call into one another — ``get_context`` calls ``recall``, ``consolidate`` calls
+    the conflict and decay passes.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Memory:
     """Embeddable agent memory backed by a single SQLite file."""
 
@@ -413,7 +440,13 @@ class Memory:
         # The decay pass of consolidate() (PHASE4 D3): passes run, records whose
         # stored salience moved, records now at the floor. Never a pin.
         self.decay_stats = new_decay_stats()
+        # SPEC §Concurrency, PHASE5 D12: the one write lock. Re-entrant because
+        # consolidate() calls into paths that take it again; it serializes the
+        # three methods that write — add(), consolidate() and recall()'s
+        # last_accessed write-back — around the single shared connection.
+        self._lock = threading.RLock()
 
+    @_serialized
     def add(self, messages, user_id: str) -> None:
         """Write path: one round record per user+assistant round, plus one fact
         record per extracted fact when an extractor is present, all deduped.
@@ -491,7 +524,11 @@ class Memory:
                         self.conflict_stats["merged"] += 1
                         continue
                     self.conflict_stats[f"kept_{verdict.reason.replace('-', '_')}"] += 1
-                    log.debug("kept: %s", verdict.reason)
+                    log.info(
+                        "routed to conflict: %s on %s",
+                        SCREEN_LOG_NAMES.get(verdict.reason, verdict.reason),
+                        piece.pair_key or "-",
+                    )
                     if verdict.reason == "negation":
                         negated_neighbour = hits[0][0]
                 stored = self.store.insert(
@@ -641,6 +678,7 @@ class Memory:
             active_only=self.config.active_only,
         )
 
+    @_serialized
     def recall(self, query: str, user_id: str) -> list[ScoredRecord]:
         """Retrieval: the ``top_k`` best rounds with their component scores, no assembly.
 
@@ -686,6 +724,7 @@ class Memory:
             ),
         )
 
+    @_serialized
     def consolidate(self, user_id: str) -> None:
         """Resolve conflicts, then decay: two idempotent passes (PHASE3 D7, PHASE4 D3).
 

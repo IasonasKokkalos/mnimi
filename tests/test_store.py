@@ -463,3 +463,45 @@ def test_search_survives_a_k_whose_overfetch_exceeds_the_vec0_limit(tmp_path):
                                   created_at="2023-05-20"))
     assert len(store.search(vec, "u", k=800)) == 3, "every record the user has, no raise"
     assert len(store.search_rounds(vec, "u", k=800)) == 3
+
+
+# --- PHASE5 Task 10 (D12): concurrency ------------------------------------------
+
+
+def test_store_opens_in_wal_mode_with_a_busy_timeout(tmp_path):
+    # SPEC section Concurrency. The corpus pass was the first time this repo ran two
+    # processes against one SQLite file, and a bare connect (rollback journal, the
+    # 5 s default) is what makes that "database is locked" instead of "wait".
+    from mnimi.store import BUSY_TIMEOUT_SECONDS
+
+    store = _open(tmp_path / "wal.db")
+
+    assert store.db.execute("pragma journal_mode").fetchone()[0] == "wal"
+    assert store.db.execute("pragma busy_timeout").fetchone()[0] == int(
+        BUSY_TIMEOUT_SECONDS * 1000
+    )
+
+
+def test_reopening_a_wal_store_reads_what_the_first_connection_wrote(tmp_path):
+    # WAL is a journal mode, not a visibility change: a committed row is still there.
+    path = tmp_path / "reopen.db"
+    vec = [1.0] + [0.0] * 255
+    first = _open(path)
+    first.insert(MemoryRecord(user_id="u", content="hello", embedding=vec,
+                              created_at="2023-05-20"))
+    second = _open(path)
+
+    assert second.count("u") == 1
+    assert [r.content for r in second.all_records("u")] == ["hello"]
+
+
+def test_the_extraction_cache_opens_with_the_same_busy_timeout(tmp_path):
+    from mnimi.extract.cache import CachedExtractor
+    from mnimi.extract.fake import RuleExtractor
+    from mnimi.store import BUSY_TIMEOUT_SECONDS
+
+    cache = CachedExtractor(RuleExtractor(), tmp_path / "c.sqlite")
+
+    assert cache.db.execute("pragma busy_timeout").fetchone()[0] == int(
+        BUSY_TIMEOUT_SECONDS * 1000
+    )

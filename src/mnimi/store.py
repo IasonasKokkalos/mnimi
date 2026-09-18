@@ -32,6 +32,13 @@ GUARD_NONE = "none"
 #: its exact-top-k loop has to read deep into the store (PHASE4 D4).
 MAX_KNN_ROWS = 4096
 
+#: How long a connection waits for a lock before raising (SPEC §Concurrency,
+#: PHASE5 D12). Python's default is 5 s, which the Phase 5 corpus pass showed is
+#: the difference between "wait" and "database is locked" when a second process
+#: reads the file a long write is holding. The extraction cache uses the same
+#: value, so one store and its cache behave alike under contention.
+BUSY_TIMEOUT_SECONDS = 30.0
+
 _VEC_TABLE = {KIND_ROUND: "vec_memories", KIND_FACT: "vec_facts"}
 _COLUMNS = (
     "m.id, m.user_id, m.content, m.created_at, m.salience, m.source, m.supersedes, "
@@ -97,9 +104,22 @@ class Store:
         # salience and last_accessed.
         self.decay_rules_hash = decay_rules_hash
         self.resolver_version = resolver_version
-        self.db = sqlite3.connect(db_path)
+        # SPEC §Concurrency, PHASE5 D12: ONE connection, shared across threads and
+        # serialized by ``Memory``'s re-entrant lock. ``check_same_thread=False`` is
+        # what makes the sharing legal at all — without it sqlite3 refuses any use
+        # from a second thread — and it is only safe because that lock exists: the
+        # library never hands this connection to concurrent writers.
+        self.db = sqlite3.connect(
+            db_path, timeout=BUSY_TIMEOUT_SECONDS, check_same_thread=False
+        )
         self.db.row_factory = sqlite3.Row
         self._load_extension()
+        # WAL lets a reader proceed while a writer holds the file, which is the
+        # shape the eval probes and the corpus pass actually use. It is a journal
+        # mode, not a visibility change: a committed row reads back identically,
+        # and a test re-opens a store to prove it.
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=NORMAL")
         self._init_schema()
 
     def _load_extension(self) -> None:
