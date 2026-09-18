@@ -3022,3 +3022,52 @@ say costs 28–43 false supersessions today. v1.11.0.
 **Pre-registered expectations, falsifiable, recorded before the pass returns.** **P1:** the n=500 QA score reads **at or below** the n=100 arm's 87 — the full set is 53 % multi-session + temporal-reasoning against 30 % in the stratified slice, and those are the weakest categories at gate 4-i (ALL@10 11/14 and 12/16); reweighting the slice's own per-category ALL@10 by the n=500 mix gives 87.4 % → 85.2 %. **P2:** the n=500 retrieval probe's ALL@10 reads 85 ± 2 %. **P3:** `naive_rag` at n=500 reads within 3 points of its published 79. **P4:** the decay arm reads below the mnimi arm (gate 4-iii measured −6 at n=100). A failed prediction is recorded as failed and changes no rule. **The n=100 slice nests inside the n=500 slice**, so the n=500 reading is not a replication of the 87 and is never described as one.
 
 **Versioning.** Hybrid's merge closes at v2.0.0 (the store format changes: an FTS5 table and the eighteenth guard row refuse every v1.11 store) and the close-out at v2.1.0. If gate 5-0 returns ≤ 3 there is no merge and no v2.0.0: the sitting runs at v1.11.0 and the close lands at v1.12.0.
+
+## Gate 5-0 read: 0 exact-term retrieval misses of 13 wrong rows — hybrid is built and held, not merged (2026-09-18)
+
+**Command** (from `D:\Projects\Personal\mnimi-wt`, code at `de8b123`, $0, read-only):
+
+```
+PYTHONPATH=src python -m evals.probes.misses runs/probe_mnimi_p4s.json \
+  results/published/mnimi__100q_gpt4o_p4rank/results.json \
+  --oracle results/published/oracle__100q_gpt4o/results.json \
+  --naive results/published/naive_rag__100q_gpt4o_p2/results.json
+```
+
+(The module takes two positionals, not the `--probe/--results/--out` the plan sketched; the command
+above is the one that ran, and its output is in `runs/gate_5_0.txt`.)
+
+**The split.** The adopted arm's **13 wrong rows are 1 retrieval miss and 12 reading misses.**
+Oracle is right on 1 of the retrieval misses and 4 of the reading misses — so **8 of the 13 are
+rows the reader gets wrong even when the evidence is handed to it**, and no retrieval work of any
+kind can reach them. naive_rag is right on 2. By category: multi-session 0 retrieval / 6 reading,
+temporal-reasoning 1 / 2, single-session-preference 0 / 3, knowledge-update 0 / 1.
+
+**The one retrieval miss, classified by hand under the pre-registered rubric.** `gpt4_4929293b`
+(temporal-reasoning), evidence at rank **11** — one position outside k=10, not absent.
+Question: *"What was the the life event of one of my relatives that I participated in a week ago?"*
+Answer: *my cousin's wedding*. Tokens shared between the question and either evidence session, after
+the sanitizer's own non-alphanumeric split: `in, my, of, one, that, the, what, was, week, event` —
+stopwords plus two generic terms. The evidence rounds are wedding-planning sessions mentioning
+*Michael's engagement party*; the question contains no identifier, proper name, number, date literal
+or place name that appears verbatim in them, and answering needs a relative-date resolution
+(*a week ago*) plus an inference (*life event of a relative* → *cousin's wedding*). BM25 has
+nothing to key on. **Class: not exact-term.** No row was left undecided.
+
+**exact-term retrieval misses = 0** (of 1 retrieval miss, of 13 wrong rows).
+
+**The rule fires as pre-registered: 0 < 4.** Hybrid retrieval is still built and still gated on the
+slice for the record (gate 5-i), but **`feature/hybrid` is not merged**: the n=500 sitting runs the
+dense v1.11 configuration, and the branch is kept as a held lever to test against the n=500 result.
+There is therefore **no v2.0.0** unless that changes; the close lands at v1.12.0 (PHASE5 D14).
+
+**What this says beyond the gate.** FUTURE.md's hybrid trigger was "met at the margin" on 2026-09-13
+at a ceiling of 4 rows; Phase 2's post-extraction analysis then measured 2 retrieval misses of 18
+wrong; the adopted v1.11 read path now measures **1 of 13**, and that one is a k-boundary case rather
+than a lexical one (a `top_k` sweep against this benchmark is prohibited, and R6's k=20 alternative
+was already measured and rejected in Phase 1). Retrieval on this slice is close to exhausted: mnimi
+87 against oracle 90, with 8 of the 13 misses failing at the reader with the evidence present. The
+remaining gap to the 85 criterion is a **reading** gap, and the levers for it are out of scope
+(the reader is pinned, and per-category prompt tuning is prohibited). This is recorded here so the
+n=500 verdict is read against it rather than against an expectation that more retrieval work was
+available.
