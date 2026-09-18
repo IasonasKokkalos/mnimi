@@ -22,6 +22,7 @@ from .conflict.screens import ACTION_KEEP, Verdict, screen_pair
 from .conflict.supersede import beats, conflict_between, reason
 from .decay import decay_rules_hash, decayed_salience, logical_days, now_logical
 from .embeddings import Embedder
+from .export import export_store
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord, ScoredRecord
@@ -702,6 +703,24 @@ class Memory:
             self._resolve_all_conflicts(user_id)
         self._decay(user_id)
         return None
+
+    def export(self, user_id: str) -> str:
+        """A human-readable dump of the user's store (SPEC §Human-readable memory).
+
+        The fifth and last of the locked public methods. Read-only and
+        deterministic: no embedder, no model, no query, no clock — the header's
+        "now" is ``now_logical``. Rounds render through this module's own
+        ``render_records``, so the dump can never become a second renderer, and a
+        superseded fact is shown and marked rather than dropped (PHASE5 D11).
+        ``config.render_format`` is deliberately not consulted: the export is one
+        format, because this library has one.
+        """
+        return export_store(
+            user_id,
+            self.store.all_records(user_id),
+            self._now_logical(user_id),
+            render_records,
+        )
 
     def _now_logical(self, user_id: str) -> str | None:
         """The latest session timestamp in the user's store (PHASE4 D1); never a clock."""

@@ -487,6 +487,20 @@ class Store:
         ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def all_records(self, user_id: str) -> list[MemoryRecord]:
+        """Every record of the user, both kinds, superseded ones included, in id order.
+
+        ``active_records`` is decay's input and hides ``salience = 0``; this is
+        ``export()``'s input (PHASE5 D11), which must show a superseded fact rather
+        than drop it — the point of a human-readable dump is that nothing is silently
+        absent from it.
+        """
+        rows = self.db.execute(
+            f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? ORDER BY m.id",
+            (user_id,),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
     def set_saliences(self, updates: list[tuple[int, float]]) -> None:
         """Write decayed saliences, ``[(record_id, salience)]``, in one transaction."""
         if not updates:
