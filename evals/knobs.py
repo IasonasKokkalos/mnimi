@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 
 #: Whether the mnimi arm calls ``Memory.consolidate`` once per store before the
-#: question (PHASE4 D8). False until gate 4-iii adopts decay.
+#: question (PHASE4 D8). Still False after gate 4-iii read it (2026-09-18):
+#: decay on scored 81 against 87 with it off, b=2, c=8, so the rule
+#: ("True iff score was adopted AND b >= c on B -> C") did not fire.
 MNIMI_DEFAULT_CONSOLIDATE = False
 
 _ON_OFF = ("on", "off")

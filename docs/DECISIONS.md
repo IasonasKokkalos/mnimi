@@ -2872,3 +2872,48 @@ was specified as "no code": the sitting's commit therefore carries `src/mnimi/st
 **Decision: PASS.** Arms B and C run `--active-only on`, and `MemoryConfig.active_only` defaults to
 `True` in Task 9's adoption commit. No lexicon, rule, threshold or other default was touched in
 response to any number above.
+
+## Gate 4-iii read: ranking adopted (`score`, b=2 c=1), decay not wired (b=2 c=8, X=-6), active_only on (2026-09-18)
+
+**The sitting.** Three mnimi arms at the Task 8 commit `25cde7f` (clean; schema
+`mnimi-eval-artifact/10`; `provisional: []` on all three), `gpt-4o-2024-08-06` through the Batch
+API in 8 / 8 / 9 sub-batches, one arm in flight at a time, 2026-09-17 22:49 → 2026-09-18 01:57,
+every round replayed from the corpus cache (23,302 rows before and after each arm). All three
+carried `--extractor qwen3 --render-unit round+facts`; no decay, weight or relevance flag was
+passed, so SPEC's values ran. Full tables: `mnimi docs/PHASE4-RESULTS.md` § Task 9.
+
+| arm | flags | score | Wilson 95 % | fed tokens mean |
+| --- | --- | --- | --- | --- |
+| A `p4base` | the v1.10 read path | 86/100 | [77.9, 91.5] | 5,301 |
+| **B `p4rank`** | `--active-only on --ranking score` | **87/100** | [79.0, 92.2] | 5,302 |
+| C `p4decay` | B plus `--consolidate on` | 81/100 | [72.2, 87.5] | 5,307 |
+
+| pair (b = the second arm's wins) | b | c | p | rule → outcome |
+| --- | --- | --- | --- | --- |
+| A → B | 2 | 1 | 1.0000 | `MemoryConfig.ranking` → `"score"` iff b ≥ c → **adopted** |
+| B → C | 2 | 8 | 0.1094 | `MNIMI_DEFAULT_CONSOLIDATE` → True iff adopted AND b ≥ c → **did not fire; stays False** |
+| A → C | 2 | 7 | 0.1797 | descriptive |
+
+**SPEC's decay-on/off ablation:** X = score(C) − score(B) = **−6 points on n=100** (b=2, c=8,
+p=0.1094), **outside** the family's drift band (identical-pin re-runs moved 0 and 2 points with
+6/100 flips). Decay at SPEC's 30-day half-life and 0.15 floor costs this benchmark accuracy, and
+the Task 8 probe said so first (ANY@10 93 → 89, ALL@10 83 → 75, 13 evidence rounds out of the
+top-10): four of the eight rows C loses — `e66b632c`, `06db6396`, `0a34ad58`, `10e09553` — are
+among those 13. LongMemEval's evidence is often the oldest round in a haystack, and decay
+multiplies exactly that round's score down. The loss sits in knowledge-update (15 → 12) and
+single-session-preference (14 → 11); temporal-reasoning is flat at 14.
+
+**Adopted, strictly by the pre-registered rules:** `ranking = "score"`, `active_only = True`
+(gate 4-ii), `MNIMI_DEFAULT_CONSOLIDATE = False` (unchanged). The code, the flags and the tests for
+decay all stay — decay is built, measured and switched off, which is what the ablation was for.
+Exactly the four named default assertions changed; suite 392, ruff clean, CI reproduced.
+
+**Drift, arm A against the published `mnimi__100q_gpt4o_extract`** (v1.9, `82aa8b5`): 91/100
+predictions changed at the byte level, prompt tokens changed on 9/100 rows, score 84 → 86 — the
+nine are Phase 3's kept facts changing the rendered context, the rest is this family's text drift.
+Say of this family "score reproducible within 6/100 flips; text not reproducible"; never
+"byte-identical".
+
+**Cost:** readers $2.3316 + judges $0.2287 = **$2.5603** (pre-registered ≈ $2.6; projected upper
+bound $3.5075). Ledger: $16.2953 of $50, $33.7047 remaining. The three arms are published under
+`results/published/mnimi__100q_gpt4o_{p4base,p4rank,p4decay}/`.

@@ -175,6 +175,28 @@ moved and none is claimed**: the read path does not read `salience` until
 Phase 4, so a superseded fact still renders. Rulings in `docs/DECISIONS.md`
 ("Phase 3 pre-registration" through "Phase 3 closes").
 
+**Phase 4 — decay, ranking and the read side (2026-09-17 → 18, gpt-4o family, same 100 questions).**
+The read path gained SPEC's ranking — `score = (w_sim·relevance + w_rec·recency)·salience` over an
+exact top-k of rounds — the salience-0 exclusion (a superseded fact neither ranks nor renders),
+`recall_min_relevance`, the `last_accessed` write-back, and decay with its half-life and floor
+inside `consolidate()`. Two $0 probe gates ran first: identity under the landing defaults
+(100/100 rows unchanged) and the exclusion priced on the slice (ANY@10 93/95, ALL@10 83/95, 0
+evidence rounds out of the top-10). Then one three-arm sitting at one clean commit:
+
+| arm | score | b / c vs the previous arm | mean fed tokens | verdict |
+| --- | ---: | :---: | ---: | --- |
+| A the v1.10 read path | 86 | — | 5,301 | drift vs the Phase 2 arm: 91/100 texts changed, 9/100 prompt tokens, 84 → 86 |
+| **B SPEC's read path** (`active_only`, `ranking=score`) | **87** | 2 / 1 | 5,302 | **adopted** (library defaults since v1.11.0) |
+| C B plus decay (`consolidate on`) | 81 | 2 / 8 | 5,307 | **not adopted**: decay costs 6 points (X = −6), outside the family's drift band |
+
+SPEC's decay-on/off ablation is the B → C row, and it is a negative result reported as one: decay
+multiplies down exactly the old evidence rounds LongMemEval asks about (the retrieval probe read
+ANY@10 93 → 89 and ALL@10 83 → 75 before the arms ran, and four of the eight rows the reader lost
+are rounds whose evidence left the top-10 there). Decay ships built, tested and off — one flag
+away — and the phase spent $2.56. Nothing here is significant at n=100 and nothing is claimed to
+be; the primary against `naive_rag` is settled at n=500 (Phase 5). Rulings in `docs/DECISIONS.md`
+("Phase 4 pre-registration" through "Phase 4 closes").
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked

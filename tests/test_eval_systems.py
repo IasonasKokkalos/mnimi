@@ -355,7 +355,7 @@ def test_mnimi_pins_declare_the_phase4_rows_and_naive_rag_does_not():
     assert pins["recall_min_relevance"] == 0.0 and pins["decay_rules_hash"] == decay_rules_hash()
     default = _mnimi().retrieval_pins()
     assert (default["ranking"], default["active_only"], default["consolidate"]) == (
-        "similarity", False, False)
+        "score", True, False)
     naive = _naive().retrieval_pins()
     assert not {"ranking", "active_only", "consolidate", "decay_rules_hash"} & set(naive)
 

@@ -1059,7 +1059,7 @@ def test_decay_runs_whatever_conflict_resolution_says(tmp_path):
 
 def test_config_has_the_ranking_fields_and_validates_them(tmp_path):
     config = MemoryConfig()
-    assert config.ranking == "similarity"
+    assert config.ranking == "score"  # adopted at gate 4-iii (87 vs 86, b=2, c=1)
     assert dict(config.salience_weights) == {"similarity": 1.0, "recency": 0.0}
     for bad in ({"ranking": "bm25"}, {"salience_weights": {"similarity": 1.0}}):
         with pytest.raises(ValueError, match="ranking|salience_weights"):
@@ -1102,7 +1102,7 @@ def test_score_ranking_reads_the_stored_salience(tmp_path):
 
 def test_config_has_the_retriever_extras_and_validates_them(tmp_path):
     config = MemoryConfig()
-    assert config.active_only is False and config.recall_min_relevance == 0.0
+    assert config.active_only is True and config.recall_min_relevance == 0.0
     with pytest.raises(ValueError, match="recall_min_relevance"):
         Memory(str(tmp_path / "bad.db"), HashingEmbedder(), MemoryConfig(recall_min_relevance=1.5))
 

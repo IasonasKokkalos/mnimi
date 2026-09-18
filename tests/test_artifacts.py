@@ -1474,5 +1474,5 @@ def test_build_system_hands_the_read_path_and_the_wiring_to_mnimi(monkeypatch):
     assert (captured["config"].ranking, captured["config"].active_only) == ("score", True)
     assert captured["config"].decay_half_life_days == 60.0 and captured["consolidate"] is True
     build_system("mnimi")
-    assert captured["config"].ranking == "similarity" and captured["config"].active_only is False
+    assert captured["config"].ranking == "score" and captured["config"].active_only is True
     assert captured["consolidate"] is knobs.MNIMI_DEFAULT_CONSOLIDATE is False

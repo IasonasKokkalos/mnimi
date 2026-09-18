@@ -314,6 +314,52 @@ misses (gate 4-i: ANY@10 93/95 vs 91, ALL@10 83/95 vs 77, both predictions
 held); four of the five rows it completed are answered right here, one is
 not; the three baseline rows the adopted arm loses had no retrieval change.
 
+### Phase 4: the decay / ranking ablation — three mnimi arms, one clean commit (2026-09-17 → 18)
+
+The pre-registered gate 4-iii of `docs/DECISIONS.md` "Phase 4 pre-registration"
+(2026-09-16); read in "Gate 4-iii read" (2026-09-18). Every value is copied from
+the artifacts or printed by `python -m evals.stats` / `python -m evals.drift`
+over these directories.
+
+**Provenance — the same for all three arms:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-17 22:49 → 2026-09-18 01:57, one sitting: A predict 22:49–23:46, B 23:47–00:47, C 00:48–01:53, the three judge stages 01:53–01:57 |
+| harness commit | `25cde7f1647955d222da3e01cd88946bd56bc570` — **clean tree** on every run, one sha in all three `pins.json` |
+| artifact schema | `mnimi-eval-artifact/10` (adds the read side and decay: `active_only`, `ranking`, `salience_weights`, `recall_min_relevance`, `decay_half_life_days`, `decay_floor`, `consolidate`, `decay_rules_hash`) |
+| `provisional` | `[]` on every directory of this set |
+| reader transport | `openai` — `gpt-4o-2024-08-06`, `num_ctx=128000`, temperature 0, `seed=0`, `max_tokens=800`; the six Ollama-only pins `null` |
+| how it was served | Batch API, 8 / 8 / 9 sub-batches per arm under the 90,000 enqueued-token cap, every chunk `completed`, 0 failures, 0 synchronous fallbacks; 8–10 served `system_fingerprint` classes per arm, recorded per call in `reader_resolved.json` |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` (text) |
+| retrieval, all three arms | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10` rounds, `dedup_cosine_threshold=0.95`, `dedup_scope=session`, the BGE query instruction, `render_unit=round+facts` (`2aab8f27857fc372…`) |
+| extractor | `Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077`, quant `Q8_0`, runtime `llama-cpp-python 0.3.35; -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF; cuda 13.2`, prompt `qwen3-fact-v4` (`41c8ea2c3bb4901a…`), decode `ba1a81ab349dd09e…`; every round replayed from `.cache/extract/e15153f838b8c61c…sqlite` (23,302 rounds, verified before and after each arm) |
+| Phase 3 / Phase 4 write- and read-side pins | `conflict_resolution=True`, `dedup_entropy_gate=2.0`, `negation_lexicon_hash` `330604b5772e…`, `conflict_rules_hash` `7d19c48828c8…`, `decay_rules_hash` `d4a0bcf07330…`, `salience_weights={similarity 1.0, recency 0.0}`, `recall_min_relevance=0.0`, `decay_half_life_days=30.0`, `decay_floor=0.15` — SPEC's values, none of them tuned |
+| run environment | system Python 3.14.4; NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2 (`run.environment`) |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=100 — the same 100 ids as every published sitting |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3` (`be3dd63955221344…`), temperature 0, `max_tokens=10` |
+| dollars | $2.5603 for the sitting (readers $0.7782 / $0.7772 / $0.7762, judges $0.0903 / $0.0575 / $0.0809) |
+
+| run | arm | score | 95% CI | mean fed tokens | truncated | quotable? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `mnimi__100q_gpt4o_p4base` | the v1.10 read path (`--active-only off --ranking similarity --consolidate off`) | 86/100 (86.0%) | [77.9, 91.5] | 5,301 | 0/100 | yes |
+| **`mnimi__100q_gpt4o_p4rank`** | SPEC's read path (`--active-only on --ranking score`) | **87/100 (87.0%)** | [79.0, 92.2] | 5,302 | 0/100 | yes |
+| `mnimi__100q_gpt4o_p4decay` | SPEC's read path with decay (`--consolidate on`) | 81/100 (81.0%) | [72.2, 87.5] | 5,307 | 0/100 | yes |
+
+| comparison (b = the second arm's wins) | b | c | discordant | p (exact McNemar) | rule |
+| --- | --- | --- | --- | --- | --- |
+| A → B | 2 | 1 | 3 | 1.0000 | b ≥ c → **`ranking="score"` adopted** |
+| **B → C (SPEC's decay-on/off ablation)** | 2 | 8 | 10 | 0.1094 | b < c → **decay not wired**; X = −6 points |
+| A → C (descriptive) | 2 | 7 | 9 | 0.1797 | — |
+
+**Drift (arm A against `mnimi__100q_gpt4o_extract`, `drift.json` in the arm A
+directory):** 91/100 predictions changed, prompt tokens changed on 9/100 rows,
+score 84 → 86. The nine are Phase 3's kept facts changing the rendered context;
+the rest is this family's text drift. Read it with the caveats of the sections
+above, plus: decay is built and measured here, and switched off by the same
+pre-registered rule that adopted the ranking — a negative result, published as
+one.
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |

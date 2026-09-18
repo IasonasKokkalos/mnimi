@@ -62,22 +62,24 @@ class MemoryConfig:
     inserted below the floor keeps its initial value (decay never raises).
     Must lie in (0, 1]. A harness flag (``--decay-floor``) and a pin."""
 
-    ranking: str = "similarity"
-    """How ``recall`` orders rounds (PHASE4 D4). ``"similarity"`` — the default
-    until gate 4-iii decides — is the v1.10 read path byte for byte:
-    ``Store.search_rounds``, a round by its most similar record, stored salience
-    not read. ``"score"`` is SPEC §Ranking: every record scored
-    ``(w_sim * relevance + w_rec * recency) * salience``, a round by its best
-    record, the exact top-k by score (``mnimi.ranking.rank_rounds``); the
+    ranking: str = "score"
+    """How ``recall`` orders rounds (PHASE4 D4). ``"score"`` — the default since
+    v1.11.0, gate 4-iii: 87 vs 86, b=2, c=1 — is SPEC §Ranking: every record
+    scored ``(w_sim * relevance + w_rec * recency) * salience``, a round by its
+    best record, the exact top-k by score (``mnimi.ranking.rank_rounds``); the
     extractor's salience (0.5 on most of the assistant's facts) and decay reach
-    the ranking only here. A harness flag (``--ranking``) and a pin."""
+    the ranking only here. ``"similarity"`` is the v1.10 read path byte for
+    byte: ``Store.search_rounds``, a round by its most similar record, stored
+    salience not read. A harness flag (``--ranking``) and a pin."""
 
-    active_only: bool = False
+    active_only: bool = True
     """Whether the read path sees only ACTIVE records, ``salience > 0`` (SPEC
     §Retriever, §get_context; PHASE4 D5): a superseded fact neither ranks nor
     renders under a round's ``facts:`` header. Rounds are never superseded, so
-    every round stays. ``False`` — the default until gate 4-ii prices it — is the
-    v1.10 read path. A harness flag (``--active-only``) and a pin."""
+    every round stays. ``True`` is the default since v1.11.0 — gate 4-ii: 0
+    evidence rounds left the top-10, ANY@10 93/95 and ALL@10 83/95 unchanged.
+    ``False`` is the v1.10 read path. A harness flag (``--active-only``) and a
+    pin."""
 
     recall_min_relevance: float = 0.0
     """A relevance floor on ``recall``'s returned rounds (SPEC §MemoryConfig,
