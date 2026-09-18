@@ -33,6 +33,17 @@ Legend:
   rounds) — ceiling 4 rows at n=100 against 14 reading misses, so not built;
   re-read after the extraction era's error analysis, which changes the
   embedded unit. `docs/DECISIONS.md` "Phase 1 error analysis".
+  **Re-read and CLOSED 2026-09-18 (gate 5-0).** On the adopted v1.11 read path
+  the ceiling is **0 exact-term rows**: 13 wrong rows are 1 retrieval miss and
+  12 reading misses, and the one retrieval miss (`gpt4_4929293b`) sits at rank
+  **11** — a `top_k` boundary, not a lexical failure; its question shares only
+  stopwords and two generic terms with its evidence, so BM25 has nothing to key
+  on. The trigger has now shrunk at every reading (4 → 2 after extraction → 1),
+  and 8 of the 13 misses fail at the reader with the evidence already in the
+  top-10. Re-open only if a future error analysis shows ≥ 4 exact-term
+  retrieval misses on a headline run; feasibility is not the obstacle (FTS5
+  verified present, SQLite 3.50.4, `bm25()` returns). `docs/DECISIONS.md`
+  "Gate 5-0 read" and "Phase 5 amended after gate 5-0".
 
 * **In-process cross-encoder reranker.** Runs *after* the cosine KNN narrows
   candidates — a reranker over the top-k, never a replacement for the

@@ -3071,3 +3071,50 @@ remaining gap to the 85 criterion is a **reading** gap, and the levers for it ar
 (the reader is pinned, and per-category prompt tuning is prohibited). This is recorded here so the
 n=500 verdict is read against it rather than against an expectation that more retrieval work was
 available.
+
+## Phase 5 amended after gate 5-0: hybrid dropped, the sitting kept and reframed (2026-09-18)
+
+Gate 5-0 read 0 exact-term retrieval misses (1 retrieval miss of 13 wrong rows, at rank 11). Under
+the pre-registered rule hybrid would have been *built and held unmerged*. Three decisions follow,
+taken with the gate's number in hand and recorded before the corpus pass reaches new rounds.
+
+**1. Hybrid is not built at all** (amending PHASE5 D1's "built either way"). The rule's purpose was
+to decide whether hybrid reaches `main`; with the measured ceiling at **0 exact-term rows** — and
+the single retrieval miss a `top_k` boundary case at rank 11 that BM25 cannot key on, against a
+prohibited k sweep and an already-rejected k=20 alternative (Phase 1, R6) — a held lever could not
+rescue a disappointing n=500 either. PHASE5 Tasks 4, 5 and 6 are **dropped**: no `mnimi/retrieval.py`,
+no `FTS_RULES`, no `fts_rules_hash`, no eighteenth guard row, no pins schema /11, and **no API spend
+on gate 5-ii**. `MemoryConfig` keeps sixteen fields and `memory_meta` seventeen rows. FTS5's own
+availability was verified before the decision (SQLite 3.50.4, `bm25()` returns) and is recorded in
+PHASE5-RESULTS § Design-time C, so the deferral rests on measured benefit, not on feasibility.
+
+**2. There is no v2.0.0** (amending D14). With no store-format change and no new public surface
+beyond `export()`, the precedent Phases 3 and 4 set holds: Phase 5 closes at **v1.12.0**.
+
+**3. Gate 5-iii's reference changes** (amending D13). Its primary reference was Task 5's dense
+probe, which no longer exists. It becomes **`runs/probe_mnimi_p5c100.json`** — this phase's own
+n=100 reading, taken at `9864ceb` from the live cache *before* it grew, at the landing defaults —
+with Phase 4's `runs/probe_mnimi_p4s.json` as the secondary anchor. That is a strictly better
+reference than the plan's: same code, same flags, same cache file, one variable (the added rows).
+Chunk 1 already established it reproduces Phase 4 exactly: ANY@10 **93/95**, ALL@10 **83/95**,
+24,747 rounds, 0 evidence rounds lost, `cache={'hits': 49352, 'misses': 0}`, cache still 23,302 rows.
+
+**4. The five-arm n=500 sitting is kept, and what it is for is restated.** The 85 criterion is now
+measurably out of reach and this is recorded *before* the spend, not after: at n=500 the criterion
+needs **441/500 = 88.2 %** for a Wilson lower bound of 85.1, while a perfect replication of the
+n=100 87 gives **435/500 → LB 83.8**, and 88.2 % sits **1.8 points below oracle's measured 90**.
+Gate 5-0 established the residual gap is a *reading* gap (8 of 13 misses fail with the evidence in
+the top-10), whose levers are out of scope: the reader is pinned and per-category prompt tuning is
+prohibited for every system. What the sitting buys instead is **power for the pre-registered
+primary**: mnimi vs naive_rag is b=7, c=2, p=0.18 at n=100 — underpowered by construction, nine
+discordant rows against an eight-point gap — and at n=500 the same rates give p=0.00025 (b=30,
+c=15 gives p=0.036; b=25, c=18 gives p=0.36). It also moves every published number from ± 9-point
+Wilson intervals to ± 3, and satisfies B1 and the README's "~500 questions". The verdict will
+therefore be reported as criterion (a) — SPEC-complete modulo two disclosed render deviations —
+with the n=500 number, its category gap and the measured reason the 85 was not reachable. Arms are
+unchanged: `no_memory`, `oracle`, `naive_rag`, `mnimi`, `mnimi --consolidate on`; `full_history`
+stays cited at 64.0 % and the harness refuses it (`evals/__main__.py:651`). ≈ $17.75 of $33.70.
+
+**Unchanged by this entry:** the pre-registration's not-built items and their triggers (D3, D4), the
+corpus pass (D2), gates 5-iii and 5-iv, the verdict criterion and its reading rule, P1–P4, and
+every frozen artifact.
