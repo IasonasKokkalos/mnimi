@@ -48,6 +48,24 @@ def field_order() -> list[str]:
     return list(FIELD_ORDER)
 
 
+def _encodable(value) -> bool:
+    """``False`` when a string carries an unpaired surrogate.
+
+    A Python ``str`` can hold one — ``json.loads`` produces it from a lone
+    ``\\uD83C`` escape — but it is not valid Unicode and cannot be encoded as
+    UTF-8, so every downstream consumer that crosses into Rust or onto a wire
+    rejects it. Measured on the LongMemEval corpus: 1 round in 60,467, where
+    the model's output ended mid-emoji.
+    """
+    if not isinstance(value, str):
+        return True
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _optional_text(value) -> str | None:
     if value is None:
         return None
@@ -87,6 +105,16 @@ def parse_output(text: str) -> tuple[list[ExtractedFact], bool]:
                 return [], True
             salience = item["salience"]
             if isinstance(salience, bool) or not isinstance(salience, (int, float)):
+                return [], True
+            # A string the model cut mid-emoji carries the HIGH half of a
+            # surrogate pair with no low half (``\uD83C`` with nothing after
+            # it). ``json.loads`` materialises it faithfully, but the result is
+            # not valid Unicode: it cannot be UTF-8 encoded, and the embedder's
+            # Rust tokenizer refuses the whole batch. That is the same evidence
+            # of a cut-off output as a truncated array, so it takes the same
+            # path rather than a repair — the parser salvages nothing, here as
+            # everywhere else in this function.
+            if not all(_encodable(item[field]) for field in FIELD_ORDER):
                 return [], True
             facts.append(
                 ExtractedFact(

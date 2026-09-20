@@ -61,6 +61,42 @@ def test_parse_output_treats_truncation_as_empty_and_flags_it():
     assert not truncated and facts[0].raw == "assistant: 1. **A**\n2. **B**"
 
 
+def test_parse_output_treats_an_unpaired_surrogate_as_truncation():
+    # Measured on the LongMemEval corpus (1 round in 60,467, 2026-09-20): the
+    # model ends a string mid-emoji, emitting the HIGH half of a surrogate pair
+    # with no low half. json.loads materialises it faithfully, but the result is
+    # not valid Unicode -- it cannot be UTF-8 encoded, and the embedder's Rust
+    # tokenizer rejects the whole batch with "TextEncodeInput must be ...",
+    # which crashed an 18-hour corpus pass. It is the same evidence of a cut-off
+    # output that a truncated array is, so it takes the same path.
+    cut = (
+        '[{"content":"The assistant explained regression.",'
+        '"raw":"assistant: between the input images and the output FA and\\uD83C",'
+        '"when":null,"subject":"assistant","predicate":"explained",'
+        '"object":"linear regression","salience":0.5}]'
+    )
+    assert schema.parse_output(cut) == ([], True)
+
+    # A COMPLETE pair is ordinary text and must survive untouched -- the check
+    # rejects malformed Unicode, not emoji.
+    whole = (
+        '[{"content":"The user won a trophy \\uD83C\\uDFC6.",'
+        '"raw":"user: I won a trophy \\uD83C\\uDFC6","when":null,'
+        '"subject":"user","predicate":"won","object":"trophy","salience":1.0}]'
+    )
+    facts, truncated = schema.parse_output(whole)
+    assert not truncated
+    assert facts[0].content == "The user won a trophy \U0001F3C6."
+    facts[0].raw.encode("utf-8")          # encodable, so the tokenizer accepts it
+
+    # An unpaired surrogate anywhere in the item is the same verdict.
+    in_object = (
+        '[{"content":"The user likes it.","raw":"user: I like it","when":null,'
+        '"subject":"user","predicate":"likes","object":"\\uDC00","salience":1.0}]'
+    )
+    assert schema.parse_output(in_object) == ([], True)
+
+
 def test_prompt_is_a_literal_with_thinking_disabled_and_a_stable_hash():
     text = prompt.build_prompt([{"role": "user", "content": "I moved to Athens."},
                                 {"role": "assistant", "content": "Noted."}])
