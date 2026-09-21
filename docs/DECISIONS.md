@@ -3118,3 +3118,56 @@ stays cited at 64.0 % and the harness refuses it (`evals/__main__.py:651`). ≈ 
 **Unchanged by this entry:** the pre-registration's not-built items and their triggers (D3, D4), the
 corpus pass (D2), gates 5-iii and 5-iv, the verdict criterion and its reading rule, P1–P4, and
 every frozen artifact.
+
+## Gate 5-iii read: the corpus pass added 72,544 cache rows and moved 0 retrieval rows — PASS; P2 not held (2026-09-21)
+
+**The corpus pass.** All 500 LongMemEval questions walked through the extraction arm, 2026-09-18 →
+2026-09-21, ≈ 78.6 h of GPU in four runs (the plan's 300/400 chunks were collapsed into one
+`--limit 500` run once chunk 1 had proven the resume path). Cache **23,302 → 95,846 rows**
+(133.6 MB, `pragma quick_check` ok); **124,362 rounds** walked — exactly the design-time
+projection; rounds dedup harder across questions as the corpus grows (0.771 distinct at n=500
+against 0.896 at n=200), so 72,544 new extractions did the work the projection priced at ~88,000.
+
+**One crash, root-caused and fixed (`7d26b06` before the rebase recorded below).** Attempt 1 died at
+question 284 with `TextEncodeInput must be Union[...]` from the BGE tokenizer. The extractor had
+ended one string mid-emoji, emitting the high half of a surrogate pair with no low half;
+`json.loads` materialises it faithfully, a lone surrogate is not valid Unicode, and the Rust-backed
+tokenizer rejects the whole batch. Measured: 1 affected round in 60,467; 0 lone surrogates in the
+dataset's 500 questions. Fixed at the parser boundary — `parse_output` already answers anything
+that is not the contract with `([], True)`, and a string cut mid-emoji is the same evidence of
+truncation — at zero re-extraction, because the cache stores bytes and re-parses on every hit.
+The sitting's mnimi arms walk the same 500 questions, so the fix is a precondition of the sitting,
+not a nicety. One process error disclosed in PHASE5-RESULTS: the second hypothesis was right in
+substance but mis-tested (an instrumentation edit silently failed to apply); bisecting the batch
+element by element found it.
+
+**Gate 5-iii: PASS.** The n=100 probe re-run after the pass (`runs/probe_mnimi_p5i.json`, fixed
+parser) is identical on **100/100** questions (evidence ranks, top-50 sessions, drops, stored) to
+`runs/probe_mnimi_p5c100.json` (this phase's pre-growth reading, unfixed parser) **and** to Phase
+4's `runs/probe_mnimi_p4s.json`; 0 evidence rounds in or out of the top-10; **46 supersessions**
+(functional 16, numeric 30, negation 0); `cache={'hits': 49352, 'misses': 0}`; cache rows unchanged
+by the probe; ANY@10 93/95, ALL@10 83/95. The pass added rows and changed none, and the surrogate
+fix moved nothing on the slice.
+
+**The deferred WAL re-probe (PHASE5 Task 10): PASS.** `runs/probe_mnimi_p5wal.json`, run from
+`feature/close-out` at `08bd7d1` (WAL, the 30 s busy timeout, `check_same_thread=False`, the
+re-entrant write lock), is identical to `p5i` on **100/100**, 0 evidence moves, `misses: 0`. A
+journal mode cannot change a query result; this makes that a measurement.
+
+**The first n=500 retrieval evidence, and a failed prediction.** `runs/probe_mnimi_p5c500.json`:
+ANY@10 **459/470 (97.7 %)**, ALL@10 **415/470 (88.3 %)**, 0 evidence rounds lost, 0 cross-session
+drops, 195 supersessions. **P2 (ALL@10 85 ± 2 %) is NOT HELD** — the reading is above the band.
+The reweight logic was right (multi-session + temporal-reasoning are 52.8 % of the answerable
+set), but the per-category rates it was computed from were small-sample noise:
+temporal-reasoning read 12/16 on the slice and 22/32 at n=200, and lands at 107/127 (84.3 %) on
+the full set. Recorded as failed; no rule changes; P1 stands as registered until the sitting reads
+it. Multi-session is the weak cell at 94/121 (77.7 %).
+
+**Sequencing for the sitting.** `main` takes this branch and the surrogate fix and nothing else;
+`feature/close-out` (`export()`, concurrency) merges after the sitting so neither can be confounded
+with the headline number. The arms run `no_memory` first (≈ $0.50, the end-to-end pipeline check),
+then on the user's go `mnimi` → `mnimi --consolidate on` → `naive_rag` → `oracle` — the user's
+order, overriding the planner's cheapest-first: arm order is not a pin, and it puts the verdict
+first. One refinement of the halt rule, approved by the user on 2026-09-21: an arm-specific crash
+in the decay arm alone is recorded and notified and the sequence continues; a failure in `mnimi`
+or any systemic failure halts everything.
