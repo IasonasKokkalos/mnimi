@@ -63,7 +63,9 @@ class MemoryConfig:
     Must lie in (0, 1]. A harness flag (``--decay-floor``) and a pin."""
 
     ranking: str = "score"
-    """How ``recall`` orders rounds (PHASE4 D4). ``"score"`` — the default since
+    """How ``recall`` orders rounds (PHASE4 D4; ``"rerank"`` added by PHASE6 D5 —
+    the ``"score"`` top-``rerank_pool`` reordered by the injected cross-encoder,
+    ``mnimi.rerank``). ``"score"`` — the default since
     v1.11.0, gate 4-iii: 87 vs 86, b=2, c=1 — is SPEC §Ranking: every record
     scored ``(w_sim * relevance + w_rec * recency) * salience``, a round by its
     best record, the exact top-k by score (``mnimi.ranking.rank_rounds``); the
@@ -98,6 +100,14 @@ class MemoryConfig:
     defaults: similarity alone (LongMemEval §5.1); a recency weight > 0 is a
     FUTURE item with a trigger and is never set in a run. Exactly those two keys,
     each finite and >= 0. A harness flag (``--salience-weights``) and a pin."""
+
+    rerank_pool: int = 50
+    """Under ``ranking="rerank"`` (PHASE6 D5): how many score-ranked rounds the
+    cross-encoder reorders before the top-``top_k`` are taken. 50 is the
+    probe's own candidate width (``SEARCH_K``), fixed in the pre-registration
+    and never swept; must be >= ``top_k``. The reranker itself is injected
+    (``Memory(..., reranker=)``) and pinned by name and revision. A harness
+    flag (``--rerank-pool``) and a pin."""
 
     time_weight: float = 0.0
     """The weight of the time-aware term in SPEC's score (PHASE6 D3):

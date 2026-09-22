@@ -135,16 +135,19 @@ def build_system(
 
         return NaiveRagSystem(config=config)
     if name == "mnimi":
-        from .probes.retrieval import build_extractor
+        from .probes.retrieval import build_extractor, build_reranker
         from .systems.mnimi import MnimiSystem
 
         wired = knobs.MNIMI_DEFAULT_CONSOLIDATE if consolidate is None else consolidate
         extractor_obj = build_extractor(extractor)
+        # Passed only when reranking, so the constructor call keeps its Phase 4
+        # shape for every other configuration (and the tests' fakes of it).
+        extra = {"reranker": build_reranker(config)} if config.ranking == "rerank" else {}
         if extractor_obj is None:
-            return MnimiSystem(config=config, consolidate=wired)
+            return MnimiSystem(config=config, consolidate=wired, **extra)
         return MnimiSystem(
             config=config, extractor=extractor_obj, extraction_cache=extractor_cache,
-            consolidate=wired,
+            consolidate=wired, **extra,
         )
     raise SystemExit(f"unknown system: {name}")
 

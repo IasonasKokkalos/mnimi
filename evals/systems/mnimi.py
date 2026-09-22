@@ -44,6 +44,7 @@ class MnimiSystem(MemorySystem):
         extractor=None,
         extraction_cache: str | Path | None = None,
         consolidate: bool = False,
+        reranker=None,
     ) -> None:
         # Built once and reused across every question: constructing the real
         # embedder loads a ~130MB ONNX graph, and a full run resets 500 times.
@@ -64,6 +65,7 @@ class MnimiSystem(MemorySystem):
             )
             self._extractor = CachedExtractor(extractor, path)
         self._consolidate = bool(consolidate)
+        self._reranker = reranker
         self._pending = False
         self._scratch = ScratchDb("mnimi-eval-")
         self._memory: Memory | None = None
@@ -128,9 +130,17 @@ class MnimiSystem(MemorySystem):
                 "decay_floor": self._config.decay_floor,
                 "consolidate": self._consolidate,
                 "decay_rules_hash": decay_rules_hash(),
-                # Phase 6 (schema /11): the time-aware term and its frozen rules.
+                # Phase 6 (schema /11): the time-aware term and its frozen rules,
+                # and the cross-encoder rerank (D5) — None when not reranking.
                 "time_weight": self._config.time_weight,
                 "temporal_rules_hash": temporal_rules_hash(),
+                "reranker_model": self._reranker.name if self._reranker is not None else None,
+                "reranker_revision": (
+                    self._reranker.revision if self._reranker is not None else None
+                ),
+                "rerank_pool": (
+                    self._config.rerank_pool if self._config.ranking == "rerank" else None
+                ),
             }
         )
         return pins
@@ -139,7 +149,8 @@ class MnimiSystem(MemorySystem):
         if self._memory is not None:
             self._memory.store.close()  # close before the file is unlinked
         self._memory = Memory(
-            str(self._scratch.next()), self._embedder, self._config, extractor=self._extractor
+            str(self._scratch.next()), self._embedder, self._config, extractor=self._extractor,
+            reranker=self._reranker,
         )
         self._pending = False
 

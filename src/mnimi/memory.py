@@ -28,7 +28,15 @@ from .export import export_store
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord, ScoredRecord
-from .ranking import RANKING_SIMILARITY, RANKINGS, check_weights, rank_rounds, score_hit
+from .ranking import (
+    RANKING_RERANK,
+    RANKING_SIMILARITY,
+    RANKINGS,
+    check_weights,
+    rank_rounds,
+    score_hit,
+)
+from .rerank import rerank_rounds
 from .store import Store
 from .temporal import split_query, window_for
 
@@ -393,14 +401,18 @@ class Memory:
         config: MemoryConfig = _DEFAULT_CONFIG,
         *,
         extractor=None,
+        reranker=None,
     ) -> None:
         """``extractor`` is the one LLM (PHASE2 D6): an ``mnimi.extract.Extractor``
         whose facts become fact records beside every round. ``None`` — the
         default, and all the core deps can offer — is the v1 write path: rounds
-        only, no fact records, no ``[extract]`` extra."""
+        only, no fact records, no ``[extract]`` extra. ``reranker`` (PHASE6 D5)
+        is the cross-encoder ``ranking="rerank"`` reads; required under that
+        ranking, ignored under the others."""
         self.embedder = embedder
         self.config = config
         self.extractor = extractor
+        self.reranker = reranker
         if config.dedup_scope not in DEDUP_SCOPES:
             raise ValueError(
                 f"unknown dedup_scope {config.dedup_scope!r}; expected one of {DEDUP_SCOPES}"
@@ -419,6 +431,12 @@ class Memory:
             raise ValueError("decay_floor must lie in (0, 1]")
         if config.ranking not in RANKINGS:
             raise ValueError(f"unknown ranking {config.ranking!r}; expected one of {RANKINGS}")
+        if config.ranking == RANKING_RERANK and reranker is None:
+            raise ValueError('ranking="rerank" needs a reranker (Memory(..., reranker=))')
+        if isinstance(config.rerank_pool, bool) or not isinstance(config.rerank_pool, int):
+            raise ValueError("rerank_pool must be an integer")
+        if config.rerank_pool < config.top_k:
+            raise ValueError("rerank_pool must be >= top_k")
         check_weights(config.salience_weights)
         if not -1.0 <= config.recall_min_relevance <= 1.0:
             raise ValueError("recall_min_relevance must lie in [-1, 1]")
@@ -667,10 +685,19 @@ class Memory:
 
     def _rank_query(self, query: str, user_id: str, k: int, now: str | None) -> list[ScoredRecord]:
         """``_rank`` from the query text: the embedding of the bare question plus its window."""
-        return self._rank(self._query_embedding(query), user_id, k, now, self._window(query))
+        _date, question = split_query(query)
+        return self._rank(
+            self._query_embedding(query), user_id, k, now, self._window(query), question
+        )
 
     def _rank(
-        self, query_embedding: list[float], user_id: str, k: int, now: str | None, window=None
+        self,
+        query_embedding: list[float],
+        user_id: str,
+        k: int,
+        now: str | None,
+        window=None,
+        question: str | None = None,
     ) -> list[ScoredRecord]:
         """The ``k`` best rounds under ``config.ranking``, no side effect (PHASE4 D4, D6).
 
@@ -688,6 +715,24 @@ class Memory:
                 score_hit(record, cosine, now, self.config.decay_half_life_days, None)
                 for record, cosine in hits
             ]
+        if self.config.ranking == RANKING_RERANK:
+            if question is None:
+                raise ValueError('ranking="rerank" needs the question text (use _rank_query)')
+            return rerank_rounds(
+                self.store,
+                query_embedding,
+                question,
+                user_id,
+                k,
+                pool=self.config.rerank_pool,
+                reranker=self.reranker,
+                weights=self.config.salience_weights,
+                half_life_days=self.config.decay_half_life_days,
+                now=now,
+                active_only=self.config.active_only,
+                window=window,
+                time_weight=self.config.time_weight,
+            )
         return rank_rounds(
             self.store,
             query_embedding,

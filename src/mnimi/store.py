@@ -452,6 +452,15 @@ class Store:
         ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def round_records(self, user_id: str, round_key: str) -> list[MemoryRecord]:
+        """The round-kind records of one round (one, or R4's windows), in insertion order."""
+        rows = self.db.execute(
+            f"SELECT {_COLUMNS} FROM memories m WHERE m.user_id = ? AND m.round_key = ? "
+            "AND m.kind = ? ORDER BY m.id",
+            (user_id, round_key, KIND_ROUND),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
     def active_facts_by_pair(self, user_id: str, pair_key: str) -> list[MemoryRecord]:
         """The user's ACTIVE fact records on one normalized pair — conflict candidates (PHASE3 D2).
 

@@ -45,10 +45,17 @@ def add_read_path_flags(parser: argparse.ArgumentParser) -> None:
         "ranks nor renders (MemoryConfig.active_only, PHASE4 D5). Pinned (schema /10).",
     )
     parser.add_argument(
-        "--ranking", default=None, choices=["similarity", "score"],
+        "--ranking", default=None, choices=["similarity", "score", "rerank"],
         help="mnimi only: 'similarity' is the v1.10 read path; 'score' is SPEC's "
         "(w_sim*relevance + w_rec*recency)*salience over rounds (MemoryConfig.ranking, "
-        "PHASE4 D4). Pinned.",
+        "PHASE4 D4); 'rerank' is score's top-(--rerank-pool) reordered by the pinned "
+        "cross-encoder (PHASE6 D5). Pinned.",
+    )
+    parser.add_argument(
+        "--rerank-pool", default=None, type=int,
+        help="mnimi only, under --ranking rerank: how many score-ranked rounds the "
+        "cross-encoder reorders (MemoryConfig.rerank_pool, PHASE6 D5). Pinned. "
+        "Default: the library's 50; never swept.",
     )
     parser.add_argument(
         "--salience-weights", default=None, type=parse_salience_weights,
@@ -102,6 +109,8 @@ def read_path_knobs(args: argparse.Namespace) -> dict:
         knobs["decay_floor"] = args.decay_floor
     if getattr(args, "time_weight", None) is not None:
         knobs["time_weight"] = args.time_weight
+    if getattr(args, "rerank_pool", None) is not None:
+        knobs["rerank_pool"] = args.rerank_pool
     return knobs
 
 
@@ -128,6 +137,8 @@ def read_path_resume_extras(args: argparse.Namespace) -> list[str]:
         extras.append(f"--decay-floor {args.decay_floor}")
     if getattr(args, "time_weight", None) is not None:
         extras.append(f"--time-weight {args.time_weight}")
+    if getattr(args, "rerank_pool", None) is not None:
+        extras.append(f"--rerank-pool {args.rerank_pool}")
     if args.consolidate is not None:
         extras.append(f"--consolidate {args.consolidate}")
     return extras

@@ -388,6 +388,15 @@ def build_extractor(name: str | None):
     raise SystemExit(f"unknown extractor {name!r}; expected none or qwen3")
 
 
+def build_reranker(config: MemoryConfig):
+    """The pinned cross-encoder under ``ranking="rerank"`` (PHASE6 D5), else ``None``."""
+    if config.ranking != "rerank":
+        return None
+    from mnimi.rerank import MiniLMCrossEncoder
+
+    return MiniLMCrossEncoder()
+
+
 def build(system_name: str, config: MemoryConfig, extractor: str | None = None,
           extractor_cache: str | None = None, consolidate: bool | None = None):
     if system_name == "mnimi":
@@ -395,10 +404,11 @@ def build(system_name: str, config: MemoryConfig, extractor: str | None = None,
 
         wired = MNIMI_DEFAULT_CONSOLIDATE if consolidate is None else consolidate
         extractor_obj = build_extractor(extractor)
+        extra = {"reranker": build_reranker(config)} if config.ranking == "rerank" else {}
         if extractor_obj is None:
-            return MnimiSystem(config=config, consolidate=wired)
+            return MnimiSystem(config=config, consolidate=wired, **extra)
         return MnimiSystem(config=config, extractor=extractor_obj,
-                           extraction_cache=extractor_cache, consolidate=wired)
+                           extraction_cache=extractor_cache, consolidate=wired, **extra)
     if system_name == "naive_rag":
         from ..systems.naive_rag import NaiveRagSystem
 

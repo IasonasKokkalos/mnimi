@@ -461,6 +461,9 @@ def build_pins(
     decay_rules_hash: str | None = None,
     time_weight: float | None = None,
     temporal_rules_hash: str | None = None,
+    reranker_model: str | None = None,
+    reranker_revision: str | None = None,
+    rerank_pool: int | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -565,9 +568,11 @@ def build_pins(
 
     Schema /11 (2026-09-22, Phase 6) added ``time_weight`` (``MemoryConfig``,
     the weight of the time-aware term) and ``temporal_rules_hash`` (the frozen
-    grammar, slack and matching rule of ``mnimi.temporal``). Declared by
-    mnimi only; outside ``HARNESS_PARITY_FIELDS``, so the arms still pair; a
-    drift pair against a /10 artifact is judged on the shared pins as always.
+    grammar, slack and matching rule of ``mnimi.temporal``), and the
+    cross-encoder rerank's ``reranker_model``, ``reranker_revision`` and
+    ``rerank_pool`` (``None`` unless ``ranking="rerank"``). Declared by mnimi
+    only; outside ``HARNESS_PARITY_FIELDS``, so the arms still pair; a drift
+    pair against a /10 artifact is judged on the shared pins as always.
 
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
@@ -661,6 +666,9 @@ def build_pins(
         # Schema /11 (PHASE6): the time-aware term and its frozen rules. mnimi only.
         "time_weight": time_weight,
         "temporal_rules_hash": temporal_rules_hash,
+        "reranker_model": reranker_model,
+        "reranker_revision": reranker_revision,
+        "rerank_pool": rerank_pool,
     }
 
 

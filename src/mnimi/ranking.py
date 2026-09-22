@@ -22,7 +22,8 @@ from .temporal import effective_time, time_match
 
 RANKING_SIMILARITY = "similarity"
 RANKING_SCORE = "score"
-RANKINGS = (RANKING_SIMILARITY, RANKING_SCORE)
+RANKING_RERANK = "rerank"  # PHASE6 D5: score's top-pool, reordered by a cross-encoder
+RANKINGS = (RANKING_SIMILARITY, RANKING_SCORE, RANKING_RERANK)
 SALIENCE_WEIGHT_KEYS = ("similarity", "recency")
 
 
