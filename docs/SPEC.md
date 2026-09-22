@@ -185,7 +185,7 @@ score.
 
 ---
 
-## v1 as built (v1.11.0, 2026-09-18; library: the extraction era, Phase 3's screens and supersede, and Phase 4's decay, ranking and read side — ranking and the salience-0 exclusion adopted at gates 4-ii and 4-iii, decay built and switched off by the same rule)
+## v1 as built (v1.12.0, 2026-09-22; library: the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, and Phase 5's `export()` and concurrency — all five locked methods exist; SPEC-complete modulo two disclosed render deviations, `context_token_budget` and `raw`; the 85 criterion read at n=500 and not met: mnimi 84.4 %, the primary against naive_rag significant at p = 1.1 × 10⁻⁶)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -1266,6 +1266,15 @@ that into `database is locked` instead of a wait.
 Separate from `Memory`. Any system under test implements `reset()`,
 `add(messages)`, `get_context(query) -> str`. The harness drives it
 identically for every system so results are comparable.
+
+**v1 as built (Phase 5, 2026-09-22): the contract's decay-on/off ablation on the headline
+run.** Five arms over all 500 questions at one clean commit (`f07c24d`), `provisional: []`
+throughout: no_memory 6.2 %, naive_rag 74.6 %, **mnimi 84.4 % [81.0, 87.3]**, mnimi with
+decay 78.2 %, oracle 91.8 %; `full_history` cited at 64.0 %. The ablation reads **X = −6.2
+(b=19, c=50, p = 2 × 10⁻⁴)** — decay off is the right default on this benchmark, now on n=500
+evidence. The primary, mnimi vs naive_rag, is significant for the first time (b=75, c=26,
+p = 1.1 × 10⁻⁶). The 85 lower-bound criterion is not met (441 needed, 422 read).
+`results/published/*__500q_gpt4o*`; DECISIONS "Gate 5-iv read".
 
 **Harness pins (checked at harness start, mismatch → refuse to run):**
 - `reader_model` — `<model id + revision/hash>`, temperature 0. The reader is

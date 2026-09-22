@@ -3171,3 +3171,116 @@ order, overriding the planner's cheapest-first: arm order is not a pin, and it p
 first. One refinement of the halt rule, approved by the user on 2026-09-21: an arm-specific crash
 in the decay arm alone is recorded and notified and the sequence continues; a failure in `mnimi`
 or any systemic failure halts everything.
+
+## Gate 5-iv read: the n=500 verdict — mnimi 422/500 (84.4 %, Wilson [81.0, 87.3]); the 85 criterion NOT met; the primary significant for the first time (2026-09-22)
+
+Five arms over all 500 LongMemEval questions, one commit (`f07c24d`, `main`, clean), one day
+(2026-09-21 22:50 → 2026-09-22 15:57), reader `gpt-4o-2024-08-06` through the Batch API, judge the
+same snapshot with `longmemeval-paper-v3`, `provisional: []` on all five. `full_history` cited
+at 64.0 % and refused by the harness. Numbers from `python -m evals.stats` over
+`results/published/*__500q_gpt4o*`; the full record is `mnimi docs/PHASE5-RESULTS.md` § Task 8.
+
+| arm | score | Wilson 95 % | role | $ |
+| --- | --- | --- | --- | --- |
+| `no_memory` | 31/500 = 6.2 % | [4.4, 8.7] | floor | 0.66 |
+| `naive_rag` | 373/500 = 74.6 % | [70.6, 78.2] | strong K=V baseline | 3.83 |
+| **`mnimi`** | **422/500 = 84.4 %** | **[81.0, 87.3]** | the verdict arm (v1.11 adopted config) | 4.32 |
+| `mnimi --consolidate on` | 391/500 = 78.2 % | [74.4, 81.6] | SPEC's decay ablation | 4.20 |
+| `oracle` | 459/500 = 91.8 % | [89.1, 93.9] | evidence-availability bound | 4.54 |
+
+**The criterion (PLAN §4.4, pre-registered 2026-09-11): NOT MET.** A Wilson lower bound ≥ 85.0
+needs 441/500; the arm read 422, lower bound 81.0, and the point estimate is itself below 85.
+Per PLAN §4.4 this is a reported outcome with its gap by category, not a failure, and criterion
+(a) — SPEC-complete modulo two disclosed render deviations — stands on its own. The gap:
+multi-session 95/133 (71.4 %) and temporal-reasoning 111/133 (83.5 %) hold 60 of the 78 misses.
+
+**The primary (pre-registered since Phase 0): SIGNIFICANT.** mnimi vs naive_rag, paired exact
+McNemar: **b=75, c=26, p = 1.1 × 10⁻⁶**; Holm across the family leaves it unchanged. +9.8 points,
+concentrated where memory has to be more than retrieval: temporal-reasoning +25, multi-session
++12; the single-session cells are saturated for both. Every earlier reading of this pair was a
+null (Phase 0 b=1 c=6; Phase 1 b=2 c=3; Phase 2 b=7 c=2, p=0.18); the sitting was kept after the
+criterion was known to be out of reach precisely to give it power ("Phase 5 amended after gate
+5-0"), and the gap widened at scale (naive_rag 79 → 74.6 against mnimi 87 → 84.4).
+
+**SPEC §Benchmark contract's decay-on/off ablation, on the headline run: X = −6.2 (b=19, c=50,
+p = 2 × 10⁻⁴).** Significant where gate 4-iii's −6 at n=100 was only suggestive; the readings
+agree to 0.2 of a point. The loss is temporal-reasoning −15 and knowledge-update −10 — the
+categories whose evidence is dated and, for knowledge-update, deliberately old. Decay ships built,
+tested and off; that decision now rests on n=500 evidence.
+
+**The headroom.** mnimi vs oracle b=17, c=54. Of mnimi's 78 misses, 24 are questions oracle also
+fails (the reader, with the evidence in hand) and **54 are questions oracle answers** — the whole
+of what a better memory layer could still buy on this reader; 25 of the 54 are multi-session,
+where mnimi sits 25 points under the bound at ALL@10 77.7 %. Gate 5-0's slice reading (1 retrieval
+miss in 13; the gap at the reader) was right about the mechanism and too optimistic about its
+size at scale: multi-session is the one place retrieval still has room.
+
+**The four pre-registered predictions.** P1 held (84.4 ≤ 87). P2 not held: n=500 retrieval ALL@10
+88.3 % against 85 ± 2 — high (the reweight's per-category inputs were small-sample noise). P3 not
+held: naive_rag 74.6 against 79 ± 3 — low. P4 held. Both misses favour the thesis; none moves a
+rule.
+
+**Two interventions, disclosed.** (1) Arm order was the user's (`mnimi` first), not the
+planner's cheapest-first; order is not a pin. (2) The oracle arm stalled at chunk 42/45 on the
+org's 90k enqueued-token cap — the planner's chars/4 estimate ran ~4 % under the real count on
+oracle's long contexts — and the harness's resume could not recover (it reloaded the saved plan
+and cap and refused a chunk at three attempts; its own hint was wrong). The bookkeeping file
+`batch_state.json` was edited, backed up, to split the four outstanding chunks into eight; no
+request body, pin or harness code changed, all 500 ids verified preserved, and a Batch result is
+per request. The resume path is fixed in `ab09448` with a test.
+
+**Cost.** Sitting $17.55 actual against ≈ $17.75 projected on 2026-09-18 (within 1.2 %).
+Programme $33.85 of $50.00.
+
+
+## Phase 5 closes: the verdict, the deviations, and what remains (2026-09-22, v1.12.0)
+
+**What the phase did.** Pre-registered its gates and predictions (`de8b123`); read gate 5-0 at $0
+and dropped hybrid retrieval on measured evidence (0 exact-term retrieval misses in 13 wrong rows;
+`9864ceb`, `1014e7a`); ran the corpus pass over all 500 questions (78.6 h of GPU, cache 23,302 →
+95,846 rows, one crash root-caused and fixed at the parser boundary at zero re-extraction,
+`f07c24d`); read gate 5-iii (100/100) and the deferred WAL re-probe (100/100); built `export()`,
+the fifth locked method, and concurrency (`2e77031`, `52c59cd`); ran the five-arm n=500 sitting
+and read the verdict above; fixed the harness's resume path (`ab09448`). Tests 392 → 409. Spend
+$17.55 (projected ≈ $19.5 with gate 5-ii, which never ran).
+
+**Deviations from SPEC and from this phase's own plan, each disclosed where decided.**
+1. `context_token_budget` **not built** (D3): SPEC's 2000 would cut ~60 % of the context the
+   number was measured on (mnimi feeds 5,499 tokens). FUTURE.md, with a trigger.
+2. `raw` in the rendered block **not built** (D4): under `round+facts` the turns already carry the
+   span. FUTURE.md, with a trigger.
+3. Hybrid FTS5 **not built at all**, amending D1's "built either way" — the measured ceiling was
+   0 rows (gate 5-0). FUTURE.md's trigger is closed with the reading.
+4. **No v2.0.0**: with no store-format change the precedent of Phases 3 and 4 holds; v1.12.0.
+5. Gate 5-iii's reference became this phase's own pre-growth probe, not Phase 4's landing-defaults
+   probe (D13 amended): a bare re-run no longer reproduces `p4i` once gate 4-iii flipped the
+   defaults.
+6. The plan's 300/400 chunks were collapsed into one `--limit 500` run once chunk 1 proved the
+   resume path (≈ 6 h of re-walks saved).
+7. Concurrency is a lock, not a queue, and `check_same_thread=False` is part of the same change —
+   the connection was thread-hostile, not merely unserialized (Task 10).
+8. Arm order in the sitting was the user's, and a decay-arm-only crash would have continued the
+   sequence (approved 2026-09-21); neither fired.
+9. The oracle arm's bookkeeping file was edited to finish the run (above).
+10. Two runbook flaws found and fixed before they fired: an impossible second fast-forward (the
+    fix branch was rebased onto `feature/hybrid` before any merge — `7d26b06` → `f07c24d`, code
+    byte-identical), and a stop threshold miscalibrated against the harness's upper-bound
+    projection (replaced by a pre-spend check against 5× the n=100 precedent, read at 0.0 %).
+11. One process error: the crash's second hypothesis was right but mis-tested — an
+    instrumentation edit silently failed to apply. Bisecting the batch found it. Every scripted
+    edit since asserts its anchor.
+
+**Criterion (a) — "SPEC-complete modulo two disclosed render deviations" — is met.** The five
+locked methods exist; every write-side stage SPEC names is built, measured and either adopted or
+switched off by a pre-registered rule; the guard has seventeen rows; concurrency is built; the
+three decision-log formats are live; the benchmark contract's ablation is on the headline run.
+**Criterion (b) — the 85 — is not met**, and the programme's done-condition is a disjunction.
+
+**What remains, for whatever follows.** The 54 questions oracle answers and mnimi does not, 25 of
+them multi-session (ALL@10 77.7 % there — partial evidence for multi-hop questions). The `source`
+provenance pointer (Phase E). The OMEGA competitor run (B3, never required). Tier 3. FUTURE items
+whose triggers this sitting bears on: `context_token_budget` (fed tokens are 5,499/question, 17 %
+above naive_rag's, with no measured ceiling); the recency weight and `recall_min_relevance` (both
+still never run); the extractor LoRA (multi-session's incomplete evidence is an extraction and
+retrieval question, not a reading one). The 85 criterion itself is a maintainer's decision to
+revisit: at n=500 it requires 441, which is 1.8 points below oracle's 91.8 on this reader.

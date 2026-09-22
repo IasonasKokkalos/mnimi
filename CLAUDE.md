@@ -251,6 +251,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   Phase 2 (2026-09-15, `043c0ea`): `mnimi__100q_gpt4o_{p2base,extract,extract_facts}`
   and `naive_rag__100q_gpt4o_p2` at `82aa8b5` — 80 / 84 / 78 / 79; extraction
   adopted with `round+facts`; primary mnimi 84 vs naive_rag 79, b=7, c=2, p=0.18.
+  Phase 5 (2026-09-22, `ab09448`): the five-arm n=500 sitting at `f07c24d` clean —
+  `{no_memory,naive_rag,mnimi,oracle}__500q_gpt4o` and `mnimi__500q_gpt4o_decay`,
+  6.2 / 74.6 / **84.4** / 91.8 / 78.2, `provisional: []` throughout; the whole benchmark,
+  and the n=100 slices nest inside it, so nothing here replicates an n=100 number.
   Phase 4 (2026-09-18, `378a19c`): the three-arm ablation at `25cde7f` —
   `mnimi__100q_gpt4o_p4base` 86 (the v1.10 read path), `…_p4rank` **87** (SPEC's read
   path, adopted), `…_p4decay` 81 (with decay, not adopted); A→B b=2 c=1, B→C b=2 c=8
@@ -356,7 +360,16 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   exclusion priced, 0 evidence rounds lost) passed, and the three-arm sitting read
   86 / 87 / 81 — SPEC's read path adopted (b=2, c=1), decay measured at −6 points
   (b=2, c=8) and left off. The adopted arm is 87 beside the published naive_rag 79
-  and oracle 90, descriptively; the primary is Phase 5's n=500.
+  and oracle 90, descriptively; the primary is Phase 5's n=500. **Phase 5 closed
+  2026-09-22 for $17.55 (v1.12.0): the five-arm n=500 sitting at `f07c24d` read
+  no_memory 6.2 / naive_rag 74.6 / mnimi 84.4 [81.0, 87.3] / mnimi+decay 78.2 /
+  oracle 91.8. The 85 criterion is NOT met (441 needed, 422 read). The primary is
+  significant for the first time: mnimi vs naive_rag b=75, c=26, p = 1.1 × 10⁻⁶,
+  +25 on temporal-reasoning and +12 on multi-session. Decay's ablation on the
+  headline run: X = −6.2, p = 2 × 10⁻⁴. Criterion (a) is met — SPEC-complete modulo
+  two disclosed render deviations — so the programme's done-condition is satisfied on
+  (a) and not on (b). The remaining headroom is 54 questions oracle answers and mnimi
+  does not, 25 of them multi-session (DECISIONS "Gate 5-iv read", "Phase 5 closes").**
 
 ## Scope rule
 
@@ -433,7 +446,7 @@ python -m evals --system mnimi --limit 100 --stage predict --reader-transport op
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only on --ranking score --consolidate on --run-dir runs/mnimi__100q_gpt4o_p4decay
 ```
 
-## Current state vs SPEC (as of v1.11.0, 2026-09-18; library = the extraction era, Phase 3's screens and supersede, and Phase 4's decay, ranking and read side — ranking and the salience-0 exclusion adopted, decay built and off)
+## Current state vs SPEC (as of v1.12.0, 2026-09-22; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency — SPEC-complete modulo two disclosed render deviations; the n=500 verdict read: 84.4 %, criterion not met, primary significant)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is

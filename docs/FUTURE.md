@@ -235,6 +235,23 @@ current position, not a lock — reopening either needs a reason, not a vote.
 
 ## Context presentation
 
+* **`context_token_budget` (SPEC §MemoryConfig, default 2000).** Not built, decided
+  2026-09-18 (PHASE5 D3): the adopted arm feeds a mean of 5,499 reader prompt tokens per
+  question at n=500 (naive_rag 4,685, oracle 4,992), so SPEC's default would cut ~60 % of the
+  context the published numbers were measured on — a retrieval-quality experiment, not a
+  spec-completion detail, and it would need pricing at the reader before it could be
+  defended. **[trigger]** a measured fed-token ceiling — a reader context limit, a cost
+  limit, or an n=500 error analysis attributing losses to context length. None has fired:
+  the 78 misses at n=500 split 24 the reader fails with oracle's evidence and 54 with
+  incomplete retrieval, not context overflow.
+
+* **`raw` in the rendered block (SPEC §get_context).** Not built, decided 2026-09-18 (PHASE5
+  D4): under the adopted `render_unit="round+facts"` the block already renders the round's
+  verbatim turns, and a fact's `raw` is a span of those turns — printing it repeats text two
+  lines above. SPEC's rationale (Fig 5 §5.2) is about a fact-only rendering, which is the
+  `facts` unit, measured at 78 and rejected at gate 4-iii. **[trigger]** a render unit that
+  omits the turns being adopted.
+
 * **JSON context presentation (§5.5).** Presenting retrieved items as
   structured JSON per §5.5 is a get_context change across all five arms and
   forces a full re-run. It is a fidelity improvement, not a precondition for

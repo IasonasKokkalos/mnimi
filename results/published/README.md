@@ -360,6 +360,51 @@ above, plus: decay is built and measured here, and switched off by the same
 pre-registered rule that adopted the ranking — a negative result, published as
 one.
 
+### Phase 5: the verdict sitting — five arms, all 500 questions, one clean commit (2026-09-21 → 22)
+
+The pre-registered gate 5-iv of `docs/DECISIONS.md` "Phase 5 pre-registration" (2026-09-18);
+read in "Gate 5-iv read" (2026-09-22). Every value is copied from the artifacts or printed by
+`python -m evals.stats` over these directories.
+
+**Provenance — the same for all five arms:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-21 22:50 → 2026-09-22 15:57, one sitting, one arm in flight at a time: no_memory 22:50–23:12, mnimi 23:17–04:37, mnimi+decay 04:38–09:49, naive_rag 09:49–14:03, oracle 14:03–15:57 |
+| harness commit | `f07c24d1739afea4727783906621e526b91fdee2` — **clean tree** on every run, one sha in all five `pins.json`; `main` = `origin/main` at the time |
+| artifact schema | `mnimi-eval-artifact/10` |
+| `provisional` | `[]` on every directory of this set |
+| reader transport | `openai` — `gpt-4o-2024-08-06`, `num_ctx=128000`, temperature 0, `seed=0`, `max_tokens=800`; the six Ollama-only pins `null` |
+| how it was served | Batch API under the 90,000 enqueued-token cap: 6 / 42 / 42 / 37 / 49 sub-batches, every chunk `completed`, 0 synchronous fallbacks. The oracle arm's last four planned chunks were split into eight in `batch_state.json` after a `token_limit_exceeded` refusal (no request body, pin or code changed; DECISIONS "Gate 5-iv read") |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` (text) |
+| retrieval (naive_rag, mnimi, mnimi+decay) | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10` rounds, `dedup_cosine_threshold=0.95`, `dedup_scope=session`, the BGE query instruction |
+| mnimi arms | `--extractor qwen3 --render-unit round+facts --active-only on --ranking score`, `--consolidate off` / `on`; the extraction cache `e15153f838b8…` at 95,846 rows, replayed with `misses: 0`; seventeen `memory_meta` rows incl. `decay_rules_hash` `d4a0bcf07330…` |
+| run environment | system Python 3.14, NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2, llama-cpp-python 0.3.35 |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=500 — the whole benchmark; the published n=100 slices nest inside it |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3` (`be3dd63955221344…`), temperature 0, `max_tokens=10` |
+| dollars | $17.55 for the sitting (readers 0.34 / 3.94 / 3.89 / 3.44 / 4.12; judges 0.32 / 0.38 / 0.32 / 0.39 / 0.43) |
+
+| run | arm | score | 95% CI | mean fed tokens | quotable? |
+| --- | --- | --- | --- | --- | --- |
+| `no_memory__500q_gpt4o` | the floor | 31/500 (6.2%) | [4.4, 8.7] | 133 | yes |
+| `naive_rag__500q_gpt4o` | the strong K=V baseline | 373/500 (74.6%) | [70.6, 78.2] | 4,685 | yes |
+| **`mnimi__500q_gpt4o`** | **the adopted configuration** | **422/500 (84.4%)** | **[81.0, 87.3]** | 5,499 | yes |
+| `mnimi__500q_gpt4o_decay` | SPEC's read path with decay | 391/500 (78.2%) | [74.4, 81.6] | 5,444 | yes |
+| `oracle__500q_gpt4o` | the evidence-availability bound | 459/500 (91.8%) | [89.1, 93.9] | — | yes |
+| `full_history` | cited: Fig 3b, GPT-4o + CoN | 64.0% | — | — | cited, not run |
+
+| comparison (b = the second arm's wins) | b | c | discordant | p (exact McNemar) | reading |
+| --- | --- | --- | --- | --- | --- |
+| **mnimi vs naive_rag — the pre-registered primary** | **75** | **26** | 101 | **1.1 × 10⁻⁶** | significant; +9.8 points |
+| mnimi+decay vs mnimi — SPEC's decay-on/off ablation | 19 | 50 | 69 | 2 × 10⁻⁴ | X = −6.2; decay stays off |
+| mnimi vs oracle — the headroom | 17 | 54 | 71 | < 10⁻⁴ | 7.4 points under the bound |
+
+**The criterion.** PLAN §4.4's Wilson lower bound ≥ 85.0 (441/500) is **not met** — 422 read.
+Read with the caveats of the sections above, plus: the gpt-4o family's Tier 2 is "score
+reproducible within 6/100 flips; text not reproducible", and the judge flips borderline rows
+at roughly that rate, so no absolute difference smaller than a few points is interpretable on
+its own; the paired rows are unaffected.
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |

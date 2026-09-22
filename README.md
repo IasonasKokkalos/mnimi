@@ -197,6 +197,31 @@ away — and the phase spent $2.56. Nothing here is significant at n=100 and not
 be; the primary against `naive_rag` is settled at n=500 (Phase 5). Rulings in `docs/DECISIONS.md`
 ("Phase 4 pre-registration" through "Phase 4 closes").
 
+**Phase 5 — the verdict on the full benchmark (2026-09-21 → 22, gpt-4o family, all 500 questions).**
+The five arms at one clean commit (`f07c24d`), one day, $17.55, `provisional: []` on all five.
+The n=100 slices nest inside this one, so these are the first full-benchmark numbers, not
+replications of earlier ones.
+
+| arm | score | Wilson 95 % | role |
+| --- | ---: | :---: | --- |
+| `no_memory` | 6.2 % | [4.4, 8.7] | the floor |
+| `full_history` | *64.0 %* | — | cited from the paper (Fig 3b); refused by the harness |
+| `naive_rag` | 74.6 % | [70.6, 78.2] | the strong K=V baseline, identical ingestion |
+| **`mnimi`** | **84.4 %** | **[81.0, 87.3]** | the adopted configuration (v1.11 read path, extraction on, decay off) |
+| `mnimi --consolidate on` | 78.2 % | [74.4, 81.6] | SPEC's decay-on/off ablation: X = −6.2, p = 2 × 10⁻⁴ |
+| `oracle` | 91.8 % | [89.1, 93.9] | the evidence-availability bound |
+
+**mnimi beats the strong K=V baseline by 9.8 points, significantly** — paired exact McNemar
+b=75, c=26, **p = 1.1 × 10⁻⁶** — for the first time in the programme, and where memory has
+to be more than retrieval: temporal-reasoning +25, multi-session +12; the single-session
+cells are saturated for both. The programme's pre-registered 85 criterion (a Wilson lower
+bound ≥ 85.0, i.e. 441/500) is **not met**: 422 read, lower bound 81.0. Of mnimi's 78 misses,
+24 are questions oracle also fails and 54 are questions oracle answers — 25 of those
+multi-session, where the retriever shows the reader part of a multi-hop question's evidence
+(ALL@10 77.7 %). Rulings in `docs/DECISIONS.md` ("Phase 5 pre-registration" through "Phase 5
+closes"); every number is auditable with `python -m evals --stage judge --predictions <file>`
+over `results/published/*__500q_gpt4o*`.
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked
@@ -352,7 +377,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v1.11.0. The block above is the locked contract; what ships today
+Pre-alpha, v1.12.0. The block above is the locked contract; what ships today
 is narrower. Built: per-round ingestion; the one LLM the library will ever
 call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
 extra) whose facts are stored beside each round; dedup as exact match, one
