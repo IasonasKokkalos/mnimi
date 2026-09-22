@@ -7,7 +7,7 @@ from pathlib import Path
 from mnimi import Memory, MemoryConfig
 from mnimi.embeddings import Embedder
 
-from ..base import MemorySystem
+from ..base import MemorySystem, _round_id
 from ._scratch import ScratchDb
 
 #: All eval stores hold exactly one user; the id only has to be stable.
@@ -145,7 +145,17 @@ class MnimiSystem(MemorySystem):
 
     def get_context(self, query: str) -> str:
         self.consolidate_if_wired()
+        # The rounds the reader is about to see, by round key (record id for a
+        # v1 record without one). ``recall`` is deterministic, so this second
+        # search returns exactly the rounds ``get_context`` renders; the
+        # write-back it performs (``last_accessed`` = now) is idempotent.
+        self._last_retrieved = [
+            _round_id(hit.record) for hit in self._memory.recall(query, EVAL_USER_ID)
+        ]
         return self._memory.get_context(query, EVAL_USER_ID)
+
+    def retrieved_ids(self) -> list[str] | None:
+        return list(getattr(self, "_last_retrieved", []))
 
     def consolidate_if_wired(self) -> None:
         """One ``Memory.consolidate`` per store, before the question (PHASE4 D8).

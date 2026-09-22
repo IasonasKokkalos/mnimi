@@ -9,12 +9,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import asdict
 from pathlib import Path
 
 # Stdlib-only, so importing these here keeps `python -m evals --help` from
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
 from . import artifacts, knobs, pricing
+from . import manifest as manifest_mod
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
 
 # Phase A pins. Reader is a local Ollama model; judge is the paper's validated
@@ -327,7 +329,51 @@ def _verify_drift(reference: str, directory: Path) -> int:
     return 0
 
 
+#: What the current invocation has touched, for the registry row an aborted run
+#: still gets (the run-documentation rule: one row per run, failed ones included).
+_run_context: dict = {}
+
+
 def main(argv: list[str] | None = None) -> int:
+    """The CLI. A run that leaves with a non-zero code or an exception after it
+    started writing a run directory is registered as ``aborted``."""
+    _run_context.clear()
+    try:
+        rc = _main(argv)
+    except BaseException:
+        _register_abort()
+        raise
+    if rc != 0:
+        _register_abort()
+    return rc
+
+
+def _register_abort() -> None:
+    ctx = _run_context
+    if not ctx.get("directory") or ctx.get("completed"):
+        return
+    directory = Path(ctx["directory"])
+    try:
+        existing = manifest_mod.read_optional(directory)
+        pins = artifacts.read_pins_optional(directory) if directory.exists() else {}
+        pins = pins or ctx.get("pins") or {}
+        m = existing or manifest_mod.build(
+            run_id=directory.name, purpose=ctx.get("purpose"), claim=ctx.get("claim"),
+            rule_commit=ctx.get("rule_commit"), pins=pins, porcelain=ctx.get("porcelain"),
+            served_models=None, served_fingerprints=None, judge=None, replay_count=None,
+            question_ids=None, environment=None, cost={}, outputs={},
+        )
+        manifest_mod.finalize(m, ctx.get("provisional"), aborted=True)
+        if directory.exists():
+            manifest_mod.write(directory, m)
+        manifest_mod.index_append(manifest_mod.index_row(m, "aborted"), runs_dir=directory.parent)
+        index = manifest_mod.index_path(directory.parent)
+        print(f"registered {directory.name} as ABORTED in {index}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 — registering an abort must not mask the abort
+        print(f"WARNING: could not register the aborted run: {exc}", file=sys.stderr)
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m evals",
         description="Run a memory system against LongMemEval and print a score table.",
@@ -550,6 +596,31 @@ def main(argv: list[str] | None = None) -> int:
         "presentation pair decides the era's value (DECISIONS 2026-09-12).",
     )
     parser.add_argument(
+        "--purpose",
+        default=None,
+        help="one line on why this run exists; written to manifest.json (the "
+        "run-documentation rule, 2026-09-22). A run without one is INCOMPLETE.",
+    )
+    parser.add_argument(
+        "--claim",
+        default="none",
+        help="the claim or decision rule this run tests (C1-C5, MS/TR, or none; "
+        "default none). Anything but none needs --rule-commit.",
+    )
+    parser.add_argument(
+        "--rule-commit",
+        default=None,
+        help="the commit that holds the pre-registered rule this run tests; "
+        "required when --claim is not none, recorded in manifest.json.",
+    )
+    parser.add_argument(
+        "--overwrite-run-dir",
+        action="store_true",
+        help="allow the predict stage to write into a run directory that already "
+        "holds a run. Off by default: an existing run is never overwritten "
+        "silently (use a fresh --run-dir, or pass this after asking).",
+    )
+    parser.add_argument(
         "--run-dir",
         default=None,
         help="where staged artifacts live (default runs/<system>__<limit>q). "
@@ -672,6 +743,56 @@ def main(argv: list[str] | None = None) -> int:
         else (Path(args.run_dir) if args.run_dir else artifacts.run_dir(args.system, args.limit))
     )
     directory = Path(args.run_dir) if args.run_dir else source_dir
+
+    # The run-documentation rule (2026-09-22). A claim needs its committed rule;
+    # a dirty tree is said out loud BEFORE anything runs; an existing run
+    # directory is never overwritten without being asked.
+    if args.claim != "none" and not args.rule_commit:
+        print(
+            f"ERROR: --claim {args.claim} tests a pre-registered rule; pass --rule-commit "
+            "<sha> (the commit that holds the rule; commit it first).",
+            file=sys.stderr,
+        )
+        return 2
+    rule_ref = f"{args.rule_commit}^{{commit}}" if args.rule_commit else None
+    if rule_ref and artifacts._git("cat-file", "-e", rule_ref) is None:
+        print(f"ERROR: --rule-commit {args.rule_commit} is not a commit in this repository.",
+              file=sys.stderr)
+        return 2
+    porcelain = manifest_mod.git_status_porcelain()
+    if do_predict:
+        if porcelain:
+            print(
+                "PROVISIONAL: the harness tree is dirty (git status --porcelain below); this "
+                "run cannot be published.\n" + porcelain,
+                file=sys.stderr,
+            )
+        else:
+            print("clean tree: git status --porcelain is empty", file=sys.stderr)
+        held = [
+            name for name in ("predictions.jsonl", "results.json", manifest_mod.MANIFEST_FILE)
+            if (directory / name).exists()
+        ]
+        batch_resume = (
+            args.batch
+            and (directory / artifacts.BATCH_STATE_FILE).exists()
+            and not (directory / "predictions.jsonl").exists()
+        )
+        if held and not batch_resume and not args.overwrite_run_dir:
+            print(
+                f"ERROR: {directory} already holds a run ({', '.join(held)}). A run directory "
+                "is never overwritten: choose another --run-dir, or pass --overwrite-run-dir "
+                "after asking.",
+                file=sys.stderr,
+            )
+            return 2
+    if not auditing:
+        # Registered only once the run may proceed: a refused overwrite or a
+        # missing rule commit is not an aborted run of the directory it named.
+        _run_context.update(
+            directory=str(directory), purpose=args.purpose, claim=args.claim,
+            rule_commit=args.rule_commit, porcelain=porcelain,
+        )
 
     # Guards are stage-scoped: the predict stage never touches OpenAI, and the
     # judge stage never touches Ollama. Demanding both for either would make
@@ -872,6 +993,37 @@ def main(argv: list[str] | None = None) -> int:
                     directory, predict_stats.as_resolved(args.reader_transport, args.model)
                 )
         print(f"wrote {directory / 'predictions.jsonl'}", file=sys.stderr)
+        predict_wall = time.perf_counter() - started
+        resolved = artifacts.read_reader_resolved_optional(directory) or {}
+        if not is_api:
+            resolved = predict_stats.as_resolved(args.reader_transport, args.model)
+            resolved["served_models"] = {digest or args.model: len(predictions)}
+        cache_stats = getattr(system, "cache_stats", None)
+        run_manifest = manifest_mod.build(
+            run_id=directory.name,
+            purpose=args.purpose,
+            claim=args.claim,
+            rule_commit=args.rule_commit,
+            pins=pins,
+            porcelain=porcelain,
+            served_models=resolved.get("served_models") or None,
+            served_fingerprints=resolved.get("system_fingerprints") or None,
+            judge=None,
+            replay_count=None,
+            question_ids=[p.question_id for p in predictions],
+            environment=_capture_environment_for(args.reader_transport, directory),
+            cost={
+                "reader_usd": resolved.get("actual_usd", 0.0 if not is_api else None),
+                "reader_prompt_tokens": (resolved.get("usage") or {}).get("prompt_tokens"),
+                "reader_completion_tokens": (resolved.get("usage") or {}).get("completion_tokens"),
+                "predict_wall_s": round(predict_wall, 1),
+                "ingest_s": resolved.get("ingest_s"),
+                "llm_calls_at_write": (cache_stats or {}).get("misses", 0)
+                if cache_stats is not None else 0,
+            },
+            outputs={"predictions": "predictions.jsonl", "pins": "pins.json"},
+        )
+        manifest_mod.write(directory, run_manifest)
         if args.verify_drift:
             rc = _verify_drift(args.verify_drift, directory)
             if rc:
@@ -918,6 +1070,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if is_api:
             _record_spend(ledger_entry, budget_usd)
+        _finish_manifest(directory, run_manifest, _provisional_reasons(pins), score=None)
         return 0
 
     # Judge identity, built once from the judge about to run. It feeds both the
@@ -968,6 +1121,10 @@ def main(argv: list[str] | None = None) -> int:
         mark = "PASS" if correct else "FAIL"
         print(f"[{done}/{total}] {mark}  {p.question_id} ({p.category})", file=sys.stderr)
 
+    # A re-grade of a run that already has its first verdicts is a REPLAY: it
+    # gets its own file and never overwrites results.json (the rule).
+    replaying = not auditing and not do_predict and (directory / "results.json").exists()
+    judge_started = time.perf_counter()
     judge = Judge(args.judge_model, client=judge_client, cache=cache)
     results = judge_predictions(
         predictions,
@@ -1018,14 +1175,29 @@ def main(argv: list[str] | None = None) -> int:
         ),
     }
     provisional = _provisional_reasons(pins)
-    results_path = artifacts.write_results(
-        directory,
-        pins,
-        results,
-        run_meta,
-        provisional,
-        summary=report_summary(results),
-        judge=judge_info,
+    if replaying:
+        results_path = artifacts.write_judge_replay(directory, {
+            "pins": pins, "pins_hash": artifacts.pins_hash(pins), "judge": judge_info,
+            "judge_hash": artifacts.fingerprint(artifacts.canonical(judge_info)),
+            "provisional": provisional, "run": run_meta, "summary": report_summary(results),
+            "results": [asdict(r) for r in results],
+        })
+        print(f"judge REPLAY: results.json untouched; verdicts in {results_path.name}",
+              file=sys.stderr)
+    else:
+        results_path = artifacts.write_results(
+            directory,
+            pins,
+            results,
+            run_meta,
+            provisional,
+            summary=report_summary(results),
+            judge=judge_info,
+        )
+        artifacts.write_summary(directory, directory.name, report_summary(results), results)
+    artifacts.annotate_verdicts(
+        directory, results, artifacts.fingerprint(artifacts.canonical(judge_info)),
+        manifest_mod.utc_now(),
     )
 
     mean_fed = f"{run_meta['reader_mean_prompt_tokens']:,}" if fed else "n/a"
@@ -1043,7 +1215,67 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     _record_spend(ledger_entry, budget_usd)
+    # The manifest: the predict stage's (this invocation's or the one on disk)
+    # plus the grading, the judge's cost and the registry row.
+    existing = manifest_mod.read_optional(directory)
+    judge_manifest = manifest_mod.build(
+        run_id=directory.name,
+        purpose=args.purpose,
+        claim=args.claim if args.claim != "none" or existing is None else None,
+        rule_commit=args.rule_commit,
+        pins=pins,
+        porcelain=porcelain,
+        served_models=None,
+        served_fingerprints=None,
+        judge=judge_info,
+        replay_count=artifacts.judge_replay_count(directory),
+        question_ids=[r.question_id for r in results],
+        environment=run_meta["environment"],
+        cost={
+            "judge_usd": judge_usd_actual,
+            "judge_prompt_tokens": judge.prompt_tokens,
+            "judge_completion_tokens": judge.completion_tokens,
+            "judge_wall_s": round(time.perf_counter() - judge_started, 1),
+        },
+        outputs={
+            "results": "results.json" if not replaying else None,
+            "summary": "summary.json" if not replaying else None,
+            "judge_replays": sorted(p.name for p in directory.glob("judge_replay_*.json")),
+        },
+    )
+    merged = manifest_mod.merge_into(existing, judge_manifest)
+    if do_predict:
+        merged = manifest_mod.merge_into(run_manifest, merged)
+    cost = merged["cost"]
+    cost["tokens_in"] = _sum_or_none(
+        cost.get("reader_prompt_tokens"), cost.get("judge_prompt_tokens")
+    )
+    cost["tokens_out"] = _sum_or_none(
+        cost.get("reader_completion_tokens"), cost.get("judge_completion_tokens")
+    )
+    cost["wall_clock_s"] = _sum_or_none(cost.get("predict_wall_s"), cost.get("judge_wall_s"))
+    correct = sum(1 for r in results if r.correct)
+    _finish_manifest(directory, merged, provisional, score=f"{correct}/{len(results)}")
     return 0
+
+
+def _sum_or_none(*values):
+    known = [v for v in values if v is not None]
+    return round(sum(known), 1) if known else None
+
+
+def _finish_manifest(directory: Path, run_manifest: dict, provisional: list[str], score) -> None:
+    """Finalize, write, register; print what is missing (the end-of-run check)."""
+    manifest_mod.finalize(run_manifest, provisional)
+    path = manifest_mod.write(directory, run_manifest)
+    row = manifest_mod.index_row(run_manifest, score)
+    manifest_mod.index_append(row, runs_dir=directory.parent)
+    _run_context["completed"] = True
+    print(f"wrote {path}  |  status {run_manifest['status']}  |  registry row appended to "
+          f"{manifest_mod.index_path(directory.parent)}", file=sys.stderr)
+    line = manifest_mod.format_missing(run_manifest)
+    if line:
+        print(line, file=sys.stderr)
 
 
 def build_openai_reader_client():
@@ -1154,9 +1386,11 @@ def _predict_openai(
             budget_usd=budget_usd, judge_calls_planned=judge_calls_planned, entry=entry,
         )
     reader = OpenAIReader(args.model, num_ctx=args.num_ctx, client=client)
+    stats = PredictStats()
     items = build_batch_items(
         system, reader, limit=args.limit, dataset_file=args.dataset_file,
         strategy=args.sample, sample_seed=args.sample_seed, progress=_ctx_progress,
+        stats=stats,
     )
     projection = pricing.project(
         model=args.model, items=items, batch=False,
@@ -1174,7 +1408,6 @@ def _predict_openai(
         print(f"[{done}/{total}] read {mark}  {item.custom_id} ({item.category})", file=sys.stderr)
 
     outputs = answer_items_sync(client, items, progress=read_progress)
-    stats = PredictStats()
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_pins(directory, pins)
     artifacts.write_predictions(directory, predictions)
@@ -1269,6 +1502,7 @@ def _predict_batch(
         )
     else:
         reader = OpenAIReader(args.model, num_ctx=args.num_ctx, client=client)
+        ingest_stats = PredictStats()
         items = build_batch_items(
             system,
             reader,
@@ -1277,6 +1511,7 @@ def _predict_batch(
             strategy=args.sample,
             sample_seed=args.sample_seed,
             progress=_ctx_progress,
+            stats=ingest_stats,
         )
         projection = pricing.project(
             model=args.model, items=items, batch=True,
@@ -1306,6 +1541,9 @@ def _predict_batch(
             "enqueued_token_limit": enqueued_limit,
             "items": [_batch_item_meta(item) for item in items],
             "chunks": batch_mod.chunk_states(chunks),
+            # The ingest seconds, kept so a resume (which never re-ingests)
+            # can still put them in the manifest.
+            "ingest_s": round(ingest_stats.ingest_s, 1),
             # The ledger line this submission is booked under, so the line the
             # resume writes can supersede it instead of double counting.
             "ledger_ts": entry["ts"],
@@ -1433,6 +1671,7 @@ def _predict_batch(
             file=sys.stderr,
         )
     stats = PredictStats()
+    stats.ingest_s = float(state.get("ingest_s") or 0.0)
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_predictions(directory, predictions)
     # Batch rate for the batch rows; the fallbacks were synchronous calls.
@@ -1489,6 +1728,7 @@ def _batch_item_meta(item) -> dict:
         "answer": item.answer,
         "truncated": item.truncated,
         "tokens_dropped": item.tokens_dropped,
+        "retrieved_ids": list(item.retrieved_ids),
     }
 
 

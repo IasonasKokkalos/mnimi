@@ -307,9 +307,79 @@ def minimum_detectable_gap(
 
 
 def load_correctness(run_dir: str | Path) -> dict[str, bool]:
-    """Per-question correctness from a run's ``results.json``."""
-    rows = json.loads((Path(run_dir) / "results.json").read_text(encoding="utf-8"))["results"]
+    """Per-question correctness, always from per-question rows, never from a summary.
+
+    The first verdict in ``predictions.jsonl`` (the run-documentation rule:
+    verdicts travel with the predictions and the first one is never
+    overwritten) when the rows carry one; otherwise the ``results.json`` rows
+    of an artifact written before the rule.
+    """
+    run_dir = Path(run_dir)
+    predictions = run_dir / "predictions.jsonl"
+    if predictions.exists():
+        out: dict[str, bool] = {}
+        with open(predictions, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                verdicts = row.get("verdicts") or []
+                if verdicts:
+                    out[row["question_id"]] = bool(verdicts[0]["correct"])
+        if out:
+            return out
+    rows = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))["results"]
     return {row["question_id"]: bool(row["correct"]) for row in rows}
+
+
+def pair_record(
+    first_dir: str | Path, second_dir: str | Path, first: dict[str, bool], second: dict[str, bool],
+) -> dict:
+    """One paired comparison as ``analyses/`` stores it: both run ids, the rows, b, c, p.
+
+    ``b`` counts the questions the SECOND run answers and the first does not
+    (its wins), ``c`` the reverse, so ``pair_record(baseline, variant, ...)``
+    reads as the variant's gain. Computed from per-question verdicts only.
+    """
+    first_dir, second_dir = Path(first_dir), Path(second_dir)
+    b, c, n = discordance(second, first)
+    result = mcnemar_exact(b, c, n)
+    wins = sorted(q for q in second if second[q] and not first[q])
+    losses = sorted(q for q in second if first[q] and not second[q])
+
+    def pins_hash_of(directory: Path) -> str | None:
+        path = directory / "results.json"
+        if not path.exists():
+            path = directory / "pins.json"
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload.get("pins_hash")
+
+    return {
+        "analysis_schema": "mnimi-paired-analysis/1",
+        "first": {"run_id": first_dir.name, "pins_hash": pins_hash_of(first_dir),
+                  "correct": sum(first.values()), "n": len(first)},
+        "second": {"run_id": second_dir.name, "pins_hash": pins_hash_of(second_dir),
+                   "correct": sum(second.values()), "n": len(second)},
+        "b_second_wins": b,
+        "c_first_wins": c,
+        "discordant": n and (b + c),
+        "n_pairs": n,
+        "p_exact_mcnemar": result.p_value,
+        "second_wins_ids": wins,
+        "first_wins_ids": losses,
+        "source": "per-question verdicts (predictions.jsonl first verdict, else results.json rows)",
+    }
+
+
+def save_pair(record: dict, out_dir: str | Path = "analyses") -> Path:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{record['first']['run_id']}__vs__{record['second']['run_id']}.json"
+    path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+    return path
 
 
 def analyse(
@@ -420,22 +490,63 @@ def _format(report: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m evals.stats <run_dir> [...]`` — same path at every n."""
+    """``python -m evals.stats <run_dir> [...] [--no-save] [--out DIR]`` — same path at every n.
+
+    Every pair the report tests is also written under ``analyses/`` (the
+    run-documentation rule) unless ``--no-save`` is given; with exactly two
+    run dirs the pair is saved whatever the systems are.
+    """
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv:
-        print("usage: python -m evals.stats <run_dir> [<run_dir> ...]", file=sys.stderr)
+    save = True
+    out_dir = "analyses"
+    dirs: list[str] = []
+    it = iter(argv)
+    for arg in it:
+        if arg == "--no-save":
+            save = False
+        elif arg == "--out":
+            out_dir = next(it, out_dir)
+        else:
+            dirs.append(arg)
+    if not dirs:
+        print("usage: python -m evals.stats <run_dir> [<run_dir> ...] [--no-save] [--out DIR]",
+              file=sys.stderr)
         return 2
-    payloads = {d: json.loads((Path(d) / "results.json").read_text(encoding="utf-8")) for d in argv}
+    payloads = {d: json.loads((Path(d) / "results.json").read_text(encoding="utf-8")) for d in dirs}
     systems = [p["pins"]["system"] for p in payloads.values()]
-    arms, identities = {}, {}
+    arms, identities, where = {}, {}, {}
     for directory, payload in payloads.items():
         system = payload["pins"]["system"]
         # Two run dirs of one system: name each by its directory so both arms
         # survive and pair as a variant pair (see analyse).
         name = f"{system}@{Path(directory).name}" if systems.count(system) > 1 else system
-        arms[name] = {row["question_id"]: bool(row["correct"]) for row in payload["results"]}
+        arms[name] = load_correctness(directory)
         identities[name] = harness_identity(payload)
-    print(_format(analyse(arms, identities=identities)))
+        where[name] = directory
+    report = analyse(arms, identities=identities)
+    print(_format(report))
+    if save:
+        pairs: list[tuple[str, str]] = []
+        if len(dirs) == 2:
+            pairs.append((list(arms)[0], list(arms)[1]))
+        if report["primary"]:
+            second, first = report["primary"]["comparison"].split(" vs ")
+            pairs.append((first, second))  # b = mnimi's wins over naive_rag
+        for label in report["variants"]:
+            second, first = label.split(" vs ")
+            pairs.append((first, second))
+        for label in report["secondary"]:
+            first, second = label.split(" vs ")
+            pairs.append((second, first))
+        seen = set()
+        for first, second in pairs:
+            if (first, second) in seen or first == second:
+                continue
+            seen.add((first, second))
+            record = pair_record(where[first], where[second], arms[first], arms[second])
+            path = save_pair(record, out_dir)
+            print(f"saved {path}: b={record['b_second_wins']} c={record['c_first_wins']} "
+                  f"p={record['p_exact_mcnemar']:.3g}", file=sys.stderr)
     return 0
 
 

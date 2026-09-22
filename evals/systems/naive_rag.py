@@ -25,7 +25,7 @@ from mnimi.memory import (
 from mnimi.models import MemoryRecord
 from mnimi.store import Store
 
-from ..base import MemorySystem
+from ..base import MemorySystem, _round_id
 from ._scratch import ScratchDb
 from .mnimi import EVAL_USER_ID
 
@@ -136,11 +136,15 @@ class NaiveRagSystem(MemorySystem):
         hits = self._store.search_rounds(
             query_embedding, user_id=EVAL_USER_ID, k=self._config.top_k
         )
+        self._last_retrieved = [_round_id(record) for record, _cosine in hits]
         return render_records(
             _time_ordered([record for record, _cosine in hits]),
             fmt=self._config.render_format,
             unit=RENDER_UNIT_TURNS,
         )
+
+    def retrieved_ids(self) -> list[str] | None:
+        return list(getattr(self, "_last_retrieved", []))
 
     # -- diagnostics, not part of the MemorySystem contract --------------------
 

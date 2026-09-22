@@ -3342,3 +3342,56 @@ Stated once, so no later phase rediscovers it:
 2. **The reader.** 24 of the 78 misses are the reader's with the evidence in hand, and 3–5 more are judge flips; a stronger reader moves the bound and the floor together, at a full re-baseline (≈ $18, over budget).
 3. **The extractor.** 12 of the 44 missing evidence rounds and 6 of the 25 reading misses are extraction defects (asides dropped, numbers lost, `[]`). Fixing it is a new prompt or a LoRA developed on a corpus outside LongMemEval, plus ≈ 80 h of GPU for the corpus pass — the one lever with a ceiling above +19 and the one this budget and calendar do not hold.
 4. **`k`.** ALL@20 is 441/470 against 415 at k=10; the reader converted none of that at n=100 (R6). Changing it changes every arm and re-opens the one pre-registered alternative.
+
+
+## The run-documentation rule lands: manifest, registry, replays, analyses, promotion (2026-09-22, v2.1.0)
+
+**The rule** (set by the maintainer on 2026-09-22, verbatim in the project memory and paraphrased
+here): every harness run must be usable in the paper without reconstruction. Before a run,
+`git status --porcelain` is recorded and a dirty tree is said out loud; a run that tests a claim
+names the commit that holds the rule; an existing run directory is never overwritten. Per run,
+`runs/<run_id>/manifest.json` holds the run id, UTC timestamp, purpose, claim, commit and tree
+state, the mnimi and harness versions, the arm's full configuration, the reader (requested and
+served model strings, decode pins, prompt id), the judge (snapshot, prompt source, replay count),
+the dataset (name, n, the question-id list digest), the environment (Python, a lockfile digest,
+hardware, daemon flags) and the cost (dollars, tokens in/out, wall-clock, ingest time, LLM calls
+at write). `predictions.jsonl` rows carry the retrieved ids and the judge's verdict(s), the first
+never overwritten; `summary.json` carries the counts and Wilson intervals; judge replays get their
+own file. `runs/INDEX.md` is the append-only registry (one row per run including aborted ones;
+only `status` changes). Paired comparisons come from per-question rows, never summary scores,
+and are saved under `analyses/` with both run ids. Only a clean-tree run with a complete manifest
+is promoted to `results/published/`. Cited numbers stay in their own table.
+
+**What the harness already recorded** (the inventory of Task 1): the commit with a `-dirty`
+suffix, every configuration pin, the requested reader model and decode pins, the served
+`system_fingerprint` histogram, the judge block (model, prompt version and hash, decode), the
+dataset file and its sha256, the sample strategy and seed, GPU/driver/CUDA, the reader's dollars
+and tokens (in `reader_resolved.json`), the judge's dollars and tokens (in the API ledger only),
+the judge-stage wall-clock, and the per-question rows with fed tokens. **What was missing and is
+now recorded:** purpose, claim and rule commit (`--purpose`, `--claim`, `--rule-commit`); the
+porcelain text and a `clean_tree` boolean; the mnimi version *of record* (`pyproject.toml` — the
+install metadata reads 0.3.2 and is stale) and the harness schema versions; the exact served
+model string per completion (`PredictStats.served_models`); the judge prompt source and replay
+count; the question-id list digest; the Python version and a lockfile digest (the repo has no
+lockfile, so it is the sha256 of the installed distributions, named as such); the host CPU; the
+predict-stage wall-clock, the ingest seconds (`runner.ingest_and_context`, persisted in
+`batch_state.json` for a resume) and the LLM calls at write (the extraction cache's misses);
+per-row `retrieved_ids` (mnimi and naive_rag: the retrieved rounds' keys — `ts|sha16`, derived
+for a v1 round record from its own timestamp and content; the oracle and `full_history`: the
+session ids fed; `no_memory`: none) and per-row `verdicts`; `summary.json`; the registry; the
+`analyses/` writer in `evals.stats` (`--no-save` to skip, `--out` to redirect); and
+`python -m evals.publish` as the one promotion path. An aborted run (non-zero exit or an
+exception after its directory was registered) gets an `aborted` row and manifest.
+
+**Two deviations from the rule's letter, both disclosed.** (1) `predictions.jsonl` is the
+Tier 1 artifact and the drift instrument's input, so the judge *appends* to it rather than
+rewriting it: rows gain a `verdicts` list and every other byte stays (a test compares); the
+published n=500 predictions files are not rewritten — their verdicts stay in `results.json`,
+which `evals.stats` reads when no row carries one. (2) The lockfile hash is a digest of the
+installed distributions because there is no lockfile; the field says so.
+
+**mnimi's retrieved ids cost one extra `recall` per question** (deterministic; the
+`last_accessed` write-back is idempotent), so the rendered context is unchanged — gate 6-iii's
+identity check covers it. `.gitignore` now tracks `runs/INDEX.md` and every
+`runs/*/manifest.json`. Tests 409 → 425. The five gpt-4o n=500 runs are backfilled in the next
+commit with `python -m evals.backfill`, `UNKNOWN` where the artifacts hold nothing.

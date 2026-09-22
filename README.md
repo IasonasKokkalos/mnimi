@@ -289,6 +289,14 @@ copied to [`results/published/`](results/published/) and committed.
 
 ## Reproducibility
 
+Since 2026-09-22 every run also carries `manifest.json` (its purpose, claim, commit, tree
+state, configuration, reader, judge, dataset digest, environment, cost and timings), a row in
+the append-only registry `runs/INDEX.md`, per-row retrieved ids and judge verdicts in
+`predictions.jsonl`, and `summary.json`; paired comparisons are saved under `analyses/` from
+per-question rows. `python -m evals.publish` is the only path into `results/published/` and
+refuses a dirty tree or an incomplete manifest. The five gpt-4o n=500 runs were backfilled
+(`python -m evals.backfill`), with `UNKNOWN` where the artifacts record nothing.
+
 Two claims at two strengths, plus one queued. They are published separately
 because conflating them overstates what the artifacts prove.
 
@@ -377,7 +385,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v2.0.0 (the 2.x series: one minor bump per commit from 2026-09-22). The block above is the locked contract; what ships today
+Pre-alpha, v2.1.0 (the 2.x series: one minor bump per commit from 2026-09-22). The block above is the locked contract; what ships today
 is narrower. Built: per-round ingestion; the one LLM the library will ever
 call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
 extra) whose facts are stored beside each round; dedup as exact match, one

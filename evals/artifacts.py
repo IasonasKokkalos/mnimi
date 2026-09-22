@@ -760,8 +760,79 @@ def read_predictions_file(path: Path, cls):
         for line in fh:
             line = line.strip()
             if line:
-                out.append(cls(**json.loads(line)))
+                out.append(_row_to(cls, json.loads(line)))
     return out
+
+
+def _row_to(cls, row: dict):
+    """A row from any artifact schema into ``cls``: keys the class does not
+    declare are dropped (a newer file read by an older reader), keys it
+    declares with defaults may be absent (an older file — before
+    ``retrieved_ids`` and ``verdicts`` existed — read by this one)."""
+    from dataclasses import fields
+
+    known = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in row.items() if k in known})
+
+
+def annotate_verdicts(directory: Path, results, judge_hash: str | None, graded_utc: str) -> Path:
+    """Append this grading's verdict to every row of ``predictions.jsonl``.
+
+    The run-documentation rule (2026-09-22): the judge's verdict(s) travel in
+    the predictions file, and the first verdict is never overwritten — a
+    replay appends a second entry to the row's ``verdicts`` list. Rows keep
+    every other byte; ``--verify-drift`` compares ``predicted`` alone.
+    """
+    path = directory / "predictions.jsonl"
+    rows = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    by_id = {r.question_id: r for r in results}
+    for row in rows:
+        result = by_id.get(row["question_id"])
+        if result is None:
+            continue
+        row.setdefault("verdicts", []).append(
+            {"correct": bool(result.correct), "judge_hash": judge_hash, "graded_utc": graded_utc}
+        )
+    tmp = path.with_suffix(".jsonl.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(canonical(row) + "\n")
+    os.replace(tmp, path)
+    return path
+
+
+def write_summary(directory: Path, run_id: str, summary: dict, results) -> Path:
+    """``summary.json``: overall and per-category counts with Wilson intervals, and the score."""
+    directory.mkdir(parents=True, exist_ok=True)
+    correct = sum(1 for r in results if r.correct)
+    payload = {
+        "run_id": run_id,
+        "n": len(results),
+        "correct": correct,
+        "score": f"{correct}/{len(results)}",
+        **summary,
+    }
+    path = directory / "summary.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def judge_replay_count(directory: Path) -> int:
+    """How many judge replays (``judge_replay_N.json``) sit beside ``results.json``."""
+    return len(list(directory.glob("judge_replay_*.json")))
+
+
+def write_judge_replay(directory: Path, payload: dict) -> Path:
+    """A re-grade of an already graded run: its own file, ``results.json`` untouched."""
+    n = judge_replay_count(directory) + 1
+    path = directory / f"judge_replay_{n}.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
 
 
 def read_pins_optional(directory: Path) -> dict:

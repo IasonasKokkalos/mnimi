@@ -70,3 +70,26 @@ class MemorySystem(ABC):
     @abstractmethod
     def get_context(self, query: str) -> str:
         """Return the context string to hand the reader for ``query``."""
+
+    def retrieved_ids(self) -> list[str] | None:
+        """Ids of the memory items the last :meth:`get_context` handed the reader.
+
+        The run-documentation rule (2026-09-22) records them per row in
+        ``predictions.jsonl``. ``None`` means "everything it was fed" — the
+        runner then records the session ids it fed (``full_history``, the
+        oracle). A retrieving system returns its retrieved rounds' keys; the
+        no-memory floor returns ``[]``.
+        """
+        return None
+
+
+def _round_id(record) -> str:
+    """A stable identity for a retrieved round: its ``round_key`` (the extraction
+    era's ``ts|sha16(text)``), or the same shape derived from the record's own
+    timestamp and content for a v1 round record that has none. Never the row id,
+    which is an accident of insertion order inside one scratch store."""
+    from mnimi.memory import round_key
+
+    if getattr(record, "round_key", None):
+        return str(record.round_key)
+    return round_key(record.created_at, record.content)

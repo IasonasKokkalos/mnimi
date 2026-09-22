@@ -10,6 +10,7 @@ then score the answer with the LLM judge. The reader is a local Ollama model
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from string import Template
@@ -308,6 +309,12 @@ class Prediction:
     reader_prompt_tokens: int | None = None
     truncated: bool = False
     tokens_dropped: int = 0
+    # The run-documentation rule (2026-09-22): which memory items the reader was
+    # handed (mnimi / naive_rag: the retrieved rounds' keys; oracle /
+    # full_history: the session ids fed; no_memory: none), and the judge's
+    # verdict(s) — appended by the judge stage, the first one never overwritten.
+    retrieved_ids: list = field(default_factory=list)
+    verdicts: list = field(default_factory=list)
 
 
 @dataclass
@@ -321,6 +328,7 @@ class Result:
     reader_prompt_tokens: int | None = None
     truncated: bool = False
     tokens_dropped: int = 0
+    retrieved_ids: list = field(default_factory=list)
 
 
 class _BaseReader:
@@ -528,6 +536,13 @@ def parse_completion(completion) -> tuple[str, int | None, str | None]:
     return (text or "").strip(), prompt_tokens, fingerprint
 
 
+def completion_model(completion) -> str | None:
+    """The exact model string the API says served the completion (``"model"``)."""
+    if isinstance(completion, dict):
+        return completion.get("model")
+    return getattr(completion, "model", None)
+
+
 def completion_usage(completion) -> tuple[int | None, int | None]:
     """``(prompt_tokens, completion_tokens)`` as the API counted them, from an
     SDK object or a Batch API output body; ``(None, None)`` when absent."""
@@ -556,12 +571,22 @@ class PredictStats:
     # The API's own token counts, summed — what the ledger bills against.
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # The exact served model strings (histogram) — the manifest's
+    # ``reader.served_models``; the Ollama family records its digest instead.
+    served_models: dict = field(default_factory=dict)
+    # Seconds spent inside ``system.reset`` / ``system.add`` / ``get_context``
+    # across the stage: the manifest's ``cost.ingest_s``.
+    ingest_s: float = 0.0
 
-    def record(self, out: ReaderOutput, usage: tuple | None = None) -> None:
+    def record(
+        self, out: ReaderOutput, usage: tuple | None = None, served_model: str | None = None
+    ) -> None:
         self.requests += 1
         fp = out.system_fingerprint
         if fp is not None:
             self.system_fingerprints[fp] = self.system_fingerprints.get(fp, 0) + 1
+        if served_model is not None:
+            self.served_models[served_model] = self.served_models.get(served_model, 0) + 1
         if usage is not None:
             prompt_tokens, completion_tokens = usage
             self.prompt_tokens += prompt_tokens or 0
@@ -573,6 +598,8 @@ class PredictStats:
             "reader_model": model,
             "requests": self.requests,
             "system_fingerprints": dict(sorted(self.system_fingerprints.items())),
+            "served_models": dict(sorted(self.served_models.items())),
+            "ingest_s": round(self.ingest_s, 1),
             "usage": {
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,
@@ -719,15 +746,15 @@ def predict(
 
     predictions: list[Prediction] = []
     for i, q in enumerate(questions):
-        system.reset()
-        for session in _sessions_for(system, q):
-            system.add(_session_to_messages(session))
-        context = system.get_context(q.question)
+        context, retrieved, ingest_s = ingest_and_context(system, q)
         out = reader.answer(
             context, q.question, cache_bust=q.question_id, question_date=q.question_date
         )
         if stats is not None:
-            stats.record(out)
+            # The local family serves what it loaded; the digest is the pin.
+            served = reader_model if reader_transport == READER_TRANSPORT_OLLAMA else None
+            stats.record(out, served_model=served)
+            stats.ingest_s += ingest_s
         predictions.append(
             Prediction(
                 question_id=q.question_id,
@@ -739,11 +766,32 @@ def predict(
                 reader_prompt_tokens=out.prompt_tokens,
                 truncated=out.truncated,
                 tokens_dropped=out.tokens_dropped,
+                retrieved_ids=retrieved,
             )
         )
         if progress is not None:
             progress(i + 1, len(questions), q, out.truncated)
     return predictions
+
+
+def ingest_and_context(system: MemorySystem, q: Question) -> tuple[str, list[str], float]:
+    """Reset, feed every session, ask for the context: ``(context, retrieved_ids, seconds)``.
+
+    One function for both transports so the ingest is timed the same way and the
+    retrieved ids are read the same way. A system that returns ``None`` from
+    :meth:`MemorySystem.retrieved_ids` hands the reader everything it was fed,
+    so its ids are the session ids the runner fed it.
+    """
+    started = time.perf_counter()
+    system.reset()
+    sessions = _sessions_for(system, q)
+    for session in sessions:
+        system.add(_session_to_messages(session))
+    context = system.get_context(q.question)
+    ids = system.retrieved_ids()
+    if ids is None:
+        ids = [s.session_id for s in sessions]
+    return context, [str(x) for x in ids], time.perf_counter() - started
 
 
 @dataclass
@@ -759,6 +807,7 @@ class BatchItem:
     answer: str
     truncated: bool
     tokens_dropped: int
+    retrieved_ids: list = field(default_factory=list)
 
 
 def build_batch_items(
@@ -770,18 +819,19 @@ def build_batch_items(
     strategy: str = SAMPLE_STRATIFIED,
     sample_seed: int = DEFAULT_SAMPLE_SEED,
     progress: PredictProgressFn | None = None,
+    stats: PredictStats | None = None,
 ) -> list[BatchItem]:
     """The ingest half of :func:`predict` with no reader call: every question
-    is reset, fed, asked for context, and turned into a request body."""
+    is reset, fed, asked for context, and turned into a request body. ``stats``,
+    when given, accumulates the ingest seconds."""
     questions = load(
         limit=limit, filename=dataset_file, strategy=strategy, seed=sample_seed
     )
     items: list[BatchItem] = []
     for i, q in enumerate(questions):
-        system.reset()
-        for session in _sessions_for(system, q):
-            system.add(_session_to_messages(session))
-        context = system.get_context(q.question)
+        context, retrieved, ingest_s = ingest_and_context(system, q)
+        if stats is not None:
+            stats.ingest_s += ingest_s
         body, truncated, dropped = reader.request_body(
             context, q.question, cache_bust=q.question_id, question_date=q.question_date
         )
@@ -795,6 +845,7 @@ def build_batch_items(
                 answer=q.answer,
                 truncated=truncated,
                 tokens_dropped=dropped,
+                retrieved_ids=retrieved,
             )
         )
         if progress is not None:
@@ -814,7 +865,10 @@ def predictions_from_batch(
             system_fingerprint=fingerprint,
         )
         if stats is not None:
-            stats.record(out, completion_usage(outputs[item.custom_id]))
+            stats.record(
+                out, completion_usage(outputs[item.custom_id]),
+                served_model=completion_model(outputs[item.custom_id]),
+            )
         predictions.append(
             Prediction(
                 question_id=item.custom_id,
@@ -826,6 +880,7 @@ def predictions_from_batch(
                 reader_prompt_tokens=out.prompt_tokens,
                 truncated=out.truncated,
                 tokens_dropped=out.tokens_dropped,
+                retrieved_ids=list(item.retrieved_ids),
             )
         )
     return predictions
@@ -886,6 +941,7 @@ def judge_predictions(
                 reader_prompt_tokens=p.reader_prompt_tokens,
                 truncated=p.truncated,
                 tokens_dropped=p.tokens_dropped,
+                retrieved_ids=list(p.retrieved_ids),
             )
         )
         if progress is not None:

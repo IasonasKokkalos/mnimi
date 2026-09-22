@@ -22,3 +22,6 @@ class NoMemorySystem(MemorySystem):
 
     def get_context(self, query: str) -> str:
         return ""
+
+    def retrieved_ids(self) -> list[str] | None:
+        return []

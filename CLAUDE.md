@@ -227,6 +227,20 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   flip the default on taste.
 - **Sampling is stratified.** The dataset is category-clustered, so a file-order
   `--limit` slice is single-category and not comparable across systems.
+- **Run documentation (the rule of 2026-09-22, DECISIONS "The run-documentation rule
+  lands").** Every run also writes `runs/<run_id>/manifest.json` (purpose, claim, rule commit,
+  commit + clean tree, versions, the arm's configuration, reader requested/served, judge +
+  replay count, dataset + question-id digest, environment, cost, timings) and a row in the
+  append-only registry `runs/INDEX.md` (aborted runs included; only `status` changes);
+  `predictions.jsonl` rows carry `retrieved_ids` and the judge's `verdicts` (the first never
+  overwritten — a re-grade is `judge_replay_N.json`); `summary.json` holds the counts and
+  intervals. Say PROVISIONAL before a dirty-tree run; never overwrite a run directory
+  (`--overwrite-run-dir` only after asking); `--claim` needs `--rule-commit`. Paired
+  comparisons come from rows (`python -m evals.stats` saves them under `analyses/`), never
+  from summary scores; a quoted number cites its run_id; cited numbers (`full_history` 64.0)
+  live in their own table. Promotion is `python -m evals.publish <run_dir>` — clean tree and a
+  complete manifest, or it refuses. At the end of a run read the manifest line: missing fields
+  make the run `incomplete`.
 - **Run artifacts.** Every run writes `pins.json` / `predictions.jsonl` /
   `results.json` under `runs/<system>__<Nq>/`. `runs/` is gitignored scratch; a
   number that gets quoted has its three files copied to
@@ -409,6 +423,11 @@ python -m evals --system mnimi --limit 100 --stage all --reader-transport openai
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
 python -m evals.pricing                                     # the API spend ledger vs the $50 cap
 python -m evals.drift runs/a__100q runs/b__100q             # N/n changed between two predict runs of one configuration
+# the run-documentation rule (2026-09-22): every run names its purpose; a claim names its committed rule
+python -m evals --system mnimi --limit 500 --stage all --reader-transport openai --batch --purpose "..." --claim none --run-dir runs/<run_id>
+python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o   # pairs saved under analyses/
+python -m evals.publish runs/<run_id>                       # promote: clean tree + complete manifest, or it refuses
+python -m evals.backfill runs/<run_id> --purpose "..."     # a manifest for a run that predates the rule; UNKNOWN where nothing is recorded
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --verify-drift runs/mnimi__100q_gpt4o --run-dir runs/mnimi__100q_gpt4o_drift
 # the presentation pair (DECISIONS 2026-09-12): same arm, the other framing, its own run dir
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --render-format json --run-dir runs/mnimi__100q_gpt4o_json

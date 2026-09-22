@@ -32,7 +32,14 @@ htmlcov/
 # the workbench. A number that gets published is COPIED to results/published/
 # and committed — that directory is the record, and it is deliberately NOT
 # ignored. See results/published/README.md before adding anything to it.
-runs/
+# Since 2026-09-22 (the run-documentation rule) two things inside runs/ ARE
+# tracked: the append-only registry runs/INDEX.md and every run's
+# manifest.json — small, and the record of runs that were never promoted.
+runs/*
+!runs/INDEX.md
+!runs/*/
+runs/*/*
+!runs/*/manifest.json
 
 # Downloaded eval data (LongMemEval is large; never commit it)
 .data/
