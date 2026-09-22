@@ -99,6 +99,36 @@ def chunk_states(chunks: list[list]) -> list[dict]:
     ]
 
 
+def replan_outstanding(
+    state: dict, by_id: dict, limit: int, chars_per_token: int
+) -> tuple[int, int]:
+    """Re-plan every chunk that has not run under a new, lower cap; ``(before, after)`` counts.
+
+    The oracle arm of the n=500 sitting (2026-09-22): a chunk the planner put at
+    86k of the 90k cap was refused three times with ``token_limit_exceeded`` --
+    the chars/N estimate ran under the real count on long contexts -- and a
+    resume could not recover, because it reloaded the saved plan and the saved
+    cap and refused the chunk at ``CHUNK_RETRIES`` before submitting. A chunk
+    counts as outstanding when it never ran: no batch id, or a terminal
+    ``failed`` that enqueued nothing. Completed and in-flight chunks are kept
+    exactly; the outstanding items are re-split in their original order under
+    ``limit`` with ``attempts`` reset, and indices are renumbered after the kept
+    chunks. No request body changes -- grouping does not alter a per-request
+    Batch API result.
+    """
+    kept = [c for c in state["chunks"] if c.get("batch_id") and c.get("status") != "failed"]
+    outstanding = [c for c in state["chunks"] if c not in kept]
+    if not outstanding:
+        return 0, 0
+    items = [by_id[cid] for c in outstanding for cid in c["custom_ids"]]
+    fresh = chunk_states(plan_chunks(items, limit, chars_per_token))
+    for i, c in enumerate(fresh, start=len(kept)):
+        c["index"] = i
+    state["chunks"] = kept + fresh
+    state["enqueued_token_limit"] = limit
+    return len(outstanding), len(fresh)
+
+
 def upgrade_state(state: dict) -> dict:
     """A schema-1 state (one batch for the whole run) as a one-chunk schema 2."""
     if state.get("chunks") is not None:

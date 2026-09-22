@@ -1241,9 +1241,26 @@ def _predict_batch(
             )
             return 2
         state = batch_mod.upgrade_state(state)
-        enqueued_limit = state.get("enqueued_token_limit", enqueued_limit)
+        saved_limit = state.get("enqueued_token_limit", enqueued_limit)
         bodies = batch_mod.read_requests_jsonl(directory / artifacts.BATCH_REQUESTS_FILE)
         items = [BatchItem(body=bodies[meta["custom_id"]], **meta) for meta in state["items"]]
+        if args.batch_enqueued_tokens is not None and args.batch_enqueued_tokens < saved_limit:
+            # An explicit, lower cap on resume: re-plan what has not run, so a
+            # chunk the estimate put too close to the org's limit can be split
+            # instead of refused forever (the oracle arm, 2026-09-22).
+            before, after = batch_mod.replan_outstanding(
+                state, {item.custom_id: item for item in items},
+                args.batch_enqueued_tokens, _CHARS_PER_TOKEN,
+            )
+            enqueued_limit = args.batch_enqueued_tokens
+            artifacts.write_batch_state(directory, state)
+            print(
+                f"re-planned {before} outstanding chunk(s) as {after} under the "
+                f"{enqueued_limit:,} enqueued-token cap (was {saved_limit:,})",
+                file=sys.stderr,
+            )
+        else:
+            enqueued_limit = saved_limit
         submitted_n = sum(1 for c in state["chunks"] if c.get("batch_id"))
         print(
             f"resuming {directory}: {submitted_n}/{len(state['chunks'])} chunk(s) submitted, "

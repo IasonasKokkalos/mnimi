@@ -548,3 +548,44 @@ def test_a_chunk_refused_before_running_is_resubmitted(tmp_path, monkeypatch, ca
     state = json.loads((run_dir / "batch_state.json").read_text(encoding="utf-8"))
     assert state["chunks"][0]["attempts"] == 2
     assert "resubmitting chunk 1/1" in capsys.readouterr().err
+
+
+def test_resume_with_a_lower_cap_replans_a_stuck_chunk(tmp_path, monkeypatch, capsys):
+    # The oracle arm of the n=500 sitting (2026-09-22): a chunk the planner put at
+    # 86k of the 90k cap was refused three times with token_limit_exceeded -- the
+    # chars/4 estimate ran under the real count -- and resume could not recover:
+    # it reloaded the saved plan and the saved cap and refused the chunk at
+    # CHUNK_RETRIES before submitting. An explicit, LOWER --batch-enqueued-tokens
+    # on resume now re-plans every outstanding chunk under it with attempts reset.
+    first = _FakeBatchClient()
+    _wire(monkeypatch, tmp_path, first)
+    rc, run_dir = _main(tmp_path, "--batch-no-wait", "--batch-enqueued-tokens", "900")
+    assert rc == 0 and len(first.created) == 1
+    state_path = run_dir / "batch_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert [c["batch_id"] for c in state["chunks"]] == ["batch_1", None]
+    # Simulate the stuck chunk exactly as the API left it.
+    state["chunks"][1].update(status="failed", attempts=batch.CHUNK_RETRIES, batch_id=None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    # Without the flag the saved cap is reused and the stuck chunk is refused: kept.
+    second = _FakeBatchClient()
+    second._requests = first._requests
+    monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: second)
+    rc, _ = _main(tmp_path)
+    assert rc == 2 and "failed validation" in capsys.readouterr().err
+    assert not (run_dir / "predictions.jsonl").exists()
+
+    # With a lower explicit cap the outstanding chunk is re-planned and submitted.
+    third = _FakeBatchClient()
+    third._requests = first._requests
+    monkeypatch.setattr(evals_main, "build_openai_reader_client", lambda: third)
+    rc, run_dir = _main(tmp_path, "--batch-enqueued-tokens", "450")
+    err = capsys.readouterr().err
+    assert rc == 0, err
+    assert "re-planned" in err
+    assert [r["question_id"] for r in _rows(run_dir)] == ["q1", "q2"]
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["chunks"][0]["batch_id"] == "batch_1", "the completed chunk is untouched"
+    assert all(c["attempts"] == 1 for c in state["chunks"][1:]), "re-planned chunks start fresh"
+    assert state["enqueued_token_limit"] == 450
