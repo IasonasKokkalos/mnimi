@@ -369,7 +369,7 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   headline run: X = −6.2, p = 2 × 10⁻⁴. Criterion (a) is met — SPEC-complete modulo
   two disclosed render deviations — so the programme's done-condition is satisfied on
   (a) and not on (b). The remaining headroom is 54 questions oracle answers and mnimi
-  does not, 25 of them multi-session (DECISIONS "Gate 5-iv read", "Phase 5 closes").**
+  does not, 27 of them multi-session (DECISIONS "Gate 5-iv read", "Phase 5 closes").**
 
 ## Scope rule
 

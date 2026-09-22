@@ -216,7 +216,7 @@ b=75, c=26, **p = 1.1 × 10⁻⁶** — for the first time in the programme, and
 to be more than retrieval: temporal-reasoning +25, multi-session +12; the single-session
 cells are saturated for both. The programme's pre-registered 85 criterion (a Wilson lower
 bound ≥ 85.0, i.e. 441/500) is **not met**: 422 read, lower bound 81.0. Of mnimi's 78 misses,
-24 are questions oracle also fails and 54 are questions oracle answers — 25 of those
+24 are questions oracle also fails and 54 are questions oracle answers — 27 of those
 multi-session, where the retriever shows the reader part of a multi-hop question's evidence
 (ALL@10 77.7 %). Rulings in `docs/DECISIONS.md` ("Phase 5 pre-registration" through "Phase 5
 closes"); every number is auditable with `python -m evals --stage judge --predictions <file>`

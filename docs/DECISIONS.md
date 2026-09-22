@@ -3210,7 +3210,7 @@ tested and off; that decision now rests on n=500 evidence.
 
 **The headroom.** mnimi vs oracle b=17, c=54. Of mnimi's 78 misses, 24 are questions oracle also
 fails (the reader, with the evidence in hand) and **54 are questions oracle answers** — the whole
-of what a better memory layer could still buy on this reader; 25 of the 54 are multi-session,
+of what a better memory layer could still buy on this reader; 27 of the 54 are multi-session (17 temporal-reasoning, 6 knowledge-update, 4 single-session),
 where mnimi sits 25 points under the bound at ALL@10 77.7 %. Gate 5-0's slice reading (1 retrieval
 miss in 13; the gap at the reader) was right about the mechanism and too optimistic about its
 size at scale: multi-session is the one place retrieval still has room.
@@ -3276,7 +3276,7 @@ switched off by a pre-registered rule; the guard has seventeen rows; concurrency
 three decision-log formats are live; the benchmark contract's ablation is on the headline run.
 **Criterion (b) — the 85 — is not met**, and the programme's done-condition is a disjunction.
 
-**What remains, for whatever follows.** The 54 questions oracle answers and mnimi does not, 25 of
+**What remains, for whatever follows.** The 54 questions oracle answers and mnimi does not, 27 of
 them multi-session (ALL@10 77.7 % there — partial evidence for multi-hop questions). The `source`
 provenance pointer (Phase E). The OMEGA competitor run (B3, never required). Tier 3. FUTURE items
 whose triggers this sitting bears on: `context_token_budget` (fed tokens are 5,499/question, 17 %
