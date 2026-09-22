@@ -984,7 +984,9 @@ def round_pieces(
                 subject=fact.subject,
                 predicate=fact.predicate,
                 object=fact.object,
-                valid_time=resolve(mention, round_.ts),
+                # v2 (PHASE6 D4): the fact's own text decides whether an undated
+                # month/day resolves forward ("planning ... in October").
+                valid_time=resolve(mention, round_.ts, context=f"{fact.content} {fact.raw}"),
                 time_mention=mention,
                 salience=float(fact.salience),
                 pair_key=triple.pair_key if triple is not None else None,

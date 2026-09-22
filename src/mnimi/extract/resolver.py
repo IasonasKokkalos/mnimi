@@ -11,7 +11,16 @@ Conventions, stated so a reader can predict every result:
 
 * Month/day mentions without a year take the year of ``ts``, and a date that
   would fall after ``ts`` moves to the previous year — facts on this benchmark
-  are past events, and the prompt asks for what happened.
+  are mostly past events, and the prompt asks for what happened. **v2 (PHASE6
+  D4, 2026-09-22):** when the mention or the fact it dates carries a future
+  marker (:data:`FUTURE_MARKERS` — "next", "upcoming", "tomorrow", "planning",
+  "plan(s) to", "will", "coming", "going to") and the mention itself carries
+  no past marker (:data:`PAST_MARKERS`), the same forms resolve *forward*: the
+  first occurrence on or after ``ts``. v1 dated "planning a trip to Hawaii in
+  October" on a May session to the October before it — 48 of 1,062 dated
+  facts on the n=500 contexts were a year off that way.
+* "last weekend" / "this past weekend" (v2) is the most recent Saturday
+  strictly before ``ts``, at day precision.
 * "last <weekday>" is the most recent such day strictly before ``ts``;
   "next <weekday>" the first strictly after; a bare weekday the most recent
   on or before.
@@ -28,7 +37,17 @@ import calendar
 import re
 from datetime import date, timedelta
 
-RESOLVER_VERSION = "v1"
+RESOLVER_VERSION = "v2"
+
+#: v2 (PHASE6 D4): the words that make an undated month/day, month or weekday
+#: mention resolve forward. Frozen with the version: an edit is a version bump.
+FUTURE_MARKERS = (
+    "next", "upcoming", "tomorrow", "planning", "plan to", "plans to", "will",
+    "coming", "coming up", "going to",
+)
+#: A past marker in the mention itself keeps the v1 (backward) rule even when
+#: the fact around it carries a future marker ("last April", "two weeks ago").
+PAST_MARKERS = ("last", "ago", "yesterday", "back in", "this past", "past", "earlier", "previous")
 
 _MONTHS = {
     name.lower(): i
@@ -71,6 +90,13 @@ _MONTH_ONLY_RE = re.compile(
 )
 _NUMERIC_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
 _YEAR_RE = re.compile(r"\b(?:in |back in |since )?((?:19|20)\d{2})\b")
+_FUTURE_RE = re.compile(
+    r"\b(" + "|".join(re.escape(m) for m in sorted(FUTURE_MARKERS, key=len, reverse=True)) + r")\b"
+)
+_PAST_RE = re.compile(
+    r"\b(" + "|".join(re.escape(m) for m in sorted(PAST_MARKERS, key=len, reverse=True)) + r")\b"
+)
+_LAST_WEEKEND_RE = re.compile(r"\b(last|this past|past) weekend\b")
 
 
 def _anchor(ts: str | None) -> date | None:
@@ -132,6 +158,30 @@ def _past_year(month: int, day: int, anchor: date) -> date | None:
     return candidate
 
 
+def _next_year(month: int, day: int, anchor: date) -> date | None:
+    """A month/day with no year under a future marker: the first occurrence on or after ``ts``."""
+    candidate = _safe_date(anchor.year, month, day)
+    if candidate is None:
+        return None
+    if candidate < anchor:
+        candidate = _safe_date(anchor.year + 1, month, day)
+    return candidate
+
+
+def _year_of(month: int, day: int, anchor: date, forward: bool) -> date | None:
+    return _next_year(month, day, anchor) if forward else _past_year(month, day, anchor)
+
+
+def is_forward(mention: str, context: str | None) -> bool:
+    """v2: a future marker in the mention or its fact, and no past marker in the mention."""
+    text = " ".join(mention.lower().replace(",", " ").split())
+    if _PAST_RE.search(text):
+        return False
+    if _FUTURE_RE.search(text):
+        return True
+    return bool(context) and bool(_FUTURE_RE.search(" ".join(context.lower().split())))
+
+
 def verbatim_mention(mention: str | None, text: str) -> str | None:
     """``mention`` if it occurs in ``text`` (case- and whitespace-insensitive), else ``None``.
 
@@ -148,12 +198,17 @@ def verbatim_mention(mention: str | None, text: str) -> str | None:
     return mention if needle and needle in haystack else None
 
 
-def resolve(mention: str | None, ts: str | None) -> str | None:
-    """``valid_time`` for a verbatim time mention, anchored on ``ts``."""
+def resolve(mention: str | None, ts: str | None, context: str | None = None) -> str | None:
+    """``valid_time`` for a verbatim time mention, anchored on ``ts``.
+
+    ``context`` (v2) is the fact the mention dates — its future markers make an
+    undated month/day, month or weekday resolve forward (:func:`is_forward`).
+    """
     if not mention:
         return None
     anchor = _anchor(ts)
     text = " ".join(mention.lower().replace(",", " ").split())
+    forward = is_forward(mention, context)
 
     m = _ISO_RE.search(text)
     if m:
@@ -173,6 +228,10 @@ def resolve(mention: str | None, ts: str | None) -> str | None:
         return (anchor - timedelta(days=1)).isoformat()
     if re.search(r"\btomorrow\b", text):
         return (anchor + timedelta(days=1)).isoformat()
+    if _LAST_WEEKEND_RE.search(text):
+        # v2: the most recent Saturday strictly before ts, at day precision.
+        delta = (anchor.weekday() - 5) % 7 or 7
+        return (anchor - timedelta(days=delta)).isoformat()
 
     m = _LAST_WEEKDAY_RE.search(text)
     if m:
@@ -183,6 +242,9 @@ def resolve(mention: str | None, ts: str | None) -> str | None:
         if qualifier in ("last", "this past", "past"):
             delta = (anchor.weekday() - weekday) % 7 or 7
             return (anchor - timedelta(days=delta)).isoformat()
+        if forward:  # v2: "this"/"on" under a future marker: first on or after
+            delta = (weekday - anchor.weekday()) % 7
+            return (anchor + timedelta(days=delta)).isoformat()
         delta = (anchor.weekday() - weekday) % 7  # "this"/"on": most recent on or before
         return (anchor - timedelta(days=delta)).isoformat()
 
@@ -216,7 +278,7 @@ def resolve(mention: str | None, ts: str | None) -> str | None:
         if m.group(3):
             d = _safe_date(int(m.group(3)), month, day)
         else:
-            d = _past_year(month, day, anchor)
+            d = _year_of(month, day, anchor, forward)
         return d.isoformat() if d else None
     m = _DAY_MONTH_RE.search(text)
     if m:
@@ -224,7 +286,7 @@ def resolve(mention: str | None, ts: str | None) -> str | None:
         if m.group(3):
             d = _safe_date(int(m.group(3)), month, day)
         else:
-            d = _past_year(month, day, anchor)
+            d = _year_of(month, day, anchor, forward)
         return d.isoformat() if d else None
     m = _NUMERIC_RE.search(text)
     if m:
@@ -234,14 +296,17 @@ def resolve(mention: str | None, ts: str | None) -> str | None:
             year = year + 2000 if year < 100 else year
             d = _safe_date(year, month, day)
         else:
-            d = _past_year(month, day, anchor) if 1 <= month <= 12 else None
+            d = _year_of(month, day, anchor, forward) if 1 <= month <= 12 else None
         return d.isoformat() if d else None
     m = _MONTH_ONLY_RE.search(text)
     if m:
         month = _MONTHS[m.group(1)]
         if m.group(2):
             return f"{int(m.group(2)):04d}-{month:02d}"
-        year = anchor.year if month <= anchor.month else anchor.year - 1
+        if forward:  # v2: the first such month on or after the session's
+            year = anchor.year if month >= anchor.month else anchor.year + 1
+        else:
+            year = anchor.year if month <= anchor.month else anchor.year - 1
         return f"{year:04d}-{month:02d}"
     m = _BARE_WEEKDAY_RE.search(text)
     if m:

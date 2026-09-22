@@ -385,7 +385,7 @@ server, no external services, one file on disk.
 
 ## Status
 
-Pre-alpha, v2.2.0 (the 2.x series: one minor bump per commit from 2026-09-22). The block above is the locked contract; what ships today
+Pre-alpha, v2.3.0 (the 2.x series: one minor bump per commit from 2026-09-22). The block above is the locked contract; what ships today
 is narrower. Built: per-round ingestion; the one LLM the library will ever
 call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
 extra) whose facts are stored beside each round; dedup as exact match, one

@@ -285,7 +285,73 @@ def test_resolver_never_reads_the_clock():
     src = inspect.getsource(resolver)
     for forbidden in ("datetime.now", "date.today", "time.time", "utcnow"):
         assert forbidden not in src
-    assert resolver.RESOLVER_VERSION == "v1"
+    assert resolver.RESOLVER_VERSION == "v2"
+
+
+@pytest.mark.parametrize(
+    "mention, ts, context, expected",
+    [
+        # PHASE6-ANALYSIS §6: the eight future-marked facts v1 dated a year back.
+        ("in October", "2023/05/25 (Thu) 10:00",
+         "The user is planning a birthday trip to Hawaii in October.", "2023-10"),
+        ("in July", "2023/05/24 (Wed) 10:00",
+         "The user is planning to travel to Seoul in July.", "2023-07"),
+        ("in November", "2023/04/29 (Sat) 10:00",
+         "The user is planning a 10-day trek in New Zealand in November.", "2023-11"),
+        ("in July", "2023/05/17 (Wed) 10:00",
+         "The user's sister's birthday is coming up in July.", "2023-07"),
+        ("in June", "2023/02/20 (Mon) 10:00",
+         "The user is planning a road trip to Chicago in June for a work conference.", "2023-06"),
+        # The marker may sit in the raw span the fact came from ("tomorrow"), not
+        # in the fact's own sentence: memory.round_pieces passes both.
+        ("on April 24th", "2023/04/23 (Sun) 02:44",
+         "The user is preparing for an open track day at VIR on April 24th. "
+         "user: I'm preparing for an open track day at VIRginia International Raceway tomorrow",
+         "2023-04-24"),
+        # ... and without any marker the v1 rule stands, even for a plan (the list is frozen).
+        ("on April 24th", "2023/04/23 (Sun) 02:44",
+         "The user is preparing for an open track day at VIR on April 24th.", "2022-04-24"),
+        ("on May 15th", "2023/04/23 (Sun) 02:44",
+         "The user plans to participate in the 'Track Day Frenzy' event at VIR on May 15th.",
+         "2023-05-15"),
+        ("next Saturday", "2023/05/24 (Wed) 10:00", "The user will race next Saturday.",
+         "2023-05-27"),
+        # A past marker in the mention keeps the v1 rule whatever the fact says.
+        ("back in April", "2022/02/19 (Sat) 10:00",
+         "The user mentioned a charity yoga event they did back in April.", "2021-04"),
+        ("last April", "2023/05/24 (Wed) 10:00", "The user will plan next year like last April.",
+         "2023-04"),
+        # No marker anywhere: v1 unchanged (a past event that already happened).
+        ("on March 15-16", "2023/02/26 (Sun) 13:37",
+         "The user attended a digital marketing workshop on March 15-16.", "2022-03-15"),
+        ("on 2/8", "2023/03/03 (Fri) 15:10",
+         "The user took their niece to the Natural History Museum on 2/8.", "2023-02-08"),
+        # "this Friday" under a future marker: the first on or after ts.
+        ("this Friday", "2023/05/24 (Wed) 10:00", "The user is going to the dentist this Friday.",
+         "2023-05-26"),
+        # v2's one new form: last weekend = the most recent Saturday strictly before ts.
+        ("last weekend", "2023/01/22 (Sun) 12:52", "The user watched the game last weekend.",
+         "2023-01-21"),
+        ("last weekend", "2023/01/21 (Sat) 12:52", None, "2023-01-14"),
+        ("this past weekend", "2023/01/24 (Tue) 12:52", None, "2023-01-21"),
+    ],
+)
+def test_resolver_v2_resolves_future_marked_mentions_forward(mention, ts, context, expected):
+    from mnimi.extract.resolver import resolve
+
+    assert resolve(mention, ts, context=context) == expected
+
+
+def test_resolver_v2_markers_are_frozen():
+    from mnimi.extract import resolver
+
+    assert resolver.FUTURE_MARKERS == (
+        "next", "upcoming", "tomorrow", "planning", "plan to", "plans to", "will",
+        "coming", "coming up", "going to",
+    )
+    assert resolver.PAST_MARKERS == (
+        "last", "ago", "yesterday", "back in", "this past", "past", "earlier", "previous",
+    )
 
 
 def test_verbatim_mention_drops_an_invented_time():
