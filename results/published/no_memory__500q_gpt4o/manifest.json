@@ -1,0 +1,139 @@
+{
+  "arm": {
+    "config": {
+      "active_only": null,
+      "answer_reserve": 800,
+      "chunk_unit": "none",
+      "conflict_resolution": null,
+      "consolidate": false,
+      "dedup": {
+        "on": false
+      },
+      "embed_template_hash": "none",
+      "embedder": "none",
+      "embedder_dim": null,
+      "embedder_revision": "none",
+      "extractor_model": null,
+      "fact_embed_template_hash": null,
+      "query_instruction": null,
+      "ranking": null,
+      "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+      "render_unit": null,
+      "salience_weights": null,
+      "token_budget": 128000,
+      "top_k": 0
+    },
+    "pins_hash": "28bdedd569f507a5acb4ddd186b982ce376f644802371358207c5012ed0d7428",
+    "system": "no_memory"
+  },
+  "backfilled": {
+    "at": "2026-09-22T18:34:00Z",
+    "from": "results.json, reader_resolved.json, predictions.jsonl, the API ledger",
+    "note": "written after the run under the run-documentation rule of 2026-09-22; UNKNOWN marks a field the artifacts do not hold and no record supplies",
+    "sources": "PHASE5-RESULTS.md \u00a7 Task 8 (mnimi docs), results/published/README.md \u00a7 Phase 5, the API ledger"
+  },
+  "claim": "none",
+  "code": {
+    "clean_tree": true,
+    "commit": "f07c24d1739afea4727783906621e526b91fdee2",
+    "git_status_porcelain": "",
+    "harness_version": {
+      "artifact_schema": "mnimi-eval-artifact/10",
+      "manifest_schema": "mnimi-run-manifest/1"
+    },
+    "mnimi_version": "1.11.0"
+  },
+  "cost": {
+    "ingest_s": "UNKNOWN",
+    "judge_completion_tokens": 883,
+    "judge_prompt_tokens": 124532,
+    "judge_usd": 0.32016,
+    "judge_wall_s": 419.7,
+    "llm_calls_at_write": 0,
+    "predict_wall_s": 860.6,
+    "reader_completion_tokens": 51338,
+    "reader_prompt_tokens": 66733,
+    "reader_usd": 0.34010624999999994,
+    "tokens_in": 191265,
+    "tokens_out": 52221,
+    "wall_clock_s": 1280.3
+  },
+  "created_utc": "2026-09-21T22:50:32 (local, batch_state.json submitted_at)",
+  "dataset": {
+    "file": ".data\\longmemeval_s_cleaned.json",
+    "n": 500,
+    "name": "longmemeval_s_cleaned.json",
+    "question_ids_sha256": "d9cd794c80eafe8e9034e041567eef1e68a77bd2af81031e24a9aafb86f87f76",
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "environment": {
+    "daemon_flags": {
+      "daemon": "none (API family: a dated snapshot served by the provider)"
+    },
+    "hardware": {
+      "cpu_count": "UNKNOWN",
+      "cuda_version": "13.2",
+      "driver_version": "595.95",
+      "gpu_model": "NVIDIA RTX 1000 Ada Generation Laptop GPU",
+      "platform": "UNKNOWN",
+      "processor": "UNKNOWN"
+    },
+    "lockfile_hash": "UNKNOWN",
+    "lockfile_source": "not recorded at run time",
+    "python": "3.14.4"
+  },
+  "judge": {
+    "max_tokens": 10,
+    "model": "gpt-4o-2024-08-06",
+    "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+    "prompt_id": "longmemeval-paper-v3",
+    "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
+    "replay_count": 0,
+    "temperature": 0
+  },
+  "manifest_schema": "mnimi-run-manifest/1",
+  "missing_fields": [],
+  "outputs": {
+    "pins": "pins.json",
+    "predictions": "predictions.jsonl",
+    "reader_resolved": "reader_resolved.json",
+    "results": "results.json"
+  },
+  "provisional_reasons": [],
+  "purpose": "Phase 5 gate 5-iv, arm 1 of 5: the no-memory floor on all 500 questions (gpt-4o family); the end-to-end pipeline check",
+  "reader": {
+    "max_tokens": 800,
+    "num_ctx": 128000,
+    "prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "prompt_id": "mnimi-con-v1",
+    "requested_model": "gpt-4o-2024-08-06",
+    "seed": 0,
+    "served_fingerprints": {
+      "fp_1295bafd83": 116,
+      "fp_24e955c341": 31,
+      "fp_40b2fafebf": 52,
+      "fp_67bbf2f77c": 1,
+      "fp_6ab7832397": 86,
+      "fp_7ba010d88d": 55,
+      "fp_8be6ecf611": 18,
+      "fp_95d3055667": 101,
+      "fp_f1fdc30c4a": 40
+    },
+    "served_models": {
+      "UNKNOWN": 500
+    },
+    "temperature": 0,
+    "transport": "openai",
+    "transport_version": "gpt-4o-2024-08-06"
+  },
+  "rule_commit": "de8b123",
+  "run_id": "no_memory__500q_gpt4o",
+  "status": "published",
+  "unknown_fields": [
+    "environment.lockfile_hash",
+    "cost.ingest_s"
+  ],
+  "updated_utc": "2026-09-22T18:34:00Z"
+}
