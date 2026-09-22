@@ -99,6 +99,18 @@ class MemoryConfig:
     FUTURE item with a trigger and is never set in a run. Exactly those two keys,
     each finite and >= 0. A harness flag (``--salience-weights``) and a pin."""
 
+    time_weight: float = 0.0
+    """The weight of the time-aware term in SPEC's score (PHASE6 D3):
+    ``(w_sim * relevance + w_rec * recency + time_weight * time_match) * salience``,
+    where ``time_match`` is 1 when the record's effective time (``valid_time``,
+    else its session date) falls inside the window the query's own relative-date
+    expression names, anchored on the question date the query carries as a
+    documented prefix (``mnimi.temporal``, D2). ``0.0`` (the default) is the
+    v2.3 ranking byte for byte. The pre-registered arm sets **0.05**, fixed
+    before any probe from a design-time reading of the rank-10/rank-20 cosine
+    gap; never swept. A harness flag (``--time-weight``) and a pin, beside
+    ``temporal_rules_hash``. Must be finite and >= 0."""
+
     dedup_scope: str = "session"
     """Where the cosine dedup screen looks for a duplicate.
 

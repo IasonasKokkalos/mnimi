@@ -144,3 +144,6 @@ class ScoredRecord:
     score: float
     """The rank: ``relevance`` under ``ranking="similarity"``;
     ``(w_sim * relevance + w_rec * recency) * salience`` under ``"score"``."""
+    time_match: float = 0.0
+    """1.0 when the record's effective time falls inside the query's own relative-date
+    window (PHASE6 D3, ``mnimi.temporal``), else 0.0; weighted by ``time_weight``."""

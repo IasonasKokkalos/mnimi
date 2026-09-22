@@ -85,6 +85,7 @@ class MnimiSystem(MemorySystem):
             render_unit_template_hash,
         )
         from mnimi.store import GUARD_NONE
+        from mnimi.temporal import temporal_rules_hash
 
         pins = {
             "embedder_name": self._embedder.name,
@@ -127,6 +128,9 @@ class MnimiSystem(MemorySystem):
                 "decay_floor": self._config.decay_floor,
                 "consolidate": self._consolidate,
                 "decay_rules_hash": decay_rules_hash(),
+                # Phase 6 (schema /11): the time-aware term and its frozen rules.
+                "time_weight": self._config.time_weight,
+                "temporal_rules_hash": temporal_rules_hash(),
             }
         )
         return pins
@@ -143,8 +147,18 @@ class MnimiSystem(MemorySystem):
         self._memory.add(messages, user_id=EVAL_USER_ID)
         self._pending = True
 
+    def set_question_date(self, question_date: str | None) -> None:
+        self._question_date = question_date
+
+    def query_for(self, question: str) -> str:
+        """The query the library receives: the documented date prefix + the question (PHASE6 D2)."""
+        from mnimi.temporal import dated_query
+
+        return dated_query(getattr(self, "_question_date", None), question)
+
     def get_context(self, query: str) -> str:
         self.consolidate_if_wired()
+        query = self.query_for(query)
         # The rounds the reader is about to see, by round key (record id for a
         # v1 record without one). ``recall`` is deterministic, so this second
         # search returns exactly the rounds ``get_context`` renders; the

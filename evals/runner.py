@@ -787,6 +787,7 @@ def ingest_and_context(system: MemorySystem, q: Question) -> tuple[str, list[str
     sessions = _sessions_for(system, q)
     for session in sessions:
         system.add(_session_to_messages(session))
+    system.set_question_date(q.question_date)
     context = system.get_context(q.question)
     ids = system.retrieved_ids()
     if ids is None:

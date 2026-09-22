@@ -71,6 +71,13 @@ def add_read_path_flags(parser: argparse.ArgumentParser) -> None:
         "Pinned. Default: SPEC's 0.15.",
     )
     parser.add_argument(
+        "--time-weight", default=None, type=float,
+        help="mnimi only, read under --ranking score: the weight of the time-aware term "
+        "(MemoryConfig.time_weight, PHASE6 D3) on records whose date falls in the window "
+        "the question's own relative-date expression names. Pinned (schema /11). "
+        "Default: the library's 0.0 (off); the pre-registered arm sets 0.05.",
+    )
+    parser.add_argument(
         "--consolidate", default=None, choices=_ON_OFF,
         help="mnimi only: call Memory.consolidate once per store after the last session, "
         "before the question (PHASE4 D8) - the day decay reaches the ranking. Pinned. "
@@ -93,6 +100,8 @@ def read_path_knobs(args: argparse.Namespace) -> dict:
         knobs["decay_half_life_days"] = args.decay_half_life_days
     if args.decay_floor is not None:
         knobs["decay_floor"] = args.decay_floor
+    if getattr(args, "time_weight", None) is not None:
+        knobs["time_weight"] = args.time_weight
     return knobs
 
 
@@ -117,6 +126,8 @@ def read_path_resume_extras(args: argparse.Namespace) -> list[str]:
         extras.append(f"--decay-half-life-days {args.decay_half_life_days}")
     if args.decay_floor is not None:
         extras.append(f"--decay-floor {args.decay_floor}")
+    if getattr(args, "time_weight", None) is not None:
+        extras.append(f"--time-weight {args.time_weight}")
     if args.consolidate is not None:
         extras.append(f"--consolidate {args.consolidate}")
     return extras

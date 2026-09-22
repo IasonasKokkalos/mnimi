@@ -18,6 +18,7 @@ from collections.abc import Mapping
 
 from .decay import logical_days
 from .models import MemoryRecord, ScoredRecord
+from .temporal import effective_time, time_match
 
 RANKING_SIMILARITY = "similarity"
 RANKING_SCORE = "score"
@@ -46,10 +47,20 @@ def recency(days: int, half_life_days: float) -> float:
 
 
 def combined_score(
-    relevance: float, recency_value: float, salience: float, weights: Mapping[str, float]
+    relevance: float,
+    recency_value: float,
+    salience: float,
+    weights: Mapping[str, float],
+    time_match: float = 0.0,
+    time_weight: float = 0.0,
 ) -> float:
-    """SPEC §Ranking: ``(w_sim * relevance + w_rec * recency) * salience``."""
-    return (weights["similarity"] * relevance + weights["recency"] * recency_value) * salience
+    """SPEC §Ranking plus PHASE6 D3's term:
+    ``(w_sim * relevance + w_rec * recency + time_weight * time_match) * salience``."""
+    return (
+        weights["similarity"] * relevance
+        + weights["recency"] * recency_value
+        + time_weight * time_match
+    ) * salience
 
 
 def round_identity(record: MemoryRecord):
@@ -63,12 +74,27 @@ def score_hit(
     now: str | None,
     half_life_days: float,
     weights: Mapping[str, float] | None,
+    window=None,
+    time_weight: float = 0.0,
 ) -> ScoredRecord:
-    """One record's components; ``weights=None`` scores by similarity alone."""
+    """One record's components; ``weights=None`` scores by similarity alone.
+
+    ``window`` (PHASE6 D3) is the query's parsed relative-date window or ``None``;
+    the record's ``time_match`` is read against it and weighted by ``time_weight``.
+    """
     rec = recency(logical_days(now, record.created_at), half_life_days)
-    score = cosine if weights is None else combined_score(cosine, rec, record.salience, weights)
+    match = (
+        time_match(effective_time(record.valid_time, record.created_at), window)
+        if window is not None
+        else 0.0
+    )
+    score = (
+        cosine if weights is None
+        else combined_score(cosine, rec, record.salience, weights, match, time_weight)
+    )
     return ScoredRecord(
-        record=record, relevance=cosine, recency=rec, salience=record.salience, score=score
+        record=record, relevance=cosine, recency=rec, salience=record.salience, score=score,
+        time_match=match,
     )
 
 
@@ -82,21 +108,33 @@ def rank_rounds(
     half_life_days: float,
     now: str | None,
     active_only: bool = False,
+    window=None,
+    time_weight: float = 0.0,
 ) -> list[ScoredRecord]:
-    """The ``k`` best rounds by score, exact over the user's records (PHASE4 D4)."""
+    """The ``k`` best rounds by score, exact over the user's records (PHASE4 D4).
+
+    With a ``window`` (PHASE6 D3) an unread record can score at most
+    ``w_sim * c + w_rec + time_weight``, so the bound below carries the term.
+    """
     fetch = k
     while True:
         hits = store.search(query_embedding, user_id=user_id, k=fetch, active_only=active_only)
         best: dict = {}
         for record, cosine in hits:
-            candidate = score_hit(record, cosine, now, half_life_days, weights)
+            candidate = score_hit(
+                record, cosine, now, half_life_days, weights, window, time_weight
+            )
             key = round_identity(record)
             if key not in best or candidate.score > best[key].score:
                 best[key] = candidate
         ranked = sorted(best.values(), key=lambda hit: -hit.score)
         if len(hits) < fetch:
             return ranked[:k]
-        bound = max(weights["similarity"] * hits[-1][1] + weights["recency"], 0.0)
+        bound = max(
+            weights["similarity"] * hits[-1][1] + weights["recency"]
+            + (time_weight if window is not None else 0.0),
+            0.0,
+        )
         if len(ranked) >= k and bound < ranked[k - 1].score:
             return ranked[:k]
         fetch *= 4

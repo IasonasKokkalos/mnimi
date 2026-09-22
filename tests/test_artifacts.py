@@ -85,7 +85,7 @@ def test_retrieval_pins_move_the_pins_hash():
 def test_schema_declares_revision_for_retrieval_arms_only():
     """A bare model name is mutable and can move every vector without moving
     any header field; the HF commit is the immutable identity."""
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/11"
     assert _pins()["embedder_revision"] is None, "no_memory retrieves nothing"
     retrieving = _pins(embedder_name="BAAI/bge-small-en-v1.5",
                        embedder_revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a")
@@ -344,7 +344,7 @@ class TestOpenAITransportCli:
 
         assert rc == 0, capsys.readouterr().err
         pins = json.loads((run_dir / "pins.json").read_text(encoding="utf-8"))["pins"]
-        assert pins["artifact_schema"] == "mnimi-eval-artifact/10"
+        assert pins["artifact_schema"] == "mnimi-eval-artifact/11"
         assert pins["reader_transport"] == "openai"
         assert pins["reader_model"] == "gpt-4o-2024-08-06"
         assert pins["reader_transport_version"] == "gpt-4o-2024-08-06"
@@ -1367,7 +1367,7 @@ def test_mnimi_extracts_by_default_and_only_mnimi():
 
 def test_phase3_pins_move_the_pins_hash():
     baseline = artifacts.pins_hash(_pins())
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/11"
     assert artifacts.pins_hash(_pins(dedup_entropy_gate=2.0)) != baseline
     assert artifacts.pins_hash(_pins(conflict_resolution=True)) != baseline
     assert artifacts.pins_hash(_pins(negation_lexicon_hash="330604b5772e")) != baseline
@@ -1417,7 +1417,7 @@ def test_resume_extras_repeat_the_conflict_flags():
 
 def test_phase4_pins_move_the_pins_hash_and_the_schema_is_10():
     baseline = artifacts.pins_hash(_pins())
-    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/10"
+    assert _pins()["artifact_schema"] == "mnimi-eval-artifact/11"
     moved = dict(active_only=True, ranking="score", recall_min_relevance=0.0,
                  salience_weights={"similarity": 1.0, "recency": 0.0}, decay_floor=0.15,
                  decay_half_life_days=30.0, consolidate=False, decay_rules_hash="d4a0bcf07330")

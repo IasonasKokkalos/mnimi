@@ -30,6 +30,7 @@ from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord, ScoredRecord
 from .ranking import RANKING_SIMILARITY, RANKINGS, check_weights, rank_rounds, score_hit
 from .store import Store
+from .temporal import split_query, window_for
 
 log = logging.getLogger("mnimi.memory")
 
@@ -421,6 +422,10 @@ class Memory:
         check_weights(config.salience_weights)
         if not -1.0 <= config.recall_min_relevance <= 1.0:
             raise ValueError("recall_min_relevance must lie in [-1, 1]")
+        if isinstance(config.time_weight, bool) or not isinstance(config.time_weight, (int, float)):
+            raise ValueError("time_weight must be a number")
+        if not (config.time_weight >= 0 and config.time_weight == config.time_weight):
+            raise ValueError("time_weight must be finite and >= 0")
         self.store = Store(
             db_path,
             dim=embedder.dim,
@@ -647,17 +652,33 @@ class Memory:
         cannot drift apart; a query-side change (the BGE instruction prefix,
         R5) edits only this method.
         """
-        (embedding,) = self.embedder.embed([self.config.query_instruction + query])
+        # The documented "[Current date: ...]" prefix (PHASE6 D2) never reaches
+        # the embedder: the bare question is what has always been embedded.
+        _date, question = split_query(query)
+        (embedding,) = self.embedder.embed([self.config.query_instruction + question])
         return embedding
 
+    def _window(self, query: str):
+        """The query's relative-date window (PHASE6 D3), or ``None`` when the term is off."""
+        if self.config.time_weight <= 0:
+            return None
+        _question, window = window_for(query)
+        return window
+
+    def _rank_query(self, query: str, user_id: str, k: int, now: str | None) -> list[ScoredRecord]:
+        """``_rank`` from the query text: the embedding of the bare question plus its window."""
+        return self._rank(self._query_embedding(query), user_id, k, now, self._window(query))
+
     def _rank(
-        self, query_embedding: list[float], user_id: str, k: int, now: str | None
+        self, query_embedding: list[float], user_id: str, k: int, now: str | None, window=None
     ) -> list[ScoredRecord]:
         """The ``k`` best rounds under ``config.ranking``, no side effect (PHASE4 D4, D6).
 
         One function for ``recall`` and the retrieval probe, so the two cannot
         disagree. ``"similarity"`` is ``Store.search_rounds`` untouched, score =
-        relevance; ``"score"`` is ``mnimi.ranking.rank_rounds``.
+        relevance; ``"score"`` is ``mnimi.ranking.rank_rounds``, with the
+        time-aware term when ``window`` is given (PHASE6 D3; the similarity
+        path ignores it — it is the v1.10 read path byte for byte).
         """
         if self.config.ranking == RANKING_SIMILARITY:
             hits = self.store.search_rounds(
@@ -676,6 +697,8 @@ class Memory:
             half_life_days=self.config.decay_half_life_days,
             now=now,
             active_only=self.config.active_only,
+            window=window,
+            time_weight=self.config.time_weight,
         )
 
     @_serialized
@@ -689,7 +712,7 @@ class Memory:
         returned record's ``last_accessed`` becomes ``now_logical``.
         """
         now = self._now_logical(user_id)
-        hits = self._rank(self._query_embedding(query), user_id, self.config.top_k, now)
+        hits = self._rank_query(query, user_id, self.config.top_k, now)
         floor = self.config.recall_min_relevance
         if floor > 0:
             hits = [hit for hit in hits if hit.relevance >= floor]

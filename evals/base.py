@@ -71,6 +71,16 @@ class MemorySystem(ABC):
     def get_context(self, query: str) -> str:
         """Return the context string to hand the reader for ``query``."""
 
+    def set_question_date(self, question_date: str | None) -> None:
+        """The question's own timestamp, handed in before :meth:`get_context` (PHASE6 D2).
+
+        The default ignores it. mnimi prefixes its query with it in the
+        documented ``[Current date: ...]`` form so its time-aware term has an
+        anchor; ``naive_rag`` does not read it — a disclosed asymmetry: every
+        arm receives the date in the reader prompt already.
+        """
+        return None
+
     def retrieved_ids(self) -> list[str] | None:
         """Ids of the memory items the last :meth:`get_context` handed the reader.
 

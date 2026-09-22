@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/10"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/11"
 
 
 def fingerprint(text: str) -> str:
@@ -459,6 +459,8 @@ def build_pins(
     decay_floor: float | None = None,
     consolidate: bool | None = None,
     decay_rules_hash: str | None = None,
+    time_weight: float | None = None,
+    temporal_rules_hash: str | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -561,6 +563,12 @@ def build_pins(
     ``memory_meta`` row). Declared by mnimi only; outside
     ``HARNESS_PARITY_FIELDS``, so the ablation's arms pair.
 
+    Schema /11 (2026-09-22, Phase 6) added ``time_weight`` (``MemoryConfig``,
+    the weight of the time-aware term) and ``temporal_rules_hash`` (the frozen
+    grammar, slack and matching rule of ``mnimi.temporal``). Declared by
+    mnimi only; outside ``HARNESS_PARITY_FIELDS``, so the arms still pair; a
+    drift pair against a /10 artifact is judged on the shared pins as always.
+
     Schema /6 (2026-09-11) added ``reader_transport`` — ``"ollama"`` or
     ``"openai"`` — and made the six Ollama-only pins nullable. The same
     prompt on a different transport is a different configuration family; a
@@ -650,6 +658,9 @@ def build_pins(
         "decay_floor": decay_floor,
         "consolidate": consolidate,
         "decay_rules_hash": decay_rules_hash,
+        # Schema /11 (PHASE6): the time-aware term and its frozen rules. mnimi only.
+        "time_weight": time_weight,
+        "temporal_rules_hash": temporal_rules_hash,
     }
 
 

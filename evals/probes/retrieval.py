@@ -114,6 +114,11 @@ class QuestionProbe:
     evidence_carriers: list = field(default_factory=list)
     stale_facts_top10: int = 0
     decayed: int = 0
+    # The Phase 6 time-aware term, per question (absent from earlier probe files):
+    # the window the question's expression named (or None) and how many of the
+    # top-10 rounds' representatives fell inside it.
+    parsed_window: list | None = None
+    time_matches_top10: int = 0
 
 
 class _Observed:
@@ -152,14 +157,18 @@ def _memory_of(system):
     if hasattr(system, "_memory"):  # MnimiSystem
         mem = system._memory
 
-        def rank_fn(query_embedding, k):
-            return mem._rank(query_embedding, EVAL_USER_ID, k, mem._now_logical(EVAL_USER_ID))
+        def rank_fn(question, k):
+            # The dated query, exactly as the harness hands it over (PHASE6 D2).
+            return mem._rank_query(
+                system.query_for(question), EVAL_USER_ID, k, mem._now_logical(EVAL_USER_ID)
+            )
 
         return (mem.store, mem.embedder, mem.config, mem._query_embedding, True, mem.extractor,
                 rank_fn)
     store, emb, config = system._store, system._embedder, system._config  # NaiveRagSystem
 
-    def rank_fn(query_embedding, k):
+    def rank_fn(question, k):
+        query_embedding = emb.embed([config.query_instruction + question])[0]
         return [
             ScoredRecord(record=r, relevance=c, recency=1.0, salience=r.salience, score=c)
             for r, c in store.search_rounds(query_embedding, user_id=EVAL_USER_ID, k=k)
@@ -297,10 +306,21 @@ def probe_question(system, q: Question) -> QuestionProbe:
         if wired is not None:
             wired()
         decayed = (decay_stats["decayed"] - decayed_before) if decay_stats is not None else 0
-        # The read path's own ranking: k counts rounds (PHASE4 D6).
-        hits = rank_fn(query_embedding(q.question), SEARCH_K)
+        # The read path's own ranking: k counts rounds (PHASE4 D6). The question
+        # date is handed over first, as the runner does (PHASE6 D2).
+        system.set_question_date(q.question_date)
+        hits = rank_fn(q.question, SEARCH_K)
     finally:
         observed.restore()
+    window = None
+    if hasattr(system, "_memory") and getattr(config, "time_weight", 0) > 0:
+        from mnimi.temporal import window_for
+
+        _question, parsed = window_for(system.query_for(q.question))
+        if parsed is not None:
+            window = [parsed.start.isoformat(), parsed.end.isoformat(), parsed.precision,
+                      parsed.expression]
+    time_matches = sum(1 for hit in hits[:10] if getattr(hit, "time_match", 0.0) > 0)
     ranked = [id_to_round[hit.record.id] for hit in hits]
     carriers: dict[tuple[str, int], list] = {}
     for hit, key in zip(hits, ranked, strict=True):
@@ -339,6 +359,8 @@ def probe_question(system, q: Question) -> QuestionProbe:
         evidence_carriers=evidence_carriers,
         stale_facts_top10=stale,
         decayed=decayed,
+        parsed_window=window,
+        time_matches_top10=time_matches,
     )
 
 
