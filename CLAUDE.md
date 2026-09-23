@@ -173,7 +173,9 @@ resolution. Both roles are in extraction scope.
   `run.environment`, never pinned, so this family is reproducible only
   within measured drift; every run projects its cost from the real request
   bodies before the first call and refuses above the remaining budget (the
-  API budget is $50 for the whole programme, `mnimi docs/PLAN.md`;
+  API budget was $50 for the programme (Phases 0-5, $33.85 spent); on
+  2026-09-22 the maintainer made $50 more available, so `API_BUDGET_USD`
+  is 83.85 (the spend at that moment plus fifty; the ledger is never reset), `mnimi docs/PLAN.md`;
   `evals/pricing.py`); Batch API runs are sequences of sub-batches under the
   org's 90,000 enqueued-token cap (`evals/batch.py`, 2026-09-12 — a whole
   n=100 arm fails validation otherwise; not a pin). Both families: reader prompt =
@@ -421,7 +423,7 @@ python -m evals.stats runs/a__100q runs/b__100q [...]        # paired McNemar + 
 # (`--batch-enqueued-tokens`), submitted one at a time; one arm in flight per key:
 python -m evals --system mnimi --limit 100 --stage all --reader-transport openai --batch
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --batch-no-wait
-python -m evals.pricing                                     # the API spend ledger vs the $50 cap
+python -m evals.pricing                                     # the API spend ledger vs the cap ($83.85 = $33.85 spent + the $50 top-up of 2026-09-22)
 python -m evals.drift runs/a__100q runs/b__100q             # N/n changed between two predict runs of one configuration
 # the run-documentation rule (2026-09-22): every run names its purpose; a claim names its committed rule
 python -m evals --system mnimi --limit 500 --stage all --reader-transport openai --batch --purpose "..." --claim none --run-dir runs/<run_id>

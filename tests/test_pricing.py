@@ -118,7 +118,7 @@ def test_estimate_uses_the_dated_table_and_the_batch_discount():
     both = pricing.estimate_usd("gpt-4o-2024-08-06", 1_000_000, 1_000_000, batch=True)
     assert both == pytest.approx(6.25)
     assert pricing.PRICES_AS_OF == "2026-09-11"
-    assert pricing.API_BUDGET_USD == 50.0
+    assert pricing.API_BUDGET_USD == 83.85  # 33.85 spent + the $50 top-up of 2026-09-22
 
 
 def test_unpriced_model_cannot_be_estimated():
@@ -177,7 +177,7 @@ def test_projection_is_printed_and_the_run_is_recorded(tmp_path, monkeypatch, ca
 
     err = capsys.readouterr().err
     assert rc == 0, err
-    assert "projected" in err and "upper bound" in err and "of $50.00" in err
+    assert "projected" in err and "upper bound" in err and "of $83.85" in err
     assert client.model_lookups == ["gpt-4o-2024-08-06"], "snapshot checked before any call"
     assert len(client.calls) == 2
     (entry,) = _ledger(tmp_path)
@@ -193,13 +193,13 @@ def test_projection_is_printed_and_the_run_is_recorded(tmp_path, monkeypatch, ca
 def test_over_budget_is_refused_before_any_call(tmp_path, monkeypatch, capsys):
     client = _FakeClient()
     _wire(monkeypatch, tmp_path, client)
-    pricing.append({"ts": "seed", "projected_usd": 49.99, "actual_usd": 49.99})
+    pricing.append({"ts": "seed", "projected_usd": 83.84, "actual_usd": 83.84})
 
     rc, run_dir = _main(tmp_path)
 
     err = capsys.readouterr().err
     assert rc == 2
-    assert "49.99" in err and "50.00" in err and "refus" in err.lower()
+    assert "83.84" in err and "83.85" in err and "refus" in err.lower()
     assert client.calls == []
     assert not (run_dir / "predictions.jsonl").exists()
     assert len(_ledger(tmp_path)) == 1, "a refused run is not a spend"

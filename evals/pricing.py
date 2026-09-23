@@ -36,8 +36,11 @@ PRICES_USD_PER_MTOK: dict[str, dict[str, float]] = {
 BATCH_DISCOUNT = 0.5
 #: The programme cap (mnimi docs/PLAN.md §4.1). Changing it is a decision,
 #: not a flag: `--api-budget-usd` exists for one deliberate override and is
-#: echoed loudly when used.
-API_BUDGET_USD = 50.0
+#: echoed loudly when used. Was 50.00 for the programme (Phases 0-5, $33.85
+#: spent by 2026-09-22); on 2026-09-22 the maintainer made $50 available for
+#: what follows ("update the budget to 50 dollars"), so the cap is the spend
+#: at that moment plus fifty: the ledger keeps every line, nothing is reset.
+API_BUDGET_USD = 83.85
 #: Judge call estimate: question + gold + a ~270-token answer + template.
 JUDGE_PROMPT_TOKENS_EST = 600
 JUDGE_COMPLETION_TOKENS_EST = 10

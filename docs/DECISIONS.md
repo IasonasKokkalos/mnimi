@@ -3395,3 +3395,44 @@ installed distributions because there is no lockfile; the field says so.
 identity check covers it. `.gitignore` now tracks `runs/INDEX.md` and every
 `runs/*/manifest.json`. Tests 409 → 425. The five gpt-4o n=500 runs are backfilled in the next
 commit with `python -m evals.backfill`, `UNKNOWN` where the artifacts hold nothing.
+
+
+## Gate 6-i read: the time-aware term at the probe — identity 448/448, ANY@10 463, ALL@10 418, 4 of 29 completed, 1 lost — PASS (2026-09-23)
+
+`runs/probe_mnimi_p6t.json` (`python -m evals.probes.retrieval --system mnimi --extractor qwen3
+--limit 500 --time-weight 0.05`, at `d219326` clean, 2026-09-22 19:11 → 22:39 UTC, 3.5 h, cache
+`misses: 0`) against `runs/probe_mnimi_p5c500.json`, read by the scratch script
+`read_gate_6i.py` (`runs/gate_6i_read.json`). The four bars of D13, pre-registered before the
+probe ran:
+
+| bar | reading | pass |
+| --- | --- | --- |
+| (a) identity on every question without a parsed window (ranks, top-50, drops, stored) | **448/448** | yes |
+| (b) ANY@10 ≥ 459/470; ALL@10 ≥ 415/470 | **463** / **418** | yes |
+| (c) currently-complete rows whose evidence leaves the top-10: ≤ 2 | **1** (`2ebe6c92`) | yes |
+| (d) of the 29 retrieval-addressable reachable rows, now complete: ≥ 4 | **4** (`80ec1f4f`, `gpt4_4929293b`, `gpt4_59149c78`, `gpt4_8279ba03`) | yes, at the bar |
+
+**PASS.** The term did what the analysis said it would, and only that: 52 questions parse under the
+frozen grammar (month 15, range 21, week 8, day 8 — the design-time count exactly), 448 do not and
+are byte-identical on every compared field, so D2's stripping and D4's no-vector claim both held
+on the whole benchmark. Of the six temporal rows that had nothing in the top-10, three are now
+complete (`gpt4_8279ba03` 12 → 3, `gpt4_4929293b` 11 → 6, `gpt4_59149c78` 14 → 8) and the other
+three moved toward the window without crossing it (`eac54add` 24 → 12, `4dfccbf8` >50 → 11,
+`6e984302` >50 → 21); the multi-session "in the month of February" row `80ec1f4f` went 14/11 →
+4/3. Two partial rows moved by a rank or two without completing. The one row that lost evidence,
+`2ebe6c92` ("Which book did I finish a week ago?", currently right), had all ten of its top-10
+rounds inside its window — a week in which every session sits — so the term reordered ties among
+matching rounds and one of its two evidence rounds went 4 → 11 while the other stayed at 1: the
+term's known cost, the reason bar (c) exists, and one row of the 30 currently-right parsed rows
+(8 of which changed a rank; 31 of the 52 changed their top-10 set).
+
+**P1 not held, by one:** it predicted ≥ 5 completed and ≤ 2 lost; the reading is 4 and 1. Recorded
+as failed; it changes no rule (D10). L1 is eligible for an arm under D8.
+
+**Task 4's stability read (D5's gate condition for L2):** **identical 100/100** on evidence ranks, top-50, drops and stored across two fresh processes (`runs/probe_mnimi_p6r_stab_a.json` 2026-09-22 22:39 → 2026-09-23 00:03 UTC, `…_b.json` 00:03 → 01:26 UTC; ≈ 84 min each, ≈ 50 s per store with the reranker), 0 evidence rounds moved between the two (`python -m evals.probes.identity`). D5's condition is met: L2 is eligible for gate 6-ii, which waits for the maintainer's go; the descriptive n=100 preview under Task 4 (ALL@10 85 vs 83, ANY@10 91 vs 93) is the input for that call.
+
+**The budget.** On 2026-09-22 the maintainer made $50 available for what follows ("update the
+budget to 50 dollars"): `API_BUDGET_USD` is now **83.85** — the $33.85 spent at that moment plus
+fifty; the ledger is not reset and every line stands. D8's three-arm plan and the phase's $13
+cap are unchanged until the maintainer reopens them; the top-up makes D7's fallbacks (L4, L5)
+affordable, which they were not.
