@@ -3436,3 +3436,41 @@ budget to 50 dollars"): `API_BUDGET_USD` is now **83.85** — the $33.85 spent a
 fifty; the ledger is not reset and every line stands. D8's three-arm plan and the phase's $13
 cap are unchanged until the maintainer reopens them; the top-up makes D7's fallbacks (L4, L5)
 affordable, which they were not.
+
+
+## Gate 6-ii read: the cross-encoder rerank at the probe — ANY@10 455, ALL@10 414, 29 rows lose evidence — FAIL (2026-09-24)
+
+`runs/probe_mnimi_p6r.json` (`python -m evals.probes.retrieval --system mnimi --extractor qwen3
+--limit 500 --ranking rerank`, at `61ac2ea` clean, 2026-09-23 17:47 → 2026-09-24 02:01 UTC,
+8 h 14 min, cache `misses: 0`) against `runs/probe_mnimi_p5c500.json`, read by the scratch script
+`read_gate_6ii.py` (`runs/gate_6ii_read.json`). The bar of the gate table, pre-registered
+2026-09-22, before the probe ran:
+
+| bar | reading | pass |
+| --- | --- | --- |
+| ANY@10 ≥ 459/470 | **455** (ref 459) | no |
+| ALL@10 ≥ 430/470 | **414** (ref 415) | no |
+| rows losing an evidence round from the top-10 ≤ 5 | **29** | no |
+| byte-stable across two fresh processes | 100/100 (read 2026-09-23) | yes |
+
+**FAIL. L2 takes no arm (D8).** The pool is unchanged (ALL@20 441 = 441, ALL@50 459 = 459; drops
+and stored identical on 500/500 — a read-path switch touches nothing stored), so everything the
+reranker did is a reorder inside the top-50, and it moved evidence both ways: 18 rows became
+complete — ten of them among the 29 retrieval-addressable reachable rows, including four of the
+six temporal rows the analysis singled out (`eac54add` 24 → 9, `gpt4_59149c78` 14 → 4,
+`gpt4_5438fa52` 31 → 2, `gpt4_45189cb4` 10/24/17 → 3/4/10) — and 19 currently-complete rows lost
+an evidence round past rank 10 (`95228167` 1 → 24, `d7c942c3` 4 → 49, `71017277` 1 → 12, …), so
+ALL@10 nets **−1**. It lifts the *head* of the list (ANY@1 339 vs 325, ALL@5 378 vs 358) and
+multi-session ALL@10 (99 vs 94), and costs temporal-reasoning (105 vs 107), preference (23 vs 25)
+and single-session-assistant (54 vs 56): the cross-encoder ranks the round whose wording best
+matches the question first, and a multi-evidence question's second round, or a temporally phrased
+one, drops out of the ten. The full ids and the per-k table are in `PHASE6-RESULTS.md` § Task 6.
+
+**P2 not held** (it predicted ALL@10 ≥ 430 with ≤ 5 rows losing evidence). Task 4's descriptive
+n=100 preview (ALL@10 85 vs 83 on 95 rows, extrapolated ≈ +10) did not carry to the full set; the
+n=100 prefix was not representative of the reranker's losses, which is one more reason the gate was
+the n=500 probe and not the preview. Nothing is changed by this: `ranking="rerank"` stays built,
+pinned and off (`"score"` is the default), the reranker item in FUTURE.md closes with this reading
+at Task 9, and the phase proceeds under D8 with **arm 1 = L1** (`--time-weight 0.05`, gate 6-i
+PASS) and arm 2 = L3; arm 3 exists only if both adopt (D8's "other passed retrieval lever" is L2,
+which did not pass).
