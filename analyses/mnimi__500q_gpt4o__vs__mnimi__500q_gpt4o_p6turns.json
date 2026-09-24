@@ -1,0 +1,81 @@
+{
+  "analysis_schema": "mnimi-paired-analysis/1",
+  "b_second_wins": 22,
+  "c_first_wins": 20,
+  "discordant": 42,
+  "first": {
+    "artifact_schema": "mnimi-eval-artifact/10",
+    "correct": 422,
+    "harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
+    "n": 500,
+    "pins_hash": "7216d94b6d597b2cd9823e4b3a6381d4ddff348b5d65f02ce66ab9ccb50cf818",
+    "run_id": "mnimi__500q_gpt4o"
+  },
+  "first_wins_ids": [
+    "07741c45",
+    "08f4fc43",
+    "0bc8ad93",
+    "0edc2aef",
+    "15745da0",
+    "32260d93",
+    "59524333",
+    "852ce960",
+    "8c18457d",
+    "a9f6b44c",
+    "b46e15ed",
+    "bf659f65",
+    "d24813b1",
+    "dad224aa",
+    "dd2973ad",
+    "ec81a493",
+    "gpt4_70e84552_abs",
+    "gpt4_74aed68e",
+    "gpt4_93159ced_abs",
+    "gpt4_e072b769"
+  ],
+  "harness_notes": {
+    "artifact_schema": {
+      "first": "mnimi-eval-artifact/10",
+      "second": "mnimi-eval-artifact/11"
+    },
+    "harness_git_sha": {
+      "first": "f07c24d1739afea4727783906621e526b91fdee2",
+      "second": "3845c4eb70fb31065af8f3821694268715712df8"
+    }
+  },
+  "n_pairs": 500,
+  "p_exact_mcnemar": 0.8776143287523153,
+  "second": {
+    "artifact_schema": "mnimi-eval-artifact/11",
+    "correct": 424,
+    "harness_git_sha": "3845c4eb70fb31065af8f3821694268715712df8",
+    "n": 500,
+    "pins_hash": "8bcfbb25f31230fa87a84a90dd7e15996892d9eec9247d61aaec97d3d350f9a4",
+    "run_id": "mnimi__500q_gpt4o_p6turns"
+  },
+  "second_wins_ids": [
+    "09ba9854",
+    "1c0ddc50",
+    "2133c1b5",
+    "2133c1b5_abs",
+    "41698283",
+    "4d6b87c8",
+    "51a45a95",
+    "5a7937c8",
+    "618f13b2",
+    "7405e8b1",
+    "778164c6",
+    "80ec1f4f",
+    "830ce83f",
+    "9ee3ecd6",
+    "eac54adc",
+    "edced276",
+    "ef9cf60a",
+    "f35224e0",
+    "gpt4_15e38248",
+    "gpt4_483dd43c",
+    "gpt4_65aabe59",
+    "gpt4_731e37d7"
+  ],
+  "source": "per-question verdicts (predictions.jsonl first verdict, else results.json rows)"
+}

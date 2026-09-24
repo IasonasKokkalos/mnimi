@@ -3567,3 +3567,53 @@ paper's own pairing. A same-model leniency cancels in every paired row and shift
 by an unsigned amount on top of the 6/100 flip rate; the maintainer chose to disclose and keep it
 (2026-09-23) and may revisit a second-judge replay later. Arm 2 (L3, `--render-unit turns`)
 launches at the v2.9.0 commit.
+
+
+## Gate 6-iv arm 2 read: `turns` with the extractor on at n=500 — 424/500, b=22 c=20 against the published 422 — L3 adopted by two rows; temporal-reasoning −5 (2026-09-24)
+
+`runs/mnimi__500q_gpt4o_p6turns` — the Phase 5 Task 8 mnimi command with `--render-unit turns`
+(extractor on: facts stored and retrieved, none rendered — D6), `--purpose`, `--claim none`,
+`--rule-commit ecd8178`, at `3845c4e` (v2.9.0) clean, 2026-09-24 08:05 → 13:17 UTC: store build
+3 h 45 min (`misses: 0`), 38 sub-batches, predict exit 0, judge exit 0, manifest
+`status: complete`, `provisional: []`, projection $5.6116 against the $6.0229 precedent (−6.8 %),
+actual $4.0021 (reader $3.6029, judge $0.3992), ledger $42.07 spent / $41.78 remaining. Promoted
+to `results/published/mnimi__500q_gpt4o_p6turns/`. Fed tokens 4,948 mean (−10 % on the
+published arm's 5,499; naive_rag 4,685).
+
+**The reading: 424/500 = 84.8 %, Wilson [81.4, 87.7]; paired against the published 422 by
+`python -m evals.stats`: b=22, c=20, discordant 42, p = 0.88. Adopted — b ≥ c — by two rows.**
+The 85 criterion is not met (lower bound 81.4). By category, published → arm: single-session-user
+68 → 67, -assistant 55 → 56, -preference 23 → 21, knowledge-update 70 → 72, temporal-reasoning
+**111 → 106** (3 wins / 8 losses), multi-session **95 → 102** (10 / 3). Retrieval is identical on
+every row by construction (gate 6-iii), so all 42 discordant rows are the rendering and the
+instrument.
+
+**D6's mechanism held; D6's risk landed.** Of the 11 rows the analysis attributed to the `facts:`
+header itself (lossy or incomplete headers the reader trusted over the turn above, misleading
+resolved dates, header-induced over-reasoning), **10 are right without the header**; of the 25
+reading misses, **18** are right (naive_rag right on 16 of them — the two renderings converge
+there). And the dated header's contribution to temporal-reasoning, which D6 named as the risk
+and left to the arm, reads **−5**: eight temporal rows lost (`08f4fc43`, `0bc8ad93`, `8c18457d`,
+`b46e15ed`, `gpt4_74aed68e`, `gpt4_e072b769`, and two abstention rows the arm now answers instead
+of refusing, `gpt4_70e84552_abs`, `gpt4_93159ced_abs`) against three won. The resolved
+`valid_time`s under each round carry part of the +25 over naive_rag that Phase 5 read on this
+category. **D6's L3′ trigger fires** — a `round+dated-facts` unit rendering only the facts that
+carry a `valid_time` (≈ 8 % of the header lines) — and is filed for the work that follows this
+phase: it is code, a new `render_unit_template_hash`, and a second reading of the same lever, so
+it is outside this phase's budget by the pre-registration's own words.
+
+**The 54:** 20 recovered (18 reading / 0 partial / 2 none, one of them the abstention
+`2133c1b5_abs` now honoured), 34 still wrong, 20 newly wrong; two of the 24 unreachable rows
+right (`51a45a95`, `7405e8b1`). Ten of the 22 wins are rows arm 1 also won; four of the 20 losses
+are rows arm 1 also lost — rows that flip under any change and belong to the instrument.
+
+**Predictions.** P3 (L3 recovers ≥ 8 of the 25 reading misses — held, 18; loses ≤ 6 elsewhere —
+**not held, 20**; net ≥ +2 — held, exactly +2) is recorded as not held on its middle clause.
+P4's first half holds (424 < 441).
+
+**Consequence (D8).** Both levers adopted, so **arm 3 = L1 + L3** (`--time-weight 0.05
+--render-unit turns`, extractor on) is the phase's headline configuration and launches at the
+v2.10.0 commit; remaining $41.78 is above the $4.5 stop. The language rule stands: "the n=500
+reading of configuration L3: 424, b=22, c=20 against the published 422" — a swap of 20 rows for
+22, not a lift, adopted by the smallest margin the rule admits and inside the family's 6/100
+band; the criterion is read on arm 3.
