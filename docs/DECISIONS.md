@@ -3474,3 +3474,35 @@ pinned and off (`"score"` is the default), the reranker item in FUTURE.md closes
 at Task 9, and the phase proceeds under D8 with **arm 1 = L1** (`--time-weight 0.05`, gate 6-i
 PASS) and arm 2 = L3; arm 3 exists only if both adopt (D8's "other passed retrieval lever" is L2,
 which did not pass).
+
+
+## Gate 6-iii read: `render_unit` moves nothing retrieval measures — 20/20 identical, pins differ in the unit — PASS by the allowed shortcut (2026-09-24)
+
+The pre-registered form of this gate — `--limit 500 --render-unit turns` at the retrieval probe,
+identical 500/500 to `p5c500` — cannot be run as written: the probe has no `--render-unit` flag
+(`evals.knobs.add_read_path_flags` carries the seven read-path knobs and the probe's parser adds
+the write-side ones; `render_unit` is neither). That absence is the gate's substance, and the
+maintainer had allowed the shortcut on 2026-09-22 (a code argument plus a 20-question probe), so
+the reading is that. **The code argument:** `MemoryConfig.render_unit` is read at two sites in
+`src/mnimi/` — `Memory.__init__` validates it (`memory.py:427`) and `get_context` passes it to
+`render_records` (`memory.py:789`). Neither `add()`, the screens, supersession, `consolidate()`,
+`recall()` nor the store reads it, and everything the probe records (evidence ranks, the top-50,
+drops, stored contents) is produced before rendering. **The check** (`runs/gate_6iii_read.json`,
+scratch `gate_6iii_check.py`, log `runs/p6_gate6iii.log`; at `61ac2ea` clean, 2026-09-23 17:48 →
+18:12 UTC, `misses: 0`): the first 20 stratified questions through the harness's own
+`build_system` and `ingest_and_context`, `round+facts` vs `turns` — retrieved ids identical
+**20/20**; the `turns` context is the `round+facts` context with 664 of 5,201 lines removed
+(12.8 %, every one a `facts:` header or a fact line) and nothing else on **20/20**; the two
+systems' pins differ in `render_unit` and `render_unit_template_hash` (`2aab8f27…` →
+`266002498…`) and in nothing else. **PASS.**
+
+**One disclosed deviation from the gate's wording**, shared by every Phase 6 arm: against the
+published `mnimi__500q_gpt4o` (schema /10, library v1.12) the L3 arm's pins also differ in
+`resolver_version` (`v1` → `v2`, D4) and carry the two /11 additions (`temporal_rules_hash`;
+`time_weight`, 0.0 on this arm). Gate 6-i's identity half (448/448 on the unparsed rows) is the
+evidence that the resolver bump moves no retrieval row, and Task 3's identity test that
+`time_weight = 0.0` is v1.12's ranking byte for byte. The same shared-pin difference is why the
+harness's `--verify-drift` refuses every Phase 6 arm against the published arm (an exit code 2
+after the reader has run, which registers the run as `aborted`), so the arms of gate 6-iv run
+without it and the family's Tier 2 statement stays the one measured on 2026-09-12 — recorded as an
+execution note under PHASE6 Task 8.
