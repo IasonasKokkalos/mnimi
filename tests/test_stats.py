@@ -15,6 +15,7 @@ from evals.stats import (
     mcnemar_exact,
     mcnemar_power,
     minimum_detectable_gap,
+    parity_notes,
     wilson,
 )
 
@@ -227,3 +228,48 @@ def test_two_mnimi_arms_differing_in_render_unit_and_extractor_pair():
     (label, entry), = report["variants"].items()
     assert label == "mnimi@extract vs mnimi@p2base"
     assert (entry["result"].b, entry["result"].c) == (1, 0)
+
+
+def test_pairing_proceeds_across_a_schema_bump_and_a_harness_commit_and_reports_them():
+    """Phase 6 (v2.9.0): D8 pairs an arm at schema /11 and a later commit against
+    the published mnimi__500q_gpt4o (/10, f07c24d). Like evals.drift, the two
+    fields are reported in the record, never refused — every other parity
+    field still is."""
+    arms = {"mnimi": {"q1": True, "q2": False}, "naive_rag": {"q1": True, "q2": True}}
+    identities = {
+        "mnimi": harness_identity(_payload(
+            "mnimi", artifact_schema="mnimi-eval-artifact/11", harness_git_sha="f0a7de3")),
+        "naive_rag": harness_identity(_payload(
+            "naive_rag", artifact_schema="mnimi-eval-artifact/10", harness_git_sha="f07c24d")),
+    }
+    assert_harness_parity(identities)
+    report = analyse(arms, identities=identities)
+    assert report["primary"] is not None
+    assert report["harness_notes"] == {
+        "artifact_schema": {"mnimi": "mnimi-eval-artifact/11",
+                            "naive_rag": "mnimi-eval-artifact/10"},
+        "harness_git_sha": {"mnimi": "f0a7de3", "naive_rag": "f07c24d"},
+    }
+    assert "NOTE artifact_schema differs" in _format(report)
+
+
+def test_parity_notes_are_empty_when_the_arms_share_commit_and_schema():
+    identities = {
+        "mnimi": harness_identity(_payload("mnimi")),
+        "naive_rag": harness_identity(_payload("naive_rag")),
+    }
+    assert parity_notes(identities) == {}
+    assert analyse({"mnimi": {"q1": True}, "naive_rag": {"q1": True}},
+                   identities=identities)["harness_notes"] == {}
+
+
+def test_a_reported_field_never_masks_a_refused_one():
+    """A schema bump beside a reader change still refuses, on the reader."""
+    identities = {
+        "mnimi": harness_identity(_payload(
+            "mnimi", artifact_schema="mnimi-eval-artifact/11", reader_model="gpt-4o-2024-08-06")),
+        "naive_rag": harness_identity(_payload(
+            "naive_rag", artifact_schema="mnimi-eval-artifact/10", reader_model="gpt-4o-mini")),
+    }
+    with pytest.raises(ValueError, match="reader_model"):
+        assert_harness_parity(identities)

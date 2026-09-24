@@ -1,0 +1,138 @@
+{
+  "arm": {
+    "config": {
+      "active_only": true,
+      "answer_reserve": 800,
+      "chunk_unit": "round",
+      "conflict_resolution": true,
+      "consolidate": false,
+      "dedup": {
+        "cosine_threshold": 0.95,
+        "entropy_gate": 2.0,
+        "on": true,
+        "scope": "session"
+      },
+      "embed_template_hash": "d7c07af084510d838b00e876753d70b882b4447844bfe1a994f98312566b94db",
+      "embedder": "BAAI/bge-small-en-v1.5",
+      "embedder_dim": 384,
+      "embedder_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "extractor_model": "Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+      "fact_embed_template_hash": "1f0cab6f895e73438d51ce12ea6aed0337eb1babcfe95cff62095a983af111e0",
+      "query_instruction": "Represent this sentence for searching relevant passages: ",
+      "ranking": "score",
+      "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+      "render_unit": "round+facts",
+      "salience_weights": {
+        "recency": 0.0,
+        "similarity": 1.0
+      },
+      "token_budget": 128000,
+      "top_k": 10
+    },
+    "pins_hash": "c7ebab0b143cc1747e77341bbfadbb57d097c1ebb8df8d66785a27a26bd16d94",
+    "system": "mnimi"
+  },
+  "claim": "none",
+  "code": {
+    "clean_tree": true,
+    "commit": "f0a7de3493b8636be09f2b239fefb162ac1ef5aa",
+    "git_status_porcelain": "M runs/INDEX.md\n?? runs/mnimi__500q_gpt4o_p6time/",
+    "harness_version": {
+      "artifact_schema": "mnimi-eval-artifact/11",
+      "manifest_schema": "mnimi-run-manifest/1"
+    },
+    "mnimi_version": "2.8.0"
+  },
+  "cost": {
+    "ingest_s": 12400.3,
+    "judge_completion_tokens": 537,
+    "judge_prompt_tokens": 106413,
+    "judge_usd": 0.2714025,
+    "judge_wall_s": 210.3,
+    "llm_calls_at_write": 0,
+    "predict_wall_s": 17480.6,
+    "reader_completion_tokens": 101976,
+    "reader_prompt_tokens": 2748766,
+    "reader_usd": 3.9458375,
+    "tokens_in": 2855179,
+    "tokens_out": 102513,
+    "wall_clock_s": 17690.9
+  },
+  "created_utc": "2026-09-24T07:04:33Z",
+  "dataset": {
+    "file": ".data\\longmemeval_s_cleaned.json",
+    "n": 500,
+    "name": "longmemeval_s_cleaned.json",
+    "question_ids_sha256": "d9cd794c80eafe8e9034e041567eef1e68a77bd2af81031e24a9aafb86f87f76",
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "environment": {
+    "daemon_flags": {
+      "daemon": "none (API family: a dated snapshot served by the provider)"
+    },
+    "hardware": {
+      "cpu_count": 16,
+      "cuda_version": "13.2",
+      "driver_version": "595.95",
+      "gpu_model": "NVIDIA RTX 1000 Ada Generation Laptop GPU",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"
+    },
+    "lockfile_hash": "b9d21de609faac1946925a4d85366384f349d82bcfc2b74ccfecd40109f0dc9c",
+    "lockfile_source": "sha256 of the installed distributions (name==version, sorted); the repo has no lockfile",
+    "python": "3.14.4"
+  },
+  "judge": {
+    "max_tokens": 10,
+    "model": "gpt-4o-2024-08-06",
+    "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+    "prompt_id": "longmemeval-paper-v3",
+    "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
+    "replay_count": 0,
+    "temperature": 0
+  },
+  "manifest_schema": "mnimi-run-manifest/1",
+  "missing_fields": [],
+  "outputs": {
+    "judge_replays": [],
+    "pins": "pins.json",
+    "predictions": "predictions.jsonl",
+    "results": "results.json",
+    "summary": "summary.json"
+  },
+  "provisional_reasons": [],
+  "published_as": "results\\published\\mnimi__500q_gpt4o_p6time",
+  "purpose": "PHASE6 gate 6-iv arm 1: L1, the time-aware term (time_weight=0.05, resolver v2) against the published mnimi__500q_gpt4o (422); adopt iff b >= c (D8)",
+  "reader": {
+    "max_tokens": 800,
+    "num_ctx": 128000,
+    "prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "prompt_id": "mnimi-con-v1",
+    "requested_model": "gpt-4o-2024-08-06",
+    "seed": 0,
+    "served_fingerprints": {
+      "fp_1295bafd83": 114,
+      "fp_24e955c341": 4,
+      "fp_40b2fafebf": 48,
+      "fp_636eed499b": 22,
+      "fp_6ab7832397": 113,
+      "fp_7ba010d88d": 7,
+      "fp_7f4f825fa2": 32,
+      "fp_8be6ecf611": 27,
+      "fp_d4160bf518": 133
+    },
+    "served_models": {
+      "gpt-4o-2024-08-06": 500
+    },
+    "temperature": 0,
+    "transport": "openai",
+    "transport_version": "gpt-4o-2024-08-06"
+  },
+  "rule_commit": "ecd8178",
+  "run_id": "mnimi__500q_gpt4o_p6time",
+  "status": "published",
+  "unknown_fields": [],
+  "updated_utc": "2026-09-24T07:08:06Z"
+}

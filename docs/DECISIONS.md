@@ -3506,3 +3506,64 @@ harness's `--verify-drift` refuses every Phase 6 arm against the published arm (
 after the reader has run, which registers the run as `aborted`), so the arms of gate 6-iv run
 without it and the family's Tier 2 statement stays the one measured on 2026-09-12 — recorded as an
 execution note under PHASE6 Task 8.
+
+
+## Gate 6-iv arm 1 read: the time-aware term at n=500 — 429/500, b=15 c=8 against the published 422 — L1 adopted; 441 not met (2026-09-24)
+
+`runs/mnimi__500q_gpt4o_p6time` — the Phase 5 Task 8 mnimi command plus `--time-weight 0.05`
+(resolver v2 rides with it, D4), `--purpose`, `--claim none`, `--rule-commit ecd8178`, at
+`f0a7de3` (v2.8.0) clean, 2026-09-24 02:13 → 07:08 UTC: store build 3 h 27 min (`misses: 0`),
+42 sub-batches, predict exit 0, judge exit 0, manifest `status: complete`, `provisional: []`,
+projection $6.0224 against the $6.0229 precedent (−0.01 %), actual $4.2172 (reader $3.9458,
+judge $0.2714), ledger $38.07 spent / $45.78 remaining. Promoted to
+`results/published/mnimi__500q_gpt4o_p6time/`.
+
+**The reading: 429/500 = 85.8 %, Wilson [82.5, 88.6]; paired against the published
+`mnimi__500q_gpt4o` (422) by `python -m evals.stats`: b=15, c=8, discordant 23, p = 0.21.
+Adopted — the rule is b ≥ c (D8).** The 85 criterion is **not met**: 441 was needed, the lower
+bound is 82.5; the point estimate crosses 85.0 for the first time, which the criterion does not
+read. By category, published → arm: single-session-user 68 → 66, -assistant 55 → 56,
+-preference 23 → 25, knowledge-update 70 → 71, temporal-reasoning 111 → 113, multi-session
+95 → 98. Fed tokens unchanged (5,498 vs 5,499 mean).
+
+**The 54 (D10's accounting):** 14 recovered — 10 of the 25 reading misses, 0 of the 19 partial,
+4 of the 10 with nothing in the top-10 (`75832dbd`, `80ec1f4f`, `gpt4_4929293b`,
+`gpt4_8279ba03`) — 40 still wrong, 8 newly wrong (`07741c45`, `0bc8ad93`, `15745da0`,
+`6ade9755`, `dd2973ad`, `gpt4_1a1dc16d`, `gpt4_2f8be40d`, `gpt4_9a159967`), and one of the 24
+unreachable rows right (`7024f17c`). Read against gate 6-i's probe, only **7 of the 23 discordant
+rows sit on a top-10 the term actually reordered** — 5 wins (three of gate 6-i's four
+completions among them) and 2 losses — while **16 sit on an identical top-10**: 10 wins, 6
+losses, on rows whose rendered context differs at most by resolver v2's dates (D4 attributed
+≤ 2 of the 54 to them) and whose verdict moved with the reader's text nondeterminism and the
+judge's flips. Ten of those 16 are among the 54, two of them the analysis's own judge-flip rows
+(`6e984301`, `9ee3ecd6`). So the lever's measurable effect is about +5/−2 on the rows it moves,
+and the arm's +7 net is that plus the instrument's draw; the adoption rule was met by a margin
+the instrument alone can produce, which is why the language rule stands: "the n=500 reading of
+configuration L1: 429, b=15, c=8 against the published 422" — never a significant gain
+(p = 0.21), never a replication.
+
+**Predictions.** P4's first half holds (429 < 441, inside 427–434); P1–P3 were read at their
+gates and at arm 2; P5 is not separable on this pairing (judge vs reader flips need a replay) —
+the measurable count is 16 flips on unmoved retrieval, 10 among the 54, above the 2–5 predicted
+for the judge alone.
+
+**One harness change, made for this pairing and disclosed (v2.9.0).** `python -m evals.stats`
+refused the pre-registered pair: its parity guard listed `artifact_schema` (/10 → /11, the two
+Phase 6 pins) and `harness_git_sha` (`f07c24d` → `f0a7de3`) among the fields that must match,
+so D8's pairing against the *published* artifact — chosen to save a $4.3 baseline re-run — could
+not have been produced by the tool of record at any Phase 6 commit (every earlier phase paired
+arms of one sitting at one commit, and no one checked). `evals.drift` already treats exactly
+these two as *reported, not refused* ("a schema bump that only adds a pin, and the harness
+commit"); `evals.stats` now does the same — `REPORTED_NOT_REFUSED`, `parity_notes`, a
+`harness_notes` block in every `analyses/` record and a printed `NOTE` — and every other parity
+field (reader, judge, prompt, renderer, dataset, sampling) still refuses, with a test that a
+reported field never masks a refused one. Tests 482 → 485; CI reproduced in the uv 3.12 `[dev]`
+venv. The scratch reader (`read_arm.py`, b/c from the two `results.json` files directly) agrees:
+b=15, c=8. The two Phase 5 pairs saved on 2026-09-22 are unaffected (one commit, one schema:
+`harness_notes` empty).
+
+**Disclosed with every arm:** reader and judge are one snapshot (`gpt-4o-2024-08-06`), the
+paper's own pairing. A same-model leniency cancels in every paired row and shifts absolute scores
+by an unsigned amount on top of the 6/100 flip rate; the maintainer chose to disclose and keep it
+(2026-09-23) and may revisit a second-judge replay later. Arm 2 (L3, `--render-unit turns`)
+launches at the v2.9.0 commit.

@@ -109,6 +109,33 @@ HARNESS_PARITY_FIELDS = (
     "reader_transport",
 )
 
+#: Parity fields that may differ across a pair and are REPORTED in the analysis
+#: record rather than refused — the same two ``evals.drift`` reports
+#: (``REPORTED_NOT_REFUSED`` there): a schema bump that only adds a pin, and
+#: the harness commit. Phase 6 (2026-09-24, v2.9.0): D8 pairs every arm against
+#: the *published* ``mnimi__500q_gpt4o`` (schema /10 at ``f07c24d``) from arms at
+#: schema /11 and later commits; every other parity field — reader, judge,
+#: prompt, renderer, dataset, sampling — is equal on both sides and still
+#: refuses when it is not. A pairing across a harness commit says so in its
+#: record (``harness_notes``) instead of pretending the commits matched.
+REPORTED_NOT_REFUSED = frozenset({"artifact_schema", "harness_git_sha"})
+
+
+def parity_notes(identities: dict[str, dict]) -> dict:
+    """The reported-not-refused fields that differ across the arms, by field.
+
+    ``{}`` when the arms share a commit and a schema; otherwise
+    ``{field: {arm: value}}`` for every field of :data:`REPORTED_NOT_REFUSED`
+    that is not identical on every side — so the analysis record says which
+    commits and schemas it spans.
+    """
+    notes: dict = {}
+    for field in sorted(REPORTED_NOT_REFUSED):
+        values = {name: identity.get(field) for name, identity in sorted(identities.items())}
+        if len(set(values.values())) > 1:
+            notes[field] = values
+    return notes
+
 
 def harness_identity(payload: dict) -> dict:
     """The parity-checked slice of one run's ``results.json`` payload.
@@ -136,6 +163,8 @@ def assert_harness_parity(identities: dict[str, dict]) -> None:
     reference = identities[reference_name]
     for name in rest:
         for field in HARNESS_PARITY_FIELDS:
+            if field in REPORTED_NOT_REFUSED:
+                continue
             ours, theirs = reference.get(field), identities[name].get(field)
             if ours != theirs:
                 raise ValueError(
@@ -348,21 +377,32 @@ def pair_record(
     wins = sorted(q for q in second if second[q] and not first[q])
     losses = sorted(q for q in second if first[q] and not second[q])
 
-    def pins_hash_of(directory: Path) -> str | None:
+    def side_of(directory: Path) -> dict:
         path = directory / "results.json"
         if not path.exists():
             path = directory / "pins.json"
         if not path.exists():
-            return None
+            return {"pins_hash": None, "harness_git_sha": None, "artifact_schema": None}
         payload = json.loads(path.read_text(encoding="utf-8"))
-        return payload.get("pins_hash")
+        pins = payload.get("pins") or {}
+        return {
+            "pins_hash": payload.get("pins_hash"),
+            "harness_git_sha": pins.get("harness_git_sha"),
+            "artifact_schema": pins.get("artifact_schema"),
+        }
 
+    first_side, second_side = side_of(first_dir), side_of(second_dir)
     return {
         "analysis_schema": "mnimi-paired-analysis/1",
-        "first": {"run_id": first_dir.name, "pins_hash": pins_hash_of(first_dir),
+        "first": {"run_id": first_dir.name, **first_side,
                   "correct": sum(first.values()), "n": len(first)},
-        "second": {"run_id": second_dir.name, "pins_hash": pins_hash_of(second_dir),
+        "second": {"run_id": second_dir.name, **second_side,
                    "correct": sum(second.values()), "n": len(second)},
+        "harness_notes": {
+            field: {"first": first_side[field], "second": second_side[field]}
+            for field in sorted(REPORTED_NOT_REFUSED)
+            if first_side[field] != second_side[field]
+        },
         "b_second_wins": b,
         "c_first_wins": c,
         "discordant": n and (b + c),
@@ -398,9 +438,11 @@ def analyse(
     refuses outright. ``main`` always passes it — the identity-free form
     exists for synthetic verdict dicts in tests, not for artifacts.
     """
+    report: dict = {"arms": {}, "primary": None, "secondary": {}, "variants": {},
+                    "harness_notes": {}}
     if identities is not None:
         assert_harness_parity({name: identities[name] for name in arms})
-    report: dict = {"arms": {}, "primary": None, "secondary": {}, "variants": {}}
+        report["harness_notes"] = parity_notes({name: identities[name] for name in arms})
     for name, verdicts in sorted(arms.items()):
         report["arms"][name] = wilson(sum(verdicts.values()), len(verdicts), alpha)
 
@@ -458,6 +500,9 @@ def _format(report: dict) -> str:
     lines = ["accuracy (Wilson 95% CI)", "------------------------"]
     for name, ci in report["arms"].items():
         lines.append(f"  {name:<20} {ci.as_percent():<26} ({ci.successes}/{ci.n})")
+    for field, values in (report.get("harness_notes") or {}).items():
+        spelled = ", ".join(f"{name}: {value}" for name, value in values.items())
+        lines.append(f"  NOTE {field} differs across the arms (reported, not refused): {spelled}")
 
     if report.get("variants"):
         title = "variant pair (pre-registered, uncorrected; b = the variant's wins)"
