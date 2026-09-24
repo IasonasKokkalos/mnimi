@@ -385,8 +385,23 @@ def test_promotion_refuses_incomplete_and_copies_complete_runs(wired, tmp_path, 
         publish.promote(run_dir, published, name="again")
 
 
-def test_backfill_recovers_what_the_artifacts_hold_and_writes_unknown_elsewhere(tmp_path):
+def test_backfill_recovers_what_the_artifacts_hold_and_writes_unknown_elsewhere(
+    tmp_path, monkeypatch
+):
     from evals import backfill
+
+    # The version OF THE RUN comes from `git show <commit>:pyproject.toml`. A shallow CI
+    # checkout (actions/checkout, depth 1) and a fork cannot resolve an old commit, so the
+    # lookup is answered here instead of by this repository's history: the test is about
+    # what backfill does with the answer, not about whether f07c24d is reachable.
+    real_git = artifacts._git
+
+    def fake_git(*args):
+        if args[:1] == ("show",) and args[1].endswith(":pyproject.toml"):
+            return "[project]\nname = \"mnimi\"\nversion = \"1.11.0\"\n"
+        return real_git(*args)
+
+    monkeypatch.setattr(artifacts, "_git", fake_git)
 
     run_dir = tmp_path / "old_run"
     run_dir.mkdir()
