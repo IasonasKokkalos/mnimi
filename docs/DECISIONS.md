@@ -3617,3 +3617,62 @@ v2.10.0 commit; remaining $41.78 is above the $4.5 stop. The language rule stand
 reading of configuration L3: 424, b=22, c=20 against the published 422" — a swap of 20 rows for
 22, not a lift, adopted by the smallest margin the rule admits and inside the family's 6/100
 band; the criterion is read on arm 3.
+
+
+## Gate 6-iv arm 3 read: the headline — L1 + L3 at n=500, 426/500, b=18 c=14 against the published 422; the 85 criterion NOT met; P1–P5 read (2026-09-24)
+
+`runs/mnimi__500q_gpt4o_p6combo` — D8's combination of the two adopted levers, `--time-weight
+0.05 --render-unit turns` with the extractor on (resolver v2 with L1), `--purpose`, `--claim
+none`, `--rule-commit ecd8178`, at `606e110` (v2.10.0) clean, 2026-09-24 13:27 → 19:27 UTC: store
+build 4 h 34 min (`misses: 0`; the slowest of the three on identical work — the machine), 39
+sub-batches, predict exit 0, judge exit 0, manifest `status: complete`, `provisional: []`,
+projection $5.6110 against the $6.0229 precedent (−6.8 %), actual $4.0110 (reader $3.6060, judge
+$0.4050). The three arms cost **$12.2303** against the phase's $13 cap; ledger $46.08 spent /
+$37.77 remaining. Promoted to `results/published/mnimi__500q_gpt4o_p6combo/`. Fed tokens 4,946
+mean (−10 % on the published arm).
+
+**The headline: 426/500 = 85.2 %, Wilson [81.8, 88.0]; paired against the published 422 by
+`python -m evals.stats`: b=18, c=14, discordant 32, p = 0.60 — adopted by the rule (b ≥ c).**
+**The 85 criterion is NOT MET:** 441 was needed, the lower bound is 81.8; the point estimate sits
+above 85.0, which the criterion does not read (PLAN §4.4 chose the bound on 2026-09-11 and it is
+not reopened here). Descriptive pairs, not pre-registered: against arm 1 (L1 alone, 429) the
+combination reads **b=14, c=17** — three below, inside the band; against arm 2 (424) b=14, c=12;
+against `oracle` b=16, c=49; against `naive_rag` b=74, c=21 (Phase 5's primary was b=75, c=26 on
+the published arm). By category, published → headline: single-session-user 68 → 67, -assistant
+55 → 56, -preference 23 → 21, knowledge-update 70 → 72, temporal-reasoning 111 → 109,
+multi-session 95 → 101. The two levers' effects are visible and partly cancel: L3's
+multi-session gain (+7 alone, +6 combined) survives, L1's temporal-reasoning gain (+2 alone)
+does not outweigh L3's cost there (−5 alone, −2 combined).
+
+**The 54, on the headline and across the three arms.** On arm 3: 14 recovered (11 of the 25
+reading misses, 1 of the 19 partial — `gpt4_5438fa52`, the only partial row any arm reached — and
+2 of the 10 none), 40 still wrong, 14 newly wrong; four of the 24 unreachable rows right. Across
+arms 1–3: **26 of the 54 are right in at least one arm, 7 in all three, 28 in none** — and the 28
+are 18 partial, 5 none and 5 reading, 17 of them multi-session and 10 temporal-reasoning. That is
+the residue every lever of this phase leaves: multi-evidence questions whose second or third
+round sits at ranks 11–50 (or was never extracted), which neither a date window nor a rendering
+change can reach. Three published-right rows are wrong in every arm (`07741c45`, `0bc8ad93`,
+`15745da0`); ten rows flip against the published arm in all three — the instrument's own
+signature. The headroom after the phase is **74 wrong, oracle right on 49 of them** (78 / 54
+before).
+
+**Predictions (D10), all five read here, none held in full, none changes a rule.** P1 (6-i
+completes ≥ 5, loses ≤ 2): 4 and 1 — no, by one. P2 (6-ii ALL@10 ≥ 430, ≤ 5 lost): 414, 29 — no.
+P3 (L3 recovers ≥ 8 of 25, loses ≤ 6, nets ≥ +2): 18, **20**, +2 — no, on the middle clause. P4 (no
+arm ≥ 441; headline 427–434): 429 / 424 / 426, headline 426 — first clause yes, second no, by one.
+P5 (the judge flips 2–5 of the 54 on every arm): not separable from the reader's own text
+nondeterminism without a second-judge replay; the measurable count — verdict flips on rows whose
+top-10 did not move — is 16 / 42 / 27 per arm (10 / 20 / 11 among the 54), above the prediction
+and a fair description of the instrument's floor at n=500.
+
+**What the phase's numbers can claim.** Three arms read 429 / 424 / 426 against the published
+422 with p = 0.21 / 0.88 / 0.60: each adopted by the pre-registered rule, none significant, each
+inside the family's ± 6/100 band. The one retrieval-level effect that is separable from the
+instrument is the time term's own 5 wins / 2 losses on rows whose top-10 it reordered (arm 1) and
+4 / 1 on the headline; the one presentation-level effect that is separable is the header's:
+10 of 11 header-implicated rows right without it, eight temporal rows lost with it gone. The
+levers are adopted because the rule says b ≥ c adopts; the language rule says what that is
+worth. Arm 1 alone reading three above the headline is a descriptive fact inside the band, not a
+reason to overturn D8's pre-registered choice of the combination as the headline. Language:
+"the n=500 reading of configuration L1 + L3: 426, b=18, c=14 against the published 422; the 85
+criterion not met" — never a replication, never "+4 points".
