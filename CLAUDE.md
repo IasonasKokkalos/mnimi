@@ -136,6 +136,39 @@ resolution. Both roles are in extraction scope.
   it at **−6 points** (81 vs 87, b=2, c=8) — SPEC's required decay-on/off ablation,
   reported as the negative result it is. `recall()` returns `list[ScoredRecord]`;
   `recall_min_relevance` ships at 0.0 (off by definition) and is never set in a run.
+- **Phase 6 — the reachable 54 (built 2026-09-22/24; `mnimi docs/PHASE6.md` D1–D11,
+  gates 6-i…6-iv; closed at v2.12.0).** Three levers against the 54 questions oracle answers
+  and the published `mnimi__500q_gpt4o` (422) does not, each pre-registered, each $0 at the
+  probe, each an n=500 arm paired against the *published* artifact and adopted iff b ≥ c.
+  **L1, the time-aware term (adopted):** the question date reaches mnimi as the documented,
+  stripped query prefix `"[Current date: <ts>]\n<question>"` (D2 — the question's `ts` is
+  logical time too; the bare question is what gets embedded), `mnimi/temporal.py` parses the
+  question's own relative-date expression under a frozen, hashed grammar (`temporal_rules_hash`,
+  a harness pin; ±3-day slack) and SPEC's score gains `time_weight · time_match`;
+  `MemoryConfig.time_weight` is its **own field** (not a `salience_weights` key — disclosed),
+  0.05 fixed before the probe and **the default since v2.12.0**; `resolver_version = "v2"` rides
+  with it (D4: future-marked mentions resolve forward, `last weekend`; a v1.12 store is refused).
+  Gate 6-i PASS (identity 448/448 on the unparsed rows, 4 of 29 completed); arm 1 **429 vs 422,
+  b=15, c=8**. **L2, the cross-encoder rerank (built, off):** `ranking="rerank"`,
+  `cross-encoder/ms-marco-MiniLM-L-6-v2` @ `233902d2…`, `rerank_pool=50`, admitted by the
+  maintainer's ruling as a pair classifier; gate 6-ii **FAIL** (ANY@10 455, ALL@10 414 vs the
+  bar 459 / 430, 29 rows lose evidence — a reorder that swaps 18 completions for 19 losses); no
+  arm. **L3, `render_unit="turns"` with the extractor on (adopted, the default since v2.12.0):**
+  facts stored and retrieved, none rendered; arm 2 **424 vs 422, b=22, c=20** — 10 of the 11
+  header-implicated reading misses right without the header, temporal-reasoning −5 (D6's L3′,
+  a `round+dated-facts` unit, is filed). **The headline, L1 + L3: 426/500 (85.2 %), Wilson
+  [81.8, 88.0], b=18, c=14 against the published 422** (p = 0.60; descriptively three below L1
+  alone, b=14, c=17). **The 85 criterion is NOT met** (441; lower bound 81.8). Of the 54, 26 are
+  right in some arm, 7 in all, **28 in none** (18 partial-retrieval rows — the multi-evidence
+  residue); headroom after: 74 wrong, oracle right on 49. None of P1–P5 held in full; no rule
+  moved. Three arms $12.23 of the $13 cap; all `provisional: []`, manifests complete, paired by
+  `evals.stats` (which since v2.9.0 *reports* a schema or commit difference instead of refusing
+  it, as `evals.drift` does); `--verify-drift` cannot be used against the published arm (the
+  pins differ in `resolver_version`). **Reader and judge are one snapshot** — the paper's own
+  pairing, disclosed: a constant leniency cancels in every paired row and shifts absolute
+  scores by an unsigned amount on top of the 6/100 flip rate; the maintainer chose to disclose
+  and keep it (2026-09-23). Language: every arm is "the n=500 reading of configuration X,
+  b=… c=… against the published 422", never a replication, never a significant gain.
 - **Benchmark = LongMemEval** (`longmemeval_s`, ~500 questions). The harness in
   `evals/` is the source of truth.
 - **Baselines — five systems, roles marked.** `no_memory` (the floor);
@@ -274,7 +307,11 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   Phase 4 (2026-09-18, `378a19c`): the three-arm ablation at `25cde7f` —
   `mnimi__100q_gpt4o_p4base` 86 (the v1.10 read path), `…_p4rank` **87** (SPEC's read
   path, adopted), `…_p4decay` 81 (with decay, not adopted); A→B b=2 c=1, B→C b=2 c=8
-  (decay X=−6), `provisional: []` throughout.**
+  (decay X=−6), `provisional: []` throughout. **Phase 6 (2026-09-24, `32d5dcd`): the three
+  n=500 arms paired against the published `mnimi__500q_gpt4o` — `mnimi__500q_gpt4o_p6time`
+  (L1) 429, `…_p6turns` (L3) 424, `…_p6combo` (L1 + L3, the headline) **426**; b/c 15/8, 22/20,
+  18/14; `provisional: []` and `status: complete` throughout, at `f0a7de3` / `3845c4e` /
+  `606e110` clean, each promoted by `python -m evals.publish`, each pair under `analyses/`.**
 - **`question` + `answer` stay inline in `predictions.jsonl`.** That is the only
   reason Tier 1 exists; removing them to denormalize deletes the audit path.
 - **A run that cannot be projected cannot spend.** On the API family the
@@ -385,7 +422,14 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   headline run: X = −6.2, p = 2 × 10⁻⁴. Criterion (a) is met — SPEC-complete modulo
   two disclosed render deviations — so the programme's done-condition is satisfied on
   (a) and not on (b). The remaining headroom is 54 questions oracle answers and mnimi
-  does not, 27 of them multi-session (DECISIONS "Gate 5-iv read", "Phase 5 closes").**
+  does not, 27 of them multi-session (DECISIONS "Gate 5-iv read", "Phase 5 closes").
+  Phase 6 closed 2026-09-24 for $12.23 (v2.12.0): three levers at the 54, two adopted by the
+  pre-registered rule (L1 the time-aware term, L3 the `turns` unit; L2 the reranker failed its
+  probe), the headline L1 + L3 reads **426/500 (85.2 %), b=18, c=14 against the published 422**
+  — inside the instrument's band, not significant, and **the 85 criterion is still NOT met**
+  (lower bound 81.8). 28 of the 54 are wrong in every arm; the extractor is the measured
+  bottleneck and its LoRA/prompt trigger is met with the dev-corpus condition (D9); what
+  follows is in DECISIONS "Phase 6 closes".**
 
 ## Scope rule
 
@@ -465,9 +509,22 @@ python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only off --ranking similarity --consolidate off --run-dir runs/mnimi__100q_gpt4o_p4base --verify-drift results/published/mnimi__100q_gpt4o_extract
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only on --ranking score --consolidate off --run-dir runs/mnimi__100q_gpt4o_p4rank
 python -m evals --system mnimi --limit 100 --stage predict --reader-transport openai --batch --extractor qwen3 --render-unit round+facts --active-only on --ranking score --consolidate on --run-dir runs/mnimi__100q_gpt4o_p4decay
+# Phase 6 (PHASE6, 2026-09-22/24; probes $0, arms ≈ $4.3 each). Gate 6-i (L1 at the probe) and the two-process rerank stability pair:
+PYTHONPATH="src;." python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 500 --time-weight 0.05 --out runs/probe_mnimi_p6t.json
+PYTHONPATH="src;." python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 100 --ranking rerank --out runs/probe_mnimi_p6r_stab_a.json   # then _b in a fresh process, then identity
+# gate 6-ii (L2 at the probe, FAIL) and 6-iii (render_unit moves nothing the probe measures — the probe has no --render-unit flag):
+PYTHONPATH="src;." python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 500 --ranking rerank --out runs/probe_mnimi_p6r.json
+PYTHONPATH="src;." python -m evals.probes.identity runs/probe_mnimi_p5c500.json runs/probe_mnimi_p6r.json
+# gate 6-iv: three n=500 arms, one in flight at a time, each paired against the PUBLISHED arm (no --verify-drift: the pins differ in resolver_version):
+PYTHONPATH="src;." python -m evals --system mnimi --limit 500 --stage predict --reader-transport openai --batch --extractor qwen3 --active-only on --ranking score --consolidate off --render-unit round+facts --time-weight 0.05 --purpose "..." --claim none --rule-commit ecd8178 --run-dir runs/mnimi__500q_gpt4o_p6time
+PYTHONPATH="src;." python -m evals --system mnimi --limit 500 --stage predict --reader-transport openai --batch --extractor qwen3 --active-only on --ranking score --consolidate off --render-unit turns                    --purpose "..." --claim none --rule-commit ecd8178 --run-dir runs/mnimi__500q_gpt4o_p6turns
+PYTHONPATH="src;." python -m evals --system mnimi --limit 500 --stage predict --reader-transport openai --batch --extractor qwen3 --active-only on --ranking score --consolidate off --render-unit turns --time-weight 0.05 --purpose "..." --claim none --rule-commit ecd8178 --run-dir runs/mnimi__500q_gpt4o_p6combo
+PYTHONPATH="src;." python -m evals --stage judge --run-dir runs/mnimi__500q_gpt4o_p6combo --purpose "..." --claim none --rule-commit ecd8178
+PYTHONPATH="src;." python -m evals.stats results/published/mnimi__500q_gpt4o results/published/mnimi__500q_gpt4o_p6combo   # the pair of record; schema and commit are REPORTED, not refused (v2.9.0)
+PYTHONPATH="src;." python -m evals.publish runs/mnimi__500q_gpt4o_p6combo
 ```
 
-## Current state vs SPEC (as of v1.12.0, 2026-09-22; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency — SPEC-complete modulo two disclosed render deviations; the n=500 verdict read: 84.4 %, criterion not met, primary significant)
+## Current state vs SPEC (as of v2.12.0, 2026-09-24; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, Phase 6's time-aware term, resolver v2 and the `turns` unit — SPEC-complete modulo three disclosed render deviations; the n=500 headline: 426/500 = 85.2 % on L1 + L3, b=18 c=14 against the published 422, the 85 criterion not met; the primary against naive_rag significant since Phase 5)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -597,20 +654,43 @@ ACTUAL" says why.
   thread raised `ProgrammingError`, so the flag and the lock are one change. L17's third log
   format went from `log.debug("kept: ...")` to `routed to conflict: {reason} on {pair}` at
   INFO. Tests 392 → 407.
+- **Phase 6 (2026-09-22/24; `mnimi docs/PHASE6.md`, results in `PHASE6-RESULTS.md`, report in
+  `PHASE6-REPORT.md`, the analysis in `PHASE6-ANALYSIS.md`).** `src/mnimi/temporal.py`
+  (`parse_window`, `split_query`, `dated_query`, the frozen `TEMPORAL_RULES` +
+  `temporal_rules_hash`), `MemoryConfig.time_weight` (default **0.05** since v2.12.0) and the
+  term in `ranking.combined_score` / `rank_rounds`; `Memory._query_embedding` strips the prefix,
+  `_window` parses it, `_rank_query` is the one entry for `recall` and the probe;
+  `mnimi/extract/resolver.py` v2 (`RESOLVER_VERSION = "v2"`, `FUTURE_MARKERS` / `PAST_MARKERS`,
+  `last weekend`); `src/mnimi/rerank.py` (`CrossEncoderReranker` behind `[embed]`,
+  `OverlapReranker` for CI, `ranking="rerank"`, `rerank_pool`); `MemoryConfig.render_unit`
+  default **`"turns"`** since v2.12.0; `MemorySystem.set_question_date` / `MnimiSystem.query_for`;
+  pins schema /11 (`time_weight`, `temporal_rules_hash`, `reranker_model`, `reranker_revision`,
+  `rerank_pool`); `evals.knobs` `--time-weight`, `--rerank-pool`, `--ranking rerank`; the probe's
+  `parsed_window` / `time_matches_top10`; `evals.stats` `REPORTED_NOT_REFUSED` / `parity_notes` /
+  `harness_notes`. `MemoryConfig` is eighteen fields. Tests 409 → 485. Gates: 6-i PASS, 6-ii
+  FAIL, 6-iii PASS (by the allowed shortcut — the probe has no `--render-unit` flag), 6-iv three
+  arms 429 / 424 / 426 against 422, all adopted by the rule, the criterion not met.
 
 **Still absent:**
 
 - `context_token_budget` and `raw` in the rendered block — **decided, not pending** (PHASE5
   D3/D4, 2026-09-18): SPEC's budget of 2000 would cut ~60 % of the measured context (the
-  adopted arm feeds 5,302 reader prompt tokens) and `raw` duplicates a span the adopted
-  `round+facts` block already renders verbatim. Both moved to `docs/FUTURE.md` with triggers,
-  so criterion (a) is "SPEC-complete **modulo two disclosed render deviations**", never bare.
+  headline arm feeds 4,946 reader prompt tokens) and `raw` duplicates a span the rendered
+  turns already carry verbatim. Both moved to `docs/FUTURE.md` with triggers, so criterion (a)
+  is "SPEC-complete **modulo three disclosed render deviations**" since Phase 6, never bare.
 - Decay in the *harness*: `consolidate()` is live and wired behind
   `--consolidate`, but `MNIMI_DEFAULT_CONSOLIDATE = False` — gate 4-iii read decay
   at −6 points, so no benchmark arm calls it unless asked. The library pass itself is
   built and tested.
-- A recency weight > 0 and `recall_min_relevance` > 0: both ship at SPEC's defaults
-  (0.0), neither has ever been run — FUTURE.md items with triggers.
+- A recency weight > 0: **superseded** (Phase 6 D3) — it is decay's mechanism at read time
+  (−6.2 at n=500) and the time-aware term took the slot; it stays at 0.0 with no trigger left.
+  `recall_min_relevance` > 0 ships at SPEC's default (0.0) and has never been run — a FUTURE.md
+  item with a trigger.
+- The third render deviation (Phase 6 D11, since `render_unit="turns"` is the default): the
+  rendered block carries the round's verbatim turns and its date and **no facts** — facts are
+  retrieval units, not reader-facing lines. With `context_token_budget` and `raw`, "SPEC-complete
+  modulo **three** disclosed render deviations". D6's L3′ (`round+dated-facts`) is the one
+  follow-up, filed with its trigger fired (temporal-reasoning −5 under `turns`).
 - `source` holds the round's roles (`"user+assistant"`), not the spec'd
   `conversation_id/turn_id/role` provenance pointer (deferred to Phase E).
 

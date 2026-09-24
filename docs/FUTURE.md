@@ -55,6 +55,22 @@ Legend:
   shows retrieval-*ordering* failures (not recall failures). **Not indicated
   2026-09-13:** every reading miss on the gpt-4o family already has its
   evidence inside the top-10 (Phase 1 error analysis).
+  **Trigger met 2026-09-22** (PHASE6-ANALYSIS §4: 37 of the 44 evidence rounds
+  outside the top-10 sit inside the top-50 — an ordering problem inside the
+  candidate pool), the reranker admitted by the maintainer's ruling (Phase 6
+  D5) as a pair classifier, not a generator, and **built and CLOSED 2026-09-24
+  (gate 6-ii)**: `ranking="rerank"` (`mnimi/rerank.py`,
+  `cross-encoder/ms-marco-MiniLM-L-6-v2` @ `233902d2…`, fp32 ONNX on the
+  `[embed]` runtime, `rerank_pool=50`, byte-stable 100/100 across two fresh
+  processes) measured at the n=500 probe **ANY@10 455 vs 459, ALL@10 414 vs
+  415, 29 rows losing an evidence round from the top-10** against a bar of
+  459 / 430 / ≤ 5. It reorders the same top-50: 18 rows completed, 19 stopped
+  being complete; it lifts the head of the list (ALL@5 378 vs 358) and
+  multi-session (99 vs 94) and costs temporal-reasoning (105 vs 107). No arm.
+  The switch stays built, pinned and off. Re-open only with a different
+  question — a reranked pool feeding a larger `k`, or a pair model trained on
+  this shape of question — never as a re-read of this one.
+  `docs/DECISIONS.md` "Gate 6-ii read".
 
 * **Time-aware query expansion.** +6.8–11.3% temporal-reasoning recall in the
   paper (Table 4) — but only with a strong LLM extracting time ranges; weak
@@ -63,6 +79,20 @@ Legend:
   Unvalidated, lines 943-948]** · **[trigger]** W3 shows TR *retrieval* (not
   reading) is the bottleneck — and even then, try a deterministic date-range
   parser first.
+  **Trigger met 2026-09-22 and answered with the deterministic parser (Phase 6
+  L1, adopted 2026-09-24):** six temporal rows had nothing in the top-10 while
+  the extracted evidence fact was dated and the question's own relative-date
+  expression landed on it (PHASE6-ANALYSIS §5). `mnimi/temporal.py` — a frozen,
+  hashed grammar (`temporal_rules_hash`, a harness pin), ±3-day slack, no
+  model — plus the question date as a documented, stripped query prefix
+  (D2: `"[Current date: <ts>]\n<question>"`, the bare question is what gets
+  embedded) and one additive term `time_weight · time_match` in SPEC's score
+  (D3, `time_weight = 0.05`, fixed before the probe). Gate 6-i PASS (identity
+  448/448 on the unparsed rows, 4 of 29 addressable rows completed, 1 lost);
+  arm 1 at n=500 read 429 against the published 422, b=15, c=8 — adopted by
+  the rule, inside the instrument's band. The LLM-extracted-range variant the
+  paper measured remains prohibited (an LLM on the read path).
+  `docs/DECISIONS.md` "Gate 6-i read", "Gate 6-iv arm 1 read".
 
 * **Recency weight > 0 in ranking.** `salience_weights` defaults to
   `{similarity: 1.0, recency: 0.0}` because the paper's winning config ranks
@@ -70,6 +100,12 @@ Legend:
   old evidence (information-extraction questions). **[SPEC-deferred: §Deferred
   / Unvalidated, lines 949-950; config at §MemoryConfig, lines 265-269]** ·
   **[trigger]** W3 tuning evidence only.
+  **Superseded 2026-09-22 (Phase 6 D3):** the recency weight is decay's
+  mechanism at read time — session age against `now_logical` — and decay
+  measured −6.2 points at n=500 (p = 2 × 10⁻⁴). The time-aware term uses the
+  question's *own* window instead and took the slot; `recency` stays at 0.0
+  with no trigger left. Any future positive value would have to be argued
+  against the n=500 decay ablation, not against the n=100 note above.
 
 * **`recall_min_relevance` > 0.** The read-side relevance floor ships at 0.0
   (off) because BGE absolute similarity values are unreliable and retrieval
@@ -96,6 +132,19 @@ lines 394-415]**
   runtime dependency. **[SPEC-deferred: §Deferred / Unvalidated, lines 937-942;
   risk stated at §Stage 2, lines 444-449]** · **[trigger]** W3 error analysis
   shows extraction (not retrieval or reading) is the bottleneck.
+  **Trigger MET 2026-09-22** (PHASE6-ANALYSIS §4, on the full benchmark): 12 of
+  the 44 evidence rounds outside mnimi's top-10 were never extracted — the
+  user's "by the way" aside behind a long, list-like assistant reply, or `[]`
+  — and 6 of the 25 reading misses trace to lossy or incomplete headers; the
+  largest single bucket in the reachable 54. **Condition before anything is
+  built (Phase 6 D9):** n=500 is the whole dataset, so Phase 2's `--dev-set`
+  rounds now sit inside the benchmark and a `qwen3-fact-v5` prompt or a LoRA
+  developed on them is contamination. A clean development corpus has to come
+  from outside LongMemEval, and choosing it is a decision, not a task. Cost
+  once chosen: a new `extractor_prompt_hash`, a full corpus pass (≈ 80 h of
+  GPU at the measured 2.3 s/round), a re-ingest of everything. Filed as the
+  first item of what follows Phase 6; the ceiling on it is the only one above
+  +19 (`docs/DECISIONS.md` "Phase 6 pre-registration" D9, "Phase 6 closes").
 
 * **Deterministic (spaCy / rule) extraction fallback.** An alternative to the
   pinned local LLM for the extraction stage. **[SPEC-deferred: §Extraction →

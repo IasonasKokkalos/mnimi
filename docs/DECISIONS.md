@@ -3676,3 +3676,100 @@ worth. Arm 1 alone reading three above the headline is a descriptive fact inside
 reason to overturn D8's pre-registered choice of the combination as the headline. Language:
 "the n=500 reading of configuration L1 + L3: 426, b=18, c=14 against the published 422; the 85
 criterion not met" — never a replication, never "+4 points".
+
+
+## Phase 6 closes: the deviations in one place, and what the phase leaves behind (2026-09-24, v2.12.0)
+
+**What was pre-registered, and what happened.** Three levers at the 54 questions oracle answers
+and `mnimi__500q_gpt4o` (422) does not, each gated at a $0 probe and, if it passed, measured as
+one n=500 arm paired against the published artifact, adopted iff b ≥ c (D1–D11, gate table,
+P1–P5; `ecd8178`). Gate 6-i PASS (L1), 6-ii FAIL (L2), 6-iii PASS (L3), 6-iv three arms: L1 429
+(b=15, c=8), L3 424 (b=22, c=20), L1 + L3 — the headline — **426/500 = 85.2 %, Wilson
+[81.8, 88.0], b=18, c=14 against 422, p = 0.60**. Both levers adopted by the rule; **the 85
+criterion NOT met** (441; lower bound 81.8); no prediction held in full; $12.23 of the $13 cap;
+every arm `provisional: []`, manifest complete, promoted, paired under `analyses/`. Criterion (a)
+stands as "SPEC-complete modulo **three** disclosed render deviations" (D11: `turns` adopted, so
+the rendered block no longer carries facts). Reader and judge are one snapshot (disclosed and
+kept, 2026-09-23). Language for every number: "the n=500 reading of configuration X, b=… c=…
+against the published 422" — never a replication, never a significant gain.
+
+**Every deviation from the pre-registration, in one place.**
+
+1. **`time_weight` is its own `MemoryConfig` field and pin, not a third `salience_weights` key**
+   (D3 said the key). A third key would have moved the shared `salience_weights` pin of every
+   earlier artifact and refused every drift pair on a value that had not moved (Task 3).
+2. **The resolver fix rides with L1**, so arm 1 measured the term and the corrected dates
+   together (D4 disclosed this in advance; ≤ 2 of the 54 attributed to the dates alone). Read
+   against gate 6-i's probe, the rows the term reordered account for 5 wins / 2 losses; the rest
+   sits on unmoved retrieval and belongs to the instrument and, at most, the dates.
+3. **A grammar correction before freezing** (Task 3): "the past <unit>" is "past 1 <unit>" (the
+   span ending at the anchor), while "last/previous month|year" is the previous calendar unit.
+   Recorded in the rules text; the hash was taken after it.
+4. **The budget top-up** (2026-09-22): `API_BUDGET_USD` 50 → 83.85 (the $33.85 spent plus $50);
+   the ledger was never reset; the phase's own $13 cap stood and held ($12.23).
+5. **Versioning**: the 2.x series with one minor bump per commit (v2.0.0 → v2.12.0) supersedes
+   D11's "closes at v1.13.0"; SPEC and CLAUDE.md headers moved only here, at close.
+6. **`--verify-drift` was not run on any arm.** The harness refuses a drift pair whose shared
+   pins differ, every Phase 6 arm differs from the published arm in `resolver_version`, and a
+   refused check returns exit code 2 after the reader has run — an aborted run. The family's
+   Tier 2 statement stays the 2026-09-12 reading (PHASE6.md Task 8 execution note).
+7. **`evals.stats` was changed for the pairing (v2.9.0).** Its parity guard refused
+   `artifact_schema` (/10 vs /11) and `harness_git_sha` differences, so D8's pairing against the
+   published artifact could not have been produced by the tool of record at any Phase 6 commit.
+   The two fields are now *reported* (`harness_notes` in every analysis record, a printed
+   `NOTE`), exactly as `evals.drift` always treated them; every other parity field still
+   refuses. Three tests; CI reproduced; the scratch reader agreed on every arm.
+8. **Gate 6-iii by the allowed shortcut**, and necessarily: the retrieval probe has no
+   `--render-unit` flag, so the pre-registered 500-question identity run could not be run as
+   written. The code argument plus the 20-question check (ids identical 20/20, the `turns`
+   context a strict subsequence of `round+facts` on 20/20, pins differing in the unit only).
+9. **Every Phase 6 arm's pins differ from the published arm's in more than the lever**:
+   `resolver_version` v2 and the two /11 additions. Gate 6-i's identity half (448/448) and
+   Task 3's identity test are the evidence that neither moves a row on its own.
+10. **Reader = judge**, the paper's own pairing, disclosed on every arm and in the READMEs; the
+    maintainer will re-evaluate a second-judge replay another day (project memory).
+11. **The headline is not the best arm.** L1 alone read 429, the combination 426 (b=14, c=17,
+    descriptive, inside the band). D8 chose the combination as the headline before any arm ran
+    and the adoption rule is per lever; the library defaults follow the adoptions
+    (`time_weight=0.05`, `render_unit="turns"`), and this entry says the maintainer may prefer
+    L1 alone — a one-pin choice with no re-run needed, since both artifacts are published.
+12. **The library defaults flipped at close** (v2.12.0): `MemoryConfig.time_weight` 0.0 → 0.05
+    and `render_unit` `"round+facts"` → `"turns"`; the published `mnimi__500q_gpt4o`
+    configuration is reproduced with `--time-weight 0.0 --render-unit round+facts`. Five tests
+    that pinned the old defaults now pin the new ones and name the old configuration.
+13. **P5 is not readable as written**: judge flips and the reader's text nondeterminism are not
+    separable on a single pairing. The measurable quantity — verdict flips on rows whose top-10
+    did not move — is 16 / 42 / 27 per arm (10 / 20 / 11 among the 54), above the prediction.
+14. **D6's L3′ trigger fired** (temporal-reasoning −5 under `turns`) and is filed, not built.
+15. **The 6-ii preview did not carry**: Task 4's n=100 rerank preview (+2 on 95 rows, extrapolated
+    +10) read −1 on 470. Recorded as a reason the gate was the n=500 probe.
+
+**What the phase settled.** (i) The question date is logical time and reaches the memory layer
+as a documented prefix; a deterministic date window is worth about +5/−2 on the rows it moves
+and nothing elsewhere. (ii) The `facts:` header both helps and hurts the reader: it caused 10 of
+11 rows the analysis attributed to it, and its dated lines carry part of temporal-reasoning's
+lead — a `round+dated-facts` unit (L3′) is the one follow-up worth a reading. (iii) A
+cross-encoder over the top-50 reorders without adding: it is not a lever for ALL@10 at k=10.
+(iv) The reachable set after three levers is 28 rows deep in multi-evidence retrieval
+(18 partial), which no read-side switch and no rendering reaches — extraction coverage (12 of
+44 missing evidence rounds never extracted) and multi-hop completeness are the levers left.
+(v) The instrument's floor at n=500 is ≈ 15–40 discordant rows between two runs of one
+configuration; a lever has to move more than that to be seen, and none of these did.
+
+**What follows (filed, not scheduled).** The extractor: a `qwen3-fact-v5` prompt or a LoRA
+developed on a corpus *outside* LongMemEval (D9's condition), ≈ 80 h of GPU for the corpus pass,
+a re-ingest — the one lever whose ceiling is above +19. L3′ (`round+dated-facts`). A
+second-judge replay of the discordant rows (the maintainer's call). L4 (bge-base) and L5 (k=20)
+remain fallbacks with their probes unrun. The programme's done-condition is satisfied on (a) and
+not on (b), as it was at v1.12.0; the point estimate now sits at 85.2 on the headline and 85.8
+on L1 alone, and the criterion reads the lower bound.
+
+**Where everything lives.** `results/published/mnimi__500q_gpt4o_p6{time,turns,combo}/`;
+`analyses/mnimi__500q_gpt4o__vs__mnimi__500q_gpt4o_p6{time,turns,combo}.json`; `runs/INDEX.md`
+and the three manifests; `runs/probe_mnimi_p6{t,r}.json`, `runs/probe_mnimi_p6r_stab_{a,b}.json`,
+`runs/gate_6{i,ii,iii}_read.json` (gitignored scratch); `mnimi docs/PHASE6.md` (the plan with
+every execution note), `PHASE6-RESULTS.md` (every number with its command and sha),
+`PHASE6-REPORT.md` (the paste-able state), `PHASE6-ANALYSIS.md`; commits `ecd8178` pre-registration ·
+`acb19d1` / `4f806f3` the run-documentation rule · `64d97b5` resolver v2 · `9133004` the time
+term · `d219326` the reranker · `61ac2ea` gate 6-i · `9c46157` gate 6-ii · `f0a7de3` gate 6-iii ·
+`3845c4e` arm 1 · `606e110` arm 2 · `32d5dcd` arm 3 · the v2.12.0 close.

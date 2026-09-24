@@ -222,6 +222,32 @@ multi-session, where the retriever shows the reader part of a multi-hop question
 closes"); every number is auditable with `python -m evals --stage judge --predictions <file>`
 over `results/published/*__500q_gpt4o*`.
 
+**Phase 6 — the reachable 54 (2026-09-22 → 24, gpt-4o family, all 500 questions).** Three
+levers at the 54 questions oracle answers and the published arm does not, each pre-registered
+before any probe ran, each measured at a $0 retrieval probe first and then, if it passed, as one
+n=500 arm paired against the *published* `mnimi__500q_gpt4o` (422) and adopted iff b ≥ c. The
+three arms cost $12.23; `provisional: []` and a complete manifest on every one.
+
+| lever | probe (gate) | arm | score | b / c vs the published 422 | verdict |
+| --- | --- | --- | ---: | :---: | --- |
+| L1 the time-aware term (`time_weight=0.05`, the question date as a stripped query prefix, resolver v2) | 6-i PASS: identity 448/448 on the unparsed rows, 4 of 29 addressable rows completed | `mnimi__500q_gpt4o_p6time` | 429 (85.8 %) | 15 / 8 | adopted (default since v2.12.0) |
+| L2 the cross-encoder rerank over the top-50 (`ranking=rerank`, MiniLM-L-6-v2) | 6-ii **FAIL**: ANY@10 455, ALL@10 414 vs 459 / 430; 29 rows lose evidence | — | — | — | built, off |
+| L3 `render_unit=turns` with the extractor on (facts retrieved, not rendered) | 6-iii PASS (retrieval identical by construction) | `mnimi__500q_gpt4o_p6turns` | 424 (84.8 %) | 22 / 20 | adopted (default since v2.12.0) |
+| **L1 + L3 — the headline** | — | `mnimi__500q_gpt4o_p6combo` | **426 (85.2 %)**, Wilson [81.8, 88.0] | **18 / 14**, p = 0.60 | adopted; **the 85 criterion NOT met** |
+
+Each arm is "the n=500 reading of configuration X, b=… c=… against the published 422" — none
+significant, all inside the family's ± 6/100 flip band, and the n=100 slices nest so none is a
+replication. The time term's own retrieval effect is separable (5 wins / 2 losses on the rows it
+reordered); the header's is too (10 of the 11 rows the analysis blamed on the `facts:` header are
+right without it, and eight temporal-reasoning rows are lost with it gone: multi-session +6,
+temporal-reasoning −2 on the headline). Of the 54, 26 are right in some arm, 7 in all, **28 in
+none** — 18 of them multi-evidence questions whose second round sits outside the top-10, the
+residue this phase's levers do not reach; the headroom after the phase is 74 wrong with oracle
+right on 49. Reader and judge are one `gpt-4o-2024-08-06` snapshot (the paper's own pairing),
+disclosed: a same-model leniency cancels in every paired row and shifts absolute scores by an
+unsigned amount. Rulings in `docs/DECISIONS.md` ("Phase 6 pre-registration" through "Phase 6
+closes").
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked

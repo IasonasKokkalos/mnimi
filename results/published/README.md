@@ -405,6 +405,56 @@ reproducible within 6/100 flips; text not reproducible", and the judge flips bor
 at roughly that rate, so no absolute difference smaller than a few points is interpretable on
 its own; the paired rows are unaffected.
 
+### Phase 6: the reachable 54 — three mnimi arms, all 500 questions, each paired against the published arm (2026-09-24)
+
+The pre-registered gate 6-iv of `docs/DECISIONS.md` "Phase 6 pre-registration" (2026-09-22);
+read in "Gate 6-iv arm 1 read", "… arm 2 read", "… arm 3 read" (2026-09-24). Every value is copied
+from the artifacts or printed by `python -m evals.stats` over these directories (the pairs are
+saved under `analyses/`).
+
+**Provenance:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-24, one arm in flight at a time, never chained: `p6time` 02:13–07:08, `p6turns` 08:05–13:17, `p6combo` 13:27–19:27 UTC; each arm launched only after the previous one was judged, paired and committed |
+| harness commits | `f0a7de3` (v2.8.0) / `3845c4e` (v2.9.0) / `606e110` (v2.10.0), **clean tree** on every run (one commit per arm: each arm's read and promotion is the next arm's commit); `feature/phase6` |
+| artifact schema | `mnimi-eval-artifact/11` (adds `time_weight`, `temporal_rules_hash`, `reranker_model`, `reranker_revision`, `rerank_pool` to /10) |
+| `provisional` / manifest | `[]` on every directory; `manifest.json` `status: complete`, `missing_fields: []`, `purpose` set, `claim none`, `rule_commit ecd8178` (the pre-registration commit) |
+| reader / judge | `openai` — `gpt-4o-2024-08-06` for both, temperature 0, `seed=0`, `max_tokens=800`, `num_ctx=128000`; judge `longmemeval-paper-v3`, `max_tokens=10` — **one snapshot reads and grades** (the paper's pairing), disclosed |
+| how it was served | Batch API under the 90,000 enqueued-token cap: 42 / 38 / 39 sub-batches, every chunk `completed`, 0 fallbacks |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` (text) |
+| retrieval (all three) | `BAAI/bge-small-en-v1.5` @ `5c38ec7c…`, 384-dim, `k=10`, `dedup_cosine_threshold=0.95`, `dedup_scope=session`, the BGE query instruction; `--extractor qwen3 --active-only on --ranking score --consolidate off`; the extraction cache `e15153f838b8…` at 95,846 rows, `misses: 0` on every store; `resolver_version v2` |
+| the levers | `p6time`: `--render-unit round+facts --time-weight 0.05`; `p6turns`: `--render-unit turns` (`time_weight 0.0`); `p6combo`: `--render-unit turns --time-weight 0.05`; `temporal_rules_hash 7803a1a3…`, `render_unit_template_hash` `2aab8f27…` (round+facts) / `266002498…` (turns) |
+| pairing | `python -m evals.stats results/published/mnimi__500q_gpt4o results/published/<arm>` — the schema (/10 vs /11) and the commit are **reported, not refused** since v2.9.0 (as `evals.drift` always did); every other parity field is equal; `--verify-drift` is not run (the shared pin `resolver_version` differs) |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=500 |
+| run environment | system Python 3.14, NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2, llama-cpp-python 0.3.35 (the extractor loads, the cache answers) |
+| dollars | $12.23 for the three arms (readers 3.95 / 3.60 / 3.61; judges 0.27 / 0.40 / 0.41); programme $46.08 of $83.85 |
+
+| run | configuration | score | 95% CI | mean fed tokens | b / c vs `mnimi__500q_gpt4o` (422) | p | quotable? |
+| --- | --- | --- | --- | --- | :---: | ---: | --- |
+| `mnimi__500q_gpt4o_p6time` | L1: the time-aware term + resolver v2 | 429/500 (85.8%) | [82.5, 88.6] | 5,498 | 15 / 8 | 0.21 | yes |
+| `mnimi__500q_gpt4o_p6turns` | L3: `turns` with the extractor on | 424/500 (84.8%) | [81.4, 87.7] | 4,948 | 22 / 20 | 0.88 | yes |
+| **`mnimi__500q_gpt4o_p6combo`** | **L1 + L3 — the headline** | **426/500 (85.2%)** | **[81.8, 88.0]** | 4,946 | **18 / 14** | 0.60 | yes |
+
+| category | n | published | `p6time` | `p6turns` | **`p6combo`** | oracle |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| single-session-user | 70 | 68 | 66 | 67 | 67 | 67 |
+| single-session-assistant | 56 | 55 | 56 | 56 | 56 | 56 |
+| single-session-preference | 30 | 23 | 25 | 21 | 21 | 22 |
+| knowledge-update | 78 | 70 | 71 | 72 | 72 | 73 |
+| temporal-reasoning | 133 | 111 | 113 | 106 | 109 | 121 |
+| multi-session | 133 | 95 | 98 | 102 | 101 | 120 |
+
+**Reading.** Every lever was adopted by its pre-registered rule (b ≥ c against the published
+arm), and none is significant; three arms at 429 / 424 / 426 against 422 are all inside the
+family's ± 6/100 flip band. The headline is D8's combination; L1 alone reads three above it on a
+descriptive pair (b=14, c=17). **The 85 criterion (Wilson lower bound ≥ 85.0, i.e. 441/500) is
+NOT met** on the headline. Of the 54 reachable misses, 28 are wrong in all three arms. Language:
+"the n=500 reading of configuration L1 + L3: 426, b=18, c=14 against the published 422" — never a
+replication, never "+4 points". The gpt-4o family's Tier 2 is "score reproducible within 6/100
+flips; text not reproducible", and the judge is the reader's own snapshot (see the provenance
+row), so no absolute difference of a few points is interpretable on its own; the paired rows are.
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |

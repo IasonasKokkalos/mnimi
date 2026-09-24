@@ -440,10 +440,13 @@ def test_get_context_reads_render_format_from_config(tmp_path):
     assert blocks[0]["session_date"] == "2023/05/20 (Sat) 02:21"
     assert [t["role"] for t in blocks[0]["turns"]] == ["user", "assistant"]
 
-    # The default unit since v1.9.0 (round+facts) frames each round as an item that
-    # carries its facts (none without an extractor) and its turns.
+    # The round+facts unit (the default from v1.9.0 to v2.11.0; turns since v2.12.0,
+    # gate 6-iv arm 2) frames each round as an item that carries its facts (none
+    # without an extractor) and its turns.
+    assert MemoryConfig().render_unit == "turns"
     by_default = Memory(
-        str(tmp_path / "d.db"), HashingEmbedder(), MemoryConfig(render_format="json")
+        str(tmp_path / "d.db"), HashingEmbedder(),
+        MemoryConfig(render_format="json", render_unit="round+facts"),
     )
     by_default.add(messages, user_id="u")
     items = json.loads(by_default.get_context("cook", "u"))[0]["items"]
@@ -869,7 +872,9 @@ def test_negation_across_sessions_supersedes_and_the_round_is_untouched(tmp_path
 
 
 def test_read_path_is_untouched_a_superseded_fact_still_renders(tmp_path):
-    m = _scripted_memory(tmp_path / "r.db", _VALUE_SCRIPT, active_only=False)
+    # The round+facts unit renders the header this test reads (the default is turns since v2.12.0).
+    m = _scripted_memory(tmp_path / "r.db", _VALUE_SCRIPT, active_only=False,
+                         render_unit="round+facts")
     _two_sessions(m, list(_VALUE_SCRIPT))
     context = m.get_context("where does the user live", "u")
     assert "The user lives in Boston." in context and "The user lives in Seattle." in context
@@ -1110,7 +1115,7 @@ def test_config_has_the_retriever_extras_and_validates_them(tmp_path):
 def test_active_only_hides_a_superseded_fact_from_ranking_and_rendering(tmp_path):
     for ranking in ("similarity", "score"):
         m = _scripted_memory(tmp_path / f"a-{ranking}.db", _VALUE_SCRIPT, active_only=True,
-                             ranking=ranking)
+                             ranking=ranking, render_unit="round+facts")
         _two_sessions(m, list(_VALUE_SCRIPT))
         hits = m.recall("Boston", "u")
         assert all(hit.record.salience > 0 for hit in hits), ranking

@@ -82,7 +82,8 @@ def add_read_path_flags(parser: argparse.ArgumentParser) -> None:
         help="mnimi only, read under --ranking score: the weight of the time-aware term "
         "(MemoryConfig.time_weight, PHASE6 D3) on records whose date falls in the window "
         "the question's own relative-date expression names. Pinned (schema /11). "
-        "Default: the library's 0.0 (off); the pre-registered arm sets 0.05.",
+        "Default: the library's 0.05 (adopted at gate 6-iv arm 1, 2026-09-24); 0.0 is the "
+        "published mnimi__500q_gpt4o configuration and switches the term off.",
     )
     parser.add_argument(
         "--consolidate", default=None, choices=_ON_OFF,

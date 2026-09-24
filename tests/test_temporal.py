@@ -138,7 +138,8 @@ def _fill(memory):
 
 
 def test_time_weight_zero_is_the_previous_ranking_and_the_vector_never_moves(tmp_path):
-    m = Memory(str(tmp_path / "a.db"), HashingEmbedder(), MemoryConfig())
+    # 0.0 is the published arm's configuration; the library default is 0.05 since v2.12.0.
+    m = Memory(str(tmp_path / "a.db"), HashingEmbedder(), MemoryConfig(time_weight=0.0))
     _fill(m)
     bare = "What kitchen appliance did I buy 10 days ago?"
     dated = dated_query("2023/03/25 (Sat) 18:26", bare)
@@ -195,8 +196,10 @@ def test_the_harness_hands_mnimi_the_dated_query_and_pins_the_term():
     assert system.query_for("q?") == "[Current date: 2023/03/25 (Sat) 18:26]\nq?"
     pins = system.retrieval_pins()
     assert pins["time_weight"] == 0.05 and pins["temporal_rules_hash"] == temporal_rules_hash()
-    off = MnimiSystem(embedder=HashingEmbedder()).retrieval_pins()
-    assert off["time_weight"] == 0.0
+    off = MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(time_weight=0.0))
+    assert off.retrieval_pins()["time_weight"] == 0.0
+    # The library default since v2.12.0 (gate 6-iv arm 1): the adopted 0.05.
+    assert MnimiSystem(embedder=HashingEmbedder()).retrieval_pins()["time_weight"] == 0.05
 
 
 def test_the_probe_ranks_the_dated_query():
@@ -220,7 +223,9 @@ def test_the_probe_ranks_the_dated_query():
     row = probe_question(system, q)
     assert row.parsed_window == ["2023-03-12", "2023-03-18", "day", "10 days ago"]
     assert row.time_matches_top10 == 1, "the smoker round's session date is in the window"
-    off = probe_question(MnimiSystem(embedder=HashingEmbedder()), q)
+    off = probe_question(
+        MnimiSystem(embedder=HashingEmbedder(), config=MemoryConfig(time_weight=0.0)), q
+    )
     assert off.parsed_window is None and off.time_matches_top10 == 0
     # The term can only lift the dated evidence round (the hashing embedder's
     # cosines are coarse, so equality is allowed; the real embedder is the probe's job).

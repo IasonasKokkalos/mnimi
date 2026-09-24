@@ -1346,8 +1346,9 @@ def test_build_system_hands_extractor_and_render_unit_to_mnimi(monkeypatch):
     assert captured["extractor"].pins["extractor_model"] == "fake-rule"
     assert captured["cache"] == "c.sqlite"
     build_system("mnimi", extractor="none")
-    # No --render-unit: the library default (round+facts since v1.9.0), not a harness copy.
-    assert captured["extractor"] is None and captured["config"].render_unit == "round+facts"
+    # No --render-unit: the library default (turns since v2.12.0, gate 6-iv arm 2), not a
+    # harness copy.
+    assert captured["extractor"] is None and captured["config"].render_unit == "turns"
 
 
 def test_mnimi_extracts_by_default_and_only_mnimi():

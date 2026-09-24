@@ -109,17 +109,20 @@ class MemoryConfig:
     (``Memory(..., reranker=)``) and pinned by name and revision. A harness
     flag (``--rerank-pool``) and a pin."""
 
-    time_weight: float = 0.0
+    time_weight: float = 0.05
     """The weight of the time-aware term in SPEC's score (PHASE6 D3):
     ``(w_sim * relevance + w_rec * recency + time_weight * time_match) * salience``,
     where ``time_match`` is 1 when the record's effective time (``valid_time``,
     else its session date) falls inside the window the query's own relative-date
     expression names, anchored on the question date the query carries as a
-    documented prefix (``mnimi.temporal``, D2). ``0.0`` (the default) is the
-    v2.3 ranking byte for byte. The pre-registered arm sets **0.05**, fixed
-    before any probe from a design-time reading of the rank-10/rank-20 cosine
-    gap; never swept. A harness flag (``--time-weight``) and a pin, beside
-    ``temporal_rules_hash``. Must be finite and >= 0."""
+    documented prefix (``mnimi.temporal``, D2). ``0.0`` is the v2.3 ranking
+    byte for byte (the published ``mnimi__500q_gpt4o`` configuration). The
+    default is **0.05** since v2.12.0 — fixed before any probe from a
+    design-time reading of the rank-10/rank-20 cosine gap, never swept, and
+    adopted at gate 6-iv arm 1 (2026-09-24: 429 vs the published 422, b=15,
+    c=8; DECISIONS "Gate 6-iv arm 1 read"). Without a dated query the term is
+    inert whatever the weight. A harness flag (``--time-weight``) and a pin,
+    beside ``temporal_rules_hash``. Must be finite and >= 0."""
 
     dedup_scope: str = "session"
     """Where the cosine dedup screen looks for a duplicate.
@@ -165,14 +168,20 @@ class MemoryConfig:
     """Tokens shared by consecutive windows when ``chunk_tokens`` > 0. In
     ``memory_meta`` and the pins beside ``chunk_tokens``."""
 
-    render_unit: str = "round+facts"
+    render_unit: str = "turns"
     """What ``get_context`` shows a retrieved round as (PHASE2 D5).
 
-    ``"round+facts"`` (default since v1.9.0 — gate 4-iii, 2026-09-15: 84 vs
-    80 over ``turns`` in one sitting, b=7, c=3): the round's verbatim turns
-    under a ``facts:`` header listing its extracted facts with their
-    resolved dates. ``"turns"``: the turns alone — v1's unit, and what every
-    other arm renders. ``"facts"``: the round's facts alone
+    ``"turns"`` (the default since v2.12.0 — gate 6-iv arm 2, 2026-09-24:
+    424 vs the published 422 at n=500, b=22, c=20, adopted by the
+    pre-registered rule; PHASE6 D6): the round's verbatim turns alone — v1's
+    unit, and what every other arm renders; with an extractor the facts are
+    still stored and retrieved, just not rendered. ``"round+facts"`` (the
+    default from v1.9.0 to v2.11.0 — gate 4-iii, 2026-09-15: 84 vs 80 over
+    ``turns`` at n=100, b=7, c=3; the published ``mnimi__500q_gpt4o``
+    configuration): the turns under a ``facts:`` header listing the round's
+    extracted facts with their resolved dates — 10 of the 11 rows the Phase 6
+    analysis blamed on that header were right without it, and the dated lines
+    cost temporal-reasoning (111 → 106 at n=500). ``"facts"``: the round's facts alone
     (``fact:`` / ``source:`` lines; a round with no facts falls back to its
     turns) — the one pre-registered alternative, measured worse (78 vs 84,
     b=2, c=8: it drops the verbatim turns single-session questions need). A

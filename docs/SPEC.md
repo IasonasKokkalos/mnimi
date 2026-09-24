@@ -185,7 +185,7 @@ score.
 
 ---
 
-## v1 as built (v1.12.0, 2026-09-22; library: the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, and Phase 5's `export()` and concurrency — all five locked methods exist; SPEC-complete modulo two disclosed render deviations, `context_token_budget` and `raw`; the 85 criterion read at n=500 and not met: mnimi 84.4 %, the primary against naive_rag significant at p = 1.1 × 10⁻⁶)
+## v1 as built (v2.12.0, 2026-09-24; library: the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, and Phase 6's time-aware term, resolver v2 and the `turns` unit — all five locked methods exist; SPEC-complete modulo three disclosed render deviations, `context_token_budget`, `raw` and the facts-free block; the 85 criterion read at n=500 twice and not met: the published arm 84.4 %, the Phase 6 headline L1 + L3 85.2 % (426/500, b=18, c=14 against 422, p = 0.60, Wilson lower bound 81.8); the primary against naive_rag significant since Phase 5 at p = 1.1 × 10⁻⁶)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the
@@ -197,7 +197,7 @@ wires against this section, not against the target sections.**
 |---|---|---|
 | `add` / `recall` / `get_context` / `consolidate` | shipped — `consolidate(user_id)` runs the Phase 3 conflict pass and then **Phase 4's decay pass** (2026-09-17): every active record's salience is rewritten from its `initial_salience` and `last_accessed` against `now_logical`, so both passes are pure functions of stored fields (twice = once). `recall()` returns `list[ScoredRecord]`. The eval harness calls `consolidate()` only when an arm is built with `consolidate=True` (`--consolidate`, default **off** since gate 4-iii read decay at −6 points) | `memory.py` |
 | `export` | **built** (Phase 5, 2026-09-18): `export(user_id) -> str`, the fifth and last locked method. A read-only, deterministic dump — no embedder, no model, no query, no clock (the header's "now" is `now_logical`). Records group by session oldest-first; each round renders through the ONE shared renderer (a test compares the bytes against `render_records`, so the dump can never become a second format) and its facts follow as indented lines carrying `salience`, `initial_salience` when it differs, `valid_time`, `pair_key` and `supersedes`. A superseded fact is shown and **marked**, never dropped — a dump whose omissions are invisible is not an audit trail. `MemoryConfig.render_format` is deliberately not consulted: one format, because this library has one renderer. No module under `evals/systems/` may import it (an import-graph test), which is what makes it unable to move a benchmark number | `export.py`, `memory.py` |
-| `MemoryConfig` | **16 fields** — three of the spec'd nine plus seven the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). **Phase 3 (v1.10.0):** `dedup_entropy_gate=2.0` (this document's field at its default, untuned — it gates the cosine merge of FACT pairs after the two screens abstain) and `conflict_resolution=True` (D11, unforeseen: the one switch for the screens, the gate and supersession; `False` is the v1.9 write path byte for byte). **Phase 4 (v1.11.0):** `decay_half_life_days=30.0` and `decay_floor=0.15` (SPEC's values, validated in `Memory()`, never tuned), `ranking="score"` (adopted at gate 4-iii: 87 vs 86, b=2, c=1; `"similarity"` is the v1.10 read path), `active_only=True` (adopted at gate 4-ii: 0 evidence rounds left the top-10), `salience_weights={similarity 1.0, recency 0.0}` (SPEC's) and `recall_min_relevance=0.0` (off by definition, never set in a run). Every one is a harness flag and a pin (schema /10). A field no code reads is not present | `config.py` |
+| `MemoryConfig` | **16 fields** — three of the spec'd nine plus seven the list did not foresee: `dedup_cosine_threshold=0.95`, `top_k=10`, `dedup_scope="session"`, `query_instruction=BGE_QUERY_INSTRUCTION`, `chunk_tokens=0` / `chunk_overlap=64`, `render_format="text"`, `render_unit="round+facts"` (PHASE2 D5, adopted at gate 4-iii 2026-09-15: 84 vs 80 over `turns`, b=7, c=3; `turns` is v1's unit, `facts` alone measured 78). **Phase 3 (v1.10.0):** `dedup_entropy_gate=2.0` (this document's field at its default, untuned — it gates the cosine merge of FACT pairs after the two screens abstain) and `conflict_resolution=True` (D11, unforeseen: the one switch for the screens, the gate and supersession; `False` is the v1.9 write path byte for byte). **Phase 4 (v1.11.0):** `decay_half_life_days=30.0` and `decay_floor=0.15` (SPEC's values, validated in `Memory()`, never tuned), `ranking="score"` (adopted at gate 4-iii: 87 vs 86, b=2, c=1; `"similarity"` is the v1.10 read path), `active_only=True` (adopted at gate 4-ii: 0 evidence rounds left the top-10), `salience_weights={similarity 1.0, recency 0.0}` (SPEC's) and `recall_min_relevance=0.0` (off by definition, never set in a run). **Phase 6 (v2.4.0 → v2.12.0):** `time_weight` (**0.05** since v2.12.0 — its own field, not a `salience_weights` key, disclosed; 0.0 is the published arm's ranking byte for byte; adopted at gate 6-iv arm 1, 429 vs 422, b=15, c=8) and `rerank_pool=50` (read only under `ranking="rerank"`, measured at gate 6-ii and not adopted); `render_unit` default **`"turns"`** since v2.12.0 (gate 6-iv arm 2, 424 vs 422, b=22, c=20 — facts stored and retrieved, not rendered; `"round+facts"` is the published configuration). **Eighteen fields.** Every one is a harness flag and a pin (schema /11). A field no code reads is not present | `config.py` |
 | `MemoryRecord` | `id, user_id, content, embedding, turns, created_at, salience, source, supersedes, round_key` **plus the extraction era's** `kind` (`"round"` / `"fact"`), `fact`, `raw`, `subject`, `predicate`, `object`, `valid_time`, `time_mention`, **plus Phase 3's** `pair_key` (the normalized `subject|predicate` of a fact's triple, indexed on `(user_id, pair_key)`; `None` for rounds and null triples). **plus Phase 4's** `last_accessed` (`TEXT NOT NULL`, `created_at` at insert, `now_logical` on every record `recall()` returns) and `initial_salience` (`REAL NOT NULL`, the value the record was inserted with, never updated — decay recomputes `salience` from it). `created_at` carries `ts` and plays the `system_time` role; `Store.insert` refuses a salience outside [0, 1]. `content` is the EMBED text for both kinds (a fact's is `raw` + newline + `fact`), and `fact` holds what this document calls a fact's `content` | `models.py` |
 | `ScoredRecord` | **built** (Phase 4, 2026-09-17): a frozen dataclass `record, relevance, recency, salience, score` exported from `mnimi`; `recall()` returns `list[ScoredRecord]` in score order, `record` being the round's representative. `get_context` unwraps `.record` and renders exactly as before (the render tests pin the bytes) | `models.py`, `memory.py` |
 | `memory_meta` guard | **17 rows, all written and validated** (extraction era 2026-09-13: fifteen — the "thirteen" quoted at v1.9 was a miscount of the list that follows; Phase 3 2026-09-15: the sixteenth): the four v1 rows; `chunk_tokens` / `chunk_overlap` (R4); the five extractor rows (`extractor_model`, `extractor_quant`, `extractor_runtime`, `extractor_decode_hash`, `extractor_prompt_hash` — the literal `"none"` when a store is built without an extractor); `negation_lexicon_hash` (**live since Phase 3**: `330604b5772e…`, over the contractions, markers and antonym groups of `mnimi.conflict.lexicon`); `conflict_rules_hash` (Phase 3: `7d19c48828c8…`, over the normalization tables, the functional groups, `MAX_VALUE_TOKENS`, the rule ids and the ordering); `prefilter_lexicon_hash`; `fact_embed_template_hash`; `resolver_version`; and Phase 4's `decay_rules_hash` (`d4a0bcf07330…`, over the nine frozen lines of `mnimi.decay.DECAY_RULES` — `now_logical`, `logical_days`, the insert defaults and range, the `recall` write-back, the decay formula and the exclusivity of salience 0). Any mismatch raises `MemoryMetaError` at open; a v1.8, v1.9 or v1.10 store lacks rows and is refused, a no-extractor store opened with an extractor is refused, and vice versa | `store.py` |
@@ -489,6 +489,16 @@ undated or the span is negative. It is recomputed at every `consolidate()` and e
 `datetime.now`, `date.today`, `time.time` and `utcnow`; there are none anywhere in
 `src/mnimi/`.
 
+**v1 as built (Phase 6, 2026-09-22 — the D2 addendum, accepted by the maintainer):** the
+question message's `ts` is logical time too. It reaches `recall` / `get_context` inside the
+query string, as the one documented query-side convention `"[Current date: <ts>]\n<question>"`
+(`mnimi.temporal.dated_query` builds it, `split_query` strips it); the **bare question** is
+what gets embedded — a test asserts the vector is byte-identical, and gate 6-i showed 448/448
+rows without a parsed window identical on every compared field — and the date anchors the
+time-aware term of §Ranking. Without the prefix the term is inert. `now_logical` is unchanged
+and is never the question date (on this benchmark the two differ by a median of 3.5 days on
+temporal-reasoning, p90 33.5). The locked `recall(query, user_id)` signature did not move.
+
 ## Extraction (locked)
 
 Write-path step 1. Turns a raw message stream into fact candidates that enter
@@ -640,7 +650,14 @@ literal string and hashed. Schema (`mnimi.extract.schema.FACT_SCHEMA`):
 `content, raw, when, subject, predicate, object, salience`, in that order —
 **`when` is a verbatim time mention, not the ISO `valid_time` above** (D8);
 the deterministic resolver produces `valid_time` from `(when, ts)` and drops a
-mention the round does not contain. Grammar: the runtime's JSON-schema → GBNF
+mention the round does not contain — **`resolver_version = "v2"` since Phase 6
+(2026-09-22, D4):** a mention whose text, or whose fact's sentence and raw span,
+carries a future marker (`FUTURE_MARKERS`, frozen) and no past marker resolves an
+undated month/day, month or weekday *forward* to the first occurrence on or after
+the session (v1 dated 48 future-marked facts a year back on the 500 contexts);
+"last weekend" resolves to the Saturday before. `valid_time` is not embedded, so
+no vector moved (gate 6-i, 448/448 identical); a v1.12 store is refused at open by
+the guard row. Grammar: the runtime's JSON-schema → GBNF
 (`maxItems 8`, strings ≤ 300 characters, `salience ∈ {0.25, 0.5, 1.0}`),
 hashed together with the prompt as `extractor_prompt_hash`. Decode: greedy
 (`temperature 0, top_k 1`), `seed 0`, `n_ctx 4096`, `n_batch = n_ubatch = 512`,
@@ -1033,6 +1050,23 @@ between it (`"score"`, the default since v1.11.0 — gate 4-iii: 87 against 86, 
 and v1.10's `Store.search_rounds` (`"similarity"`). The defaults still collapse to plain
 similarity ranking when every salience is 1.0 — now by computing it, and the two paths were
 measured identical on 100 real stores (gate 4-i(b)).
+
+**v1 as built (Phase 6, 2026-09-22/24 — D3):** the score gains one additive component,
+`time_weight · time_match`, where `time_match ∈ {0, 1}` says whether a record's effective time
+(`valid_time` when set, else its session date) falls inside the window the question's own
+relative-date expression names — `mnimi/temporal.py`: a frozen, hashed grammar
+(`N units ago`, `last/past/previous …`, `in <month>`, `yesterday`, `last <weekday>`, …), ±3-day
+slack at day and week precision, the whole month at month precision, none for ranges;
+`TEMPORAL_RULES` and `temporal_rules_hash`, a harness pin (nothing stored changes). The weight is
+**`MemoryConfig.time_weight`**, its own field and pin (default 0.0 = this ranking byte for byte)
+rather than a third `salience_weights` key — a disclosed deviation, so the shared
+`salience_weights` pin of every earlier artifact did not move. Set to **0.05** (fixed before the
+probe from a design-time reading of the rank-10 → rank-20 cosine gap, median 0.030) and adopted
+at gate 6-iv arm 1 (429 vs 422, b=15, c=8). Also built, pinned and **off**: `ranking="rerank"` —
+the score-ranked top-`rerank_pool` (50) reordered by a pinned cross-encoder
+(`mnimi/rerank.py`), measured at gate 6-ii and not adopted (ALL@10 414 vs 415, 29 rows lose
+evidence). No LLM on the read path: the term is a regex and date arithmetic; the reranker is a
+pair classifier admitted by the maintainer's ruling and is not the default.
 
 ### `get_context` (locked format)
 

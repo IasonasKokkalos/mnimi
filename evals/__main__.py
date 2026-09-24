@@ -559,8 +559,10 @@ def _main(argv: list[str] | None = None) -> int:
         default=None,
         choices=["turns", "round+facts", "facts"],
         help="what mnimi shows a retrieved round as (MemoryConfig.render_unit, PHASE2 D5): "
-        "'turns' (v1), 'round+facts' (turns under a facts: header — the extraction era's "
-        "primary), 'facts' (facts only — the one pre-registered alternative). A "
+        "'turns' (v1's unit; the library default again since v2.12.0 — gate 6-iv arm 2, "
+        "facts stored and retrieved, not rendered), 'round+facts' (turns under a facts: "
+        "header — the default from v1.9.0 to v2.11.0 and the published mnimi__500q_gpt4o "
+        "configuration), 'facts' (facts only — the one pre-registered alternative). A "
         "system-level pin (render_unit_template_hash), so the arms still pair. Default: "
         "the library's.",
     )
