@@ -230,10 +230,10 @@ three arms cost $12.23; `provisional: []` and a complete manifest on every one.
 
 | lever | probe (gate) | arm | score | b / c vs the published 422 | verdict |
 | --- | --- | --- | ---: | :---: | --- |
-| L1 the time-aware term (`time_weight=0.05`, the question date as a stripped query prefix, resolver v2) | 6-i PASS: identity 448/448 on the unparsed rows, 4 of 29 addressable rows completed | `mnimi__500q_gpt4o_p6time` | 429 (85.8 %) | 15 / 8 | adopted (default since v2.12.0) |
+| L1 the time-aware term (`time_weight=0.05`, the question date as a stripped query prefix, resolver v2) | 6-i PASS: identity 448/448 on the unparsed rows, 4 of 29 addressable rows completed | `mnimi__500q_gpt4o_p6time` | **429 (85.8 %)** | 15 / 8 | adopted; **the shipped configuration** (the maintainer's choice, 2026-09-25) |
 | L2 the cross-encoder rerank over the top-50 (`ranking=rerank`, MiniLM-L-6-v2) | 6-ii **FAIL**: ANY@10 455, ALL@10 414 vs 459 / 430; 29 rows lose evidence | — | — | — | built, off |
-| L3 `render_unit=turns` with the extractor on (facts retrieved, not rendered) | 6-iii PASS (retrieval identical by construction) | `mnimi__500q_gpt4o_p6turns` | 424 (84.8 %) | 22 / 20 | adopted (default since v2.12.0) |
-| **L1 + L3 — the headline** | — | `mnimi__500q_gpt4o_p6combo` | **426 (85.2 %)**, Wilson [81.8, 88.0] | **18 / 14**, p = 0.60 | adopted; **the 85 criterion NOT met** |
+| L3 `render_unit=turns` with the extractor on (facts retrieved, not rendered) | 6-iii PASS (retrieval identical by construction) | `mnimi__500q_gpt4o_p6turns` | 424 (84.8 %) | 22 / 20 | adopted by the rule; not the shipped default |
+| L1 + L3 — the phase's pre-registered headline | — | `mnimi__500q_gpt4o_p6combo` | 426 (85.2 %), Wilson [81.8, 88.0] | 18 / 14, p = 0.60 | adopted by the rule; **the 85 criterion NOT met** on it, nor on L1 alone (lower bound 82.5) |
 
 Each arm is "the n=500 reading of configuration X, b=… c=… against the published 422" — none
 significant, all inside the family's ± 6/100 flip band, and the n=100 slices nest so none is a
@@ -246,7 +246,8 @@ residue this phase's levers do not reach; the headroom after the phase is 74 wro
 right on 49. Reader and judge are one `gpt-4o-2024-08-06` snapshot (the paper's own pairing),
 disclosed: a same-model leniency cancels in every paired row and shifts absolute scores by an
 unsigned amount. Rulings in `docs/DECISIONS.md` ("Phase 6 pre-registration" through "Phase 6
-closes").
+closes", "The shipped default is L1 alone"). The library defaults since v2.13.0 are L1's: `time_weight=0.05`
+over `round+facts`; `turns` is one flag away.
 
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in

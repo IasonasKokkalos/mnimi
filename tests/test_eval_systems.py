@@ -177,8 +177,9 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
     assert mnimi["embedder_name"] == "hashing"
     # A mnimi arm without an extractor SAYS so — the store's guard rows carry the same value.
     assert mnimi["extractor_model"] == "none" and mnimi["extractor_prompt_hash"] == "none"
-    # The library default since v2.12.0 (gate 6-iv arm 2); the unit is declared even without facts.
-    assert mnimi["render_unit"] == "turns" and len(mnimi["prefilter_lexicon_hash"]) == 64
+    # The library default (round+facts; v2.13.0 chose L1 alone); the unit is declared
+    # even without facts.
+    assert mnimi["render_unit"] == "round+facts" and len(mnimi["prefilter_lexicon_hash"]) == 64
     assert mnimi["resolver_version"] == "v2" and len(mnimi["fact_embed_template_hash"]) == 64
 
 

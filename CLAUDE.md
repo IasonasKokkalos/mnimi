@@ -153,7 +153,8 @@ resolution. Both roles are in extraction scope.
   `cross-encoder/ms-marco-MiniLM-L-6-v2` @ `233902d2…`, `rerank_pool=50`, admitted by the
   maintainer's ruling as a pair classifier; gate 6-ii **FAIL** (ANY@10 455, ALL@10 414 vs the
   bar 459 / 430, 29 rows lose evidence — a reorder that swaps 18 completions for 19 losses); no
-  arm. **L3, `render_unit="turns"` with the extractor on (adopted, the default since v2.12.0):**
+  arm. **L3, `render_unit="turns"` with the extractor on (adopted by the rule; the default for one
+  commit, v2.12.0, then **not** — the maintainer chose L1 alone on 2026-09-25, v2.13.0):**
   facts stored and retrieved, none rendered; arm 2 **424 vs 422, b=22, c=20** — 10 of the 11
   header-implicated reading misses right without the header, temporal-reasoning −5 (D6's L3′,
   a `round+dated-facts` unit, is filed). **The headline, L1 + L3: 426/500 (85.2 %), Wilson
@@ -427,7 +428,8 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   pre-registered rule (L1 the time-aware term, L3 the `turns` unit; L2 the reranker failed its
   probe), the headline L1 + L3 reads **426/500 (85.2 %), b=18, c=14 against the published 422**
   — inside the instrument's band, not significant, and **the 85 criterion is still NOT met**
-  (lower bound 81.8). 28 of the 54 are wrong in every arm; the extractor is the measured
+  (lower bound 81.8); the maintainer then chose L1 alone as the shipped default (429, b=15 c=8;
+  2026-09-25, v2.13.0). 28 of the 54 are wrong in every arm; the extractor is the measured
   bottleneck and its LoRA/prompt trigger is met with the dev-corpus condition (D9); what
   follows is in DECISIONS "Phase 6 closes".**
 
@@ -524,7 +526,7 @@ PYTHONPATH="src;." python -m evals.stats results/published/mnimi__500q_gpt4o res
 PYTHONPATH="src;." python -m evals.publish runs/mnimi__500q_gpt4o_p6combo
 ```
 
-## Current state vs SPEC (as of v2.12.0, 2026-09-24; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, Phase 6's time-aware term, resolver v2 and the `turns` unit — SPEC-complete modulo three disclosed render deviations; the n=500 headline: 426/500 = 85.2 % on L1 + L3, b=18 c=14 against the published 422, the 85 criterion not met; the primary against naive_rag significant since Phase 5)
+## Current state vs SPEC (as of v2.12.0, 2026-09-24; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, Phase 6's time-aware term and resolver v2 — SPEC-complete modulo two disclosed render deviations; the shipped configuration is L1 alone, the maintainer's choice of 2026-09-25: 429/500 = 85.8 %, b=15 c=8 against the published 422; the phase's pre-registered headline L1 + L3 read 426, b=18 c=14; the 85 criterion not met on either; the primary against naive_rag significant since Phase 5)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -663,7 +665,8 @@ ACTUAL" says why.
   `mnimi/extract/resolver.py` v2 (`RESOLVER_VERSION = "v2"`, `FUTURE_MARKERS` / `PAST_MARKERS`,
   `last weekend`); `src/mnimi/rerank.py` (`CrossEncoderReranker` behind `[embed]`,
   `OverlapReranker` for CI, `ranking="rerank"`, `rerank_pool`); `MemoryConfig.render_unit`
-  default **`"turns"`** since v2.12.0; `MemorySystem.set_question_date` / `MnimiSystem.query_for`;
+  stays **`"round+facts"`** (it was `"turns"` for one commit, v2.12.0; L1 alone is the shipped
+  configuration since v2.13.0); `MemorySystem.set_question_date` / `MnimiSystem.query_for`;
   pins schema /11 (`time_weight`, `temporal_rules_hash`, `reranker_model`, `reranker_revision`,
   `rerank_pool`); `evals.knobs` `--time-weight`, `--rerank-pool`, `--ranking rerank`; the probe's
   `parsed_window` / `time_matches_top10`; `evals.stats` `REPORTED_NOT_REFUSED` / `parity_notes` /
@@ -677,7 +680,7 @@ ACTUAL" says why.
   D3/D4, 2026-09-18): SPEC's budget of 2000 would cut ~60 % of the measured context (the
   headline arm feeds 4,946 reader prompt tokens) and `raw` duplicates a span the rendered
   turns already carry verbatim. Both moved to `docs/FUTURE.md` with triggers, so criterion (a)
-  is "SPEC-complete **modulo three disclosed render deviations**" since Phase 6, never bare.
+  is "SPEC-complete **modulo two disclosed render deviations**", never bare.
 - Decay in the *harness*: `consolidate()` is live and wired behind
   `--consolidate`, but `MNIMI_DEFAULT_CONSOLIDATE = False` — gate 4-iii read decay
   at −6 points, so no benchmark arm calls it unless asked. The library pass itself is
@@ -686,11 +689,11 @@ ACTUAL" says why.
   (−6.2 at n=500) and the time-aware term took the slot; it stays at 0.0 with no trigger left.
   `recall_min_relevance` > 0 ships at SPEC's default (0.0) and has never been run — a FUTURE.md
   item with a trigger.
-- The third render deviation (Phase 6 D11, since `render_unit="turns"` is the default): the
-  rendered block carries the round's verbatim turns and its date and **no facts** — facts are
-  retrieval units, not reader-facing lines. With `context_token_budget` and `raw`, "SPEC-complete
-  modulo **three** disclosed render deviations". D6's L3′ (`round+dated-facts`) is the one
-  follow-up, filed with its trigger fired (temporal-reasoning −5 under `turns`).
+- D11's third render deviation (a facts-free block under `render_unit="turns"`) applied for
+  one commit (v2.12.0) and is withdrawn with the maintainer's choice of L1 alone (v2.13.0): the
+  shipped block is `round+facts`, so criterion (a) is back to "SPEC-complete modulo **two**
+  disclosed render deviations". `turns` remains one flag away, measured; D6's L3′
+  (`round+dated-facts`) is the one follow-up, filed with its trigger fired.
 - `source` holds the round's roles (`"user+assistant"`), not the spec'd
   `conversation_id/turn_id/role` provenance pointer (deferred to Phase E).
 

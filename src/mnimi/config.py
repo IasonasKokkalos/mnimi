@@ -168,20 +168,24 @@ class MemoryConfig:
     """Tokens shared by consecutive windows when ``chunk_tokens`` > 0. In
     ``memory_meta`` and the pins beside ``chunk_tokens``."""
 
-    render_unit: str = "turns"
+    render_unit: str = "round+facts"
     """What ``get_context`` shows a retrieved round as (PHASE2 D5).
 
-    ``"turns"`` (the default since v2.12.0 — gate 6-iv arm 2, 2026-09-24:
-    424 vs the published 422 at n=500, b=22, c=20, adopted by the
-    pre-registered rule; PHASE6 D6): the round's verbatim turns alone — v1's
-    unit, and what every other arm renders; with an extractor the facts are
-    still stored and retrieved, just not rendered. ``"round+facts"`` (the
-    default from v1.9.0 to v2.11.0 — gate 4-iii, 2026-09-15: 84 vs 80 over
-    ``turns`` at n=100, b=7, c=3; the published ``mnimi__500q_gpt4o``
-    configuration): the turns under a ``facts:`` header listing the round's
-    extracted facts with their resolved dates — 10 of the 11 rows the Phase 6
-    analysis blamed on that header were right without it, and the dated lines
-    cost temporal-reasoning (111 → 106 at n=500). ``"facts"``: the round's facts alone
+    ``"round+facts"`` (the default since v1.9.0 — gate 4-iii, 2026-09-15: 84
+    vs 80 over ``turns`` at n=100, b=7, c=3 — and again since v2.13.0, the
+    maintainer's choice of 2026-09-25 after Phase 6): the round's verbatim
+    turns under a ``facts:`` header listing its extracted facts with their
+    resolved dates. ``"turns"``: the turns alone — v1's unit, and what every
+    other arm renders; with an extractor the facts are still stored and
+    retrieved, just not rendered. Phase 6 measured it at n=500 (gate 6-iv arm
+    2: 424 vs the published 422, b=22, c=20, adopted by the pre-registered
+    rule; 10 of the 11 rows the analysis blamed on the header were right
+    without it, and the dated lines cost temporal-reasoning 111 → 106) and
+    was the default for one commit (v2.12.0); the shipped configuration is
+    L1 alone — ``time_weight=0.05`` over this unit, the arm that read 429 —
+    by the maintainer's ruling, three above the L1 + L3 headline on a
+    descriptive pair (DECISIONS "The shipped default is L1 alone").
+    ``"facts"``: the round's facts alone
     (``fact:`` / ``source:`` lines; a round with no facts falls back to its
     turns) — the one pre-registered alternative, measured worse (78 vs 84,
     b=2, c=8: it drops the verbatim turns single-session questions need). A

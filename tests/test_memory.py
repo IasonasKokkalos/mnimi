@@ -440,10 +440,10 @@ def test_get_context_reads_render_format_from_config(tmp_path):
     assert blocks[0]["session_date"] == "2023/05/20 (Sat) 02:21"
     assert [t["role"] for t in blocks[0]["turns"]] == ["user", "assistant"]
 
-    # The round+facts unit (the default from v1.9.0 to v2.11.0; turns since v2.12.0,
-    # gate 6-iv arm 2) frames each round as an item that carries its facts (none
+    # The round+facts unit (the default since v1.9.0, and again since v2.13.0 after one
+    # commit of `turns`) frames each round as an item that carries its facts (none
     # without an extractor) and its turns.
-    assert MemoryConfig().render_unit == "turns"
+    assert MemoryConfig().render_unit == "round+facts"
     by_default = Memory(
         str(tmp_path / "d.db"), HashingEmbedder(),
         MemoryConfig(render_format="json", render_unit="round+facts"),

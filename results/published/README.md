@@ -448,8 +448,9 @@ saved under `analyses/`).
 **Reading.** Every lever was adopted by its pre-registered rule (b ≥ c against the published
 arm), and none is significant; three arms at 429 / 424 / 426 against 422 are all inside the
 family's ± 6/100 flip band. The headline is D8's combination; L1 alone reads three above it on a
-descriptive pair (b=14, c=17). **The 85 criterion (Wilson lower bound ≥ 85.0, i.e. 441/500) is
-NOT met** on the headline. Of the 54 reachable misses, 28 are wrong in all three arms. Language:
+descriptive pair (b=14, c=17), and **L1 alone is the shipped configuration** since v2.13.0 (the
+maintainer's choice, 2026-09-25; DECISIONS "The shipped default is L1 alone"). **The 85 criterion
+(Wilson lower bound ≥ 85.0, i.e. 441/500) is NOT met** on the headline (81.8) or on L1 (82.5). Of the 54 reachable misses, 28 are wrong in all three arms. Language:
 "the n=500 reading of configuration L1 + L3: 426, b=18, c=14 against the published 422" — never a
 replication, never "+4 points". The gpt-4o family's Tier 2 is "score reproducible within 6/100
 flips; text not reproducible", and the judge is the reader's own snapshot (see the provenance

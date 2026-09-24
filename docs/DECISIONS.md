@@ -3773,3 +3773,27 @@ every execution note), `PHASE6-RESULTS.md` (every number with its command and sh
 `acb19d1` / `4f806f3` the run-documentation rule · `64d97b5` resolver v2 · `9133004` the time
 term · `d219326` the reranker · `61ac2ea` gate 6-i · `9c46157` gate 6-ii · `f0a7de3` gate 6-iii ·
 `3845c4e` arm 1 · `606e110` arm 2 · `32d5dcd` arm 3 · the v2.12.0 close.
+
+
+## The shipped default is L1 alone: `time_weight=0.05` over `round+facts` (2026-09-25, v2.13.0)
+
+**The ruling (maintainer, 2026-09-25: "indeed L1 as the default").** Phase 6's pre-registered
+headline was D8's combination, and the adoption rule (b ≥ c against the published arm) adopted
+both levers, so v2.12.0 flipped both defaults. On the record the combination read 426 and L1
+alone 429 (b=14, c=17 on a descriptive pair — inside the band), L3's own arm was adopted by two
+rows (b=22, c=20) and cost temporal-reasoning −5 while the header it removes was also the named
+cause of 10 recovered reading misses. The maintainer chooses the shipped configuration to be
+**L1 alone**: `MemoryConfig.time_weight = 0.05` (unchanged from v2.12.0) over
+`render_unit = "round+facts"` (back from `"turns"` after one commit). Nothing is re-run: both
+artifacts are published, and the shipped configuration is exactly `mnimi__500q_gpt4o_p6time`
+(`f0a7de3`, 429/500 = 85.8 %, Wilson [82.5, 88.6], b=15, c=8 against 422, p = 0.21).
+
+**What changes with it.** Criterion (a) returns to "SPEC-complete modulo **two** disclosed render
+deviations" (D11's third, the facts-free block, applied for one commit and is withdrawn); the
+Phase 6 headline stays 426 in every record — this ruling picks the default, it does not rewrite
+the pre-registration, and DECISIONS "Phase 6 closes" item 11 already said the maintainer might.
+`turns` stays built, measured and one flag away (`--render-unit turns`); L3′ keeps its fired
+trigger. Three tests that pinned `"turns"` for one commit pin `"round+facts"` again and say why.
+**The 85 criterion is not met on the shipped configuration either** (441 needed; 429 read; lower
+bound 82.5). Language: "the shipped configuration is L1, the n=500 reading of which is 429,
+b=15, c=8 against the published 422" — never "85.8 beats 84.4".
