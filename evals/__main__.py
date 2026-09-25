@@ -16,6 +16,7 @@ from pathlib import Path
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
 from . import artifacts, knobs, pricing
+from . import audit as audit_mod
 from . import manifest as manifest_mod
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
 
@@ -640,6 +641,11 @@ def _main(argv: list[str] | None = None) -> int:
         "Ollama. Read-only: it writes nothing, so auditing a published artifact "
         "cannot modify it.",
     )
+    parser.add_argument(
+        "--audit-out",
+        default=None,
+        help="with --predictions: write the Tier 1 audit record here (never beside the artifact)",
+    )
     args = parser.parse_args(argv)
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
@@ -749,6 +755,20 @@ def _main(argv: list[str] | None = None) -> int:
         else (Path(args.run_dir) if args.run_dir else artifacts.run_dir(args.system, args.limit))
     )
     directory = Path(args.run_dir) if args.run_dir else source_dir
+    if args.audit_out:
+        audit_path = Path(args.audit_out).resolve()
+        if not auditing:
+            print("ERROR: --audit-out records a Tier 1 audit; it needs --predictions.",
+                  file=sys.stderr)
+            return 2
+        if audit_path.is_relative_to(source_dir.resolve()):
+            print("ERROR: --audit-out must not point inside the audited artifact's directory.",
+                  file=sys.stderr)
+            return 2
+        if audit_path.exists():
+            print(f"ERROR: {audit_path} exists; an audit record is never overwritten.",
+                  file=sys.stderr)
+            return 2
 
     # The run-documentation rule (2026-09-22). A claim needs its committed rule;
     # a dirty tree is said out loud BEFORE anything runs; an existing run
@@ -1153,7 +1173,32 @@ def _main(argv: list[str] | None = None) -> int:
     print_report(args.system or source_dir.name, results)
 
     if auditing:
-        _report_audit(source_dir, results, cache)
+        # An audit writes nothing beside the artifact, but its judge calls are real
+        # spend: one ledger line, stage "audit" (Phase 7 D3).
+        ledger_entry["stage"] = "audit"
+        _record_spend(ledger_entry, budget_usd)
+        record = audit_mod.audit_record(
+            predictions_path=predictions_path,
+            results=results,
+            pins=pins,
+            judge_info=judge_info,
+            cache_hits=cache.hits,
+            cache_misses=cache.misses,
+            published=artifacts.read_published_score(source_dir),
+            cost={
+                "judge_usd": judge_usd_actual,
+                "judge_calls": judge.calls,
+                "judge_prompt_tokens": judge.prompt_tokens,
+                "judge_completion_tokens": judge.completion_tokens,
+            },
+            commit=artifacts.harness_git_sha(),
+            clean_tree=None if porcelain is None else not porcelain,
+            graded_utc=manifest_mod.utc_now(),
+        )
+        _report_audit(source_dir, results, cache, record)
+        if args.audit_out:
+            written = audit_mod.write_record(Path(args.audit_out), record)
+            print(f"wrote {written}", file=sys.stderr)
         return 0
 
     # Run-level stats (kept out of report.py, which is category-table only).
@@ -1738,7 +1783,7 @@ def _batch_item_meta(item) -> dict:
     }
 
 
-def _report_audit(source_dir: Path, results, cache) -> None:
+def _report_audit(source_dir: Path, results, cache, record: dict) -> None:
     """Tier 1 verdict: does re-judging these predictions reproduce the score?
 
     Checks the recomputed score against the ``results.json`` published beside
@@ -1756,23 +1801,40 @@ def _report_audit(source_dir: Path, results, cache) -> None:
         f"\nTier 1 audit - recomputed {correct}/{total} ({correct / total:.1%})",
         file=sys.stderr,
     )
-    if published is None:
+    # The reference is the published score; without a results.json the record
+    # still compares the rows against their committed first verdicts.
+    reference = (
+        f"the published {published[0]}/{published[1]}"
+        if published is not None
+        else f"the committed first verdicts ({record['flips']['compared']} rows)"
+    )
+    verdict = record["verdict"]
+    if verdict == "NO REFERENCE":
         print(
             f"no results.json beside {source_dir} to compare against - "
             "recomputed score printed above, nothing verified.",
             file=sys.stderr,
         )
-    elif published == (correct, total):
+    elif verdict == "MATCHES":
         print(
-            f"MATCHES the published {published[0]}/{published[1]}. The judge "
+            f"MATCHES {reference}. The judge "
             "reproduces the published score from the published predictions.",
             file=sys.stderr,
         )
-    else:
+    elif verdict == "DIVERGES":
         print(
-            f"DIVERGES from the published {published[0]}/{published[1]}. Either "
+            f"DIVERGES from {reference}. Either "
             "the judge moved (model, prompt templates, or their hash) or the "
             "predictions file was edited — both are bugs worth locating.",
+            file=sys.stderr,
+        )
+    else:
+        f = record["flips"]
+        print(
+            f"WITHIN RE-GRADE: {f['count']} of {f['compared']} verdicts changed on "
+            f"{cache.misses} fresh judge calls ({len(f['to_correct'])} to correct, "
+            f"{len(f['to_wrong'])} to wrong). This is the judge's instrument error at "
+            "temperature 0, not a defect; the rows are in the audit record.",
             file=sys.stderr,
         )
     print(

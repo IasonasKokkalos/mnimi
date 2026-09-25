@@ -340,6 +340,59 @@ def test_a_re_grade_is_a_replay_in_its_own_file(wired, tmp_path, capsys):
     assert len(manifest.index_rows(run_dir.parent)) == 1, "one row per run"
 
 
+def test_an_audit_records_its_spend_and_writes_nothing_beside_the_artifact(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    before = {p.name: p.read_bytes() for p in run_dir.iterdir() if p.is_file()}
+    ledger = tmp_path / "ledger.jsonl"
+    lines_before = len(ledger.read_text(encoding="utf-8").splitlines())
+    out = tmp_path / "audits" / "r__tier1.json"
+    rc = evals_main.main(
+        ["--stage", "judge", "--predictions", str(run_dir / "predictions.jsonl"),
+         "--audit-out", str(out)]
+    )
+    assert rc == 0, capsys.readouterr().err
+    assert {p.name: p.read_bytes() for p in run_dir.iterdir() if p.is_file()} == before
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert record["analysis_schema"] == "mnimi-tier1-audit/1"
+    assert record["recomputed"] == record["published"] and record["verdict"] == "MATCHES"
+    entries = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    assert len(entries) == lines_before + 1 and entries[-1]["stage"] == "audit"
+    assert evals_main.main(
+        ["--stage", "judge", "--predictions", str(run_dir / "predictions.jsonl"),
+         "--audit-out", str(out)]
+    ) == 2, "an existing audit record is never overwritten"
+
+
+def test_a_fresh_regrade_that_disagrees_is_reported_as_the_judges_flips(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    ((qid, first),) = stats.load_correctness(run_dir).items()
+    (tmp_path / "verdicts.json").unlink()  # a cold cache: every verdict is a fresh call
+
+    def contrary(**kwargs):
+        wired.calls += 1
+        return SimpleNamespace(
+            id="c", model="m", system_fingerprint="fp",
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2),
+            choices=[SimpleNamespace(message=SimpleNamespace(content="no" if first else "yes"))],
+        )
+
+    wired.chat = SimpleNamespace(completions=SimpleNamespace(create=contrary))
+    out = tmp_path / "audit.json"
+    rc = evals_main.main(
+        ["--stage", "judge", "--predictions", str(run_dir / "predictions.jsonl"),
+         "--audit-out", str(out)]
+    )
+    assert rc == 0, capsys.readouterr().err
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert record["flips"]["count"] == 1 and record["cache"]["misses"] == 1
+    assert record["verdict"] == "WITHIN RE-GRADE"
+    assert "instrument error" in capsys.readouterr().err
+
+
 def test_a_claim_needs_its_committed_rule(wired, tmp_path, capsys):
     run_dir = tmp_path / "runs" / "r"
     assert _run(run_dir, "--stage", "predict", "--claim", "C1") == 2
