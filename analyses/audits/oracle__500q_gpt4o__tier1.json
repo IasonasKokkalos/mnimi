@@ -1,0 +1,50 @@
+{
+  "analysis_schema": "mnimi-tier1-audit/1",
+  "artifact_harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
+  "audited_at": {
+    "clean_tree": true,
+    "commit": "c2ac5b09fb836cd3ad79472117cc9d132d15a11b",
+    "graded_utc": "2026-09-25T23:42:13Z"
+  },
+  "cache": {
+    "hits": 2,
+    "misses": 498
+  },
+  "cost": {
+    "judge_calls": 498,
+    "judge_completion_tokens": 922,
+    "judge_prompt_tokens": 175757,
+    "judge_usd": 0.4486125
+  },
+  "flips": {
+    "compared": 500,
+    "count": 3,
+    "to_correct": [],
+    "to_wrong": [
+      "0bc8ad93",
+      "15745da0",
+      "6e984301"
+    ]
+  },
+  "judge": {
+    "judge_max_tokens": 10,
+    "judge_model": "gpt-4o-2024-08-06",
+    "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+    "judge_prompt_version": "longmemeval-paper-v3",
+    "judge_temperature": 0
+  },
+  "judge_hash": "e150d260a0e8bc116924b96112825ed7acc0d8336d6d1d3c86c5825c7c00f4a0",
+  "pins_hash": "7467f8cfbfc289e2968d35c5a4a00e6e950c3a505678f5275faa6296d0bdf2de",
+  "predictions": "results/published/oracle__500q_gpt4o/predictions.jsonl",
+  "predictions_sha256": "10a541c4ec57c3f1047ffb8d0ce7cf8344580c225e7d0c881d1b08b30c0fe608",
+  "published": {
+    "correct": 459,
+    "n": 500
+  },
+  "recomputed": {
+    "correct": 456,
+    "n": 500
+  },
+  "run_id": "oracle__500q_gpt4o",
+  "verdict": "WITHIN RE-GRADE"
+}
