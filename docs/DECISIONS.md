@@ -3797,3 +3797,65 @@ trigger. Three tests that pinned `"turns"` for one commit pin `"round+facts"` ag
 **The 85 criterion is not met on the shipped configuration either** (441 needed; 429 read; lower
 bound 82.5). Language: "the shipped configuration is L1, the n=500 reading of which is 429,
 b=15, c=8 against the published 422" — never "85.8 beats 84.4".
+
+
+## Phase 7 pre-registration: what the paper needs from the harness (2026-09-26)
+
+**Scope.** No library change. `src/mnimi/` is frozen at v2.14.0 (`e015931`, the same bytes as v2.13.0: the shipped
+configuration, L1 alone). `tests/test_paper_freeze.py` pins the LF-normalised digest of that tree. The phase changes only
+the harness, tests, docs and published analyses. NEXT-STEPS §3's levers are out of scope and never land before the paper
+tag.
+
+**The five measurements** (NEXT-STEPS §2):
+- **P1 — Tier 1, cold.** The eight n=500 arms of record are re-graded from their committed `predictions.jsonl` in a fresh
+  clone with an empty verdict cache, one `analyses/audits/<arm>__tier1.json` each. The arms: `no_memory`, `naive_rag`,
+  `mnimi`, `mnimi_decay`, `oracle`, `p6time`, `p6turns`, `p6combo` (all `__500q_gpt4o`). Read per arm: recomputed vs
+  published score, and the rows whose fresh verdict differs from the committed first verdict. Pooled: flips over 4,000
+  re-gradings with a Wilson interval. A cache-hit replay that differs is a defect; a fresh re-grade that differs is the
+  judge's instrument error. Not a gate.
+- **P2 — Tier 2 drift pair.** One n=500 predict of the shipped configuration with `p6time`'s flags, at this phase's
+  commit, judged. It is preceded by a $0 `--pins-only` check that no shared pin differs, and read by `evals.drift`
+  against `results/published/mnimi__500q_gpt4o_p6time` and by `evals.stats` (the null pair). The paper's Tier 2
+  sentence comes from it: "score reproducible within X/500 flips (b=…, c=…); text not reproducible". `--verify-drift` is
+  not used: it runs after the spend and registers a refused pair as aborted.
+- **P3 — a second judge.** `gpt-4.1-2025-04-14`, with the same five templates, one user message, temperature 0 and
+  `max_tokens=10`. It is a full re-grade of the eight arms and the drift arm, each a `judge_replay_1.json` published
+  beside its run. The pairs of record are re-read with `evals.stats --judge`.
+  - A pair **holds under the second judge** iff sign(b₂ − c₂) = sign(b₁ − c₁).
+  - The primary is "significant under both judges" iff also p₂ < 0.05.
+  - Nothing adopted is re-decided, and the 85 criterion stays read under the pre-registered judge.
+- **P4 — human labels.** 60 rows, blind: 50 disagreements + 10 controls. They are drawn uniformly with `random.Random(0)` over distinct
+  (question_id, response) pairs pooled across the eight arms. The maintainer labels each yes/no by the LongMemEval
+  instruction for its type, without seeing either verdict. Read: each judge's agreement with the human, on disagreements
+  and controls, with Wilson intervals. Cohen's κ between the judges comes per arm and pooled.
+- **P5 — the tables**, exported by `python -m evals.paper_tables` from committed files only, with the cited `full_history`
+  row in its own table.
+
+**Harness changes, each tested before use:**
+- the audit record and its ledger line;
+- `--pins-only`;
+- replays that append `judge.replays` and never rewrite the first judge, purpose, cost, status or registry row (today they
+  do);
+- `evals.publish --replay` and `evals.stats --judge`;
+- the second judge's price row;
+- `evals/agreement.py` and `evals/paper_tables.py`.
+
+**Budget.** ≈ $8.3 expected (P1 ≈ $2.2, P2 ≈ $4.2, P3 ≈ $1.9) and ≤ $18.8 at the harness's upper bounds, of the $37.77
+left. The cap is unchanged.
+
+**Predictions** (a failed prediction changes no rule):
+- P1: every audit within ±5 rows of its published score; pooled flips ≤ 3 %.
+- P2: ≥ 60 % of the texts change; prompt tokens change on 0 rows; the score moves ≤ 8 rows; b + c ≤ 40.
+- P3: the primary holds with p₂ < 10⁻³; ≥ 2 of the 3 Phase 6 pairs keep their sign; per-arm agreement ≥ 94 %; pooled
+  κ ≥ 0.80.
+- P4: the controls agree with both judges on ≥ 9 of 10.
+
+**The rulings** (maintainer, 2026-09-26: "i accept the recommendations for R1-R5"): R1 the second judge is
+`gpt-4.1-2025-04-14`, with `gpt-4o-2024-11-20` as the fallback if `models.retrieve` refuses it; R2 the audit set is the
+eight n=500 arms of record (the n=100 gpt-4o arms only if the paper cites n=100 rows); R3 50 disagreements + 10
+controls; R4 the extraction cache is not published in this phase (recommended as a release asset with its sha256 before
+the camera-ready); R5 the freeze tag is `paper-v1`, on Task 11's commit.
+
+**The freeze.** The paper cites this phase's closing commit, tagged `paper-v1`; its `src/mnimi/` is byte-identical to
+v2.14.0's. Every published artifact keeps naming the commit it ran at. The Phase 5 arms ran at `f07c24d` (resolver v1)
+and are reproduced there, not at the freeze.
