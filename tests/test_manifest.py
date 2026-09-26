@@ -540,3 +540,44 @@ def test_backfill_recovers_what_the_artifacts_hold_and_writes_unknown_elsewhere(
     assert m["dataset"]["question_ids_sha256"] == manifest.question_ids_sha256(["a"])
     assert m["missing_fields"] == [] and "cost.ingest_s" in m["unknown_fields"]
     assert m["status"] == "complete"
+
+def _published_run(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    m = manifest.read_optional(run_dir)
+    m["code"]["clean_tree"] = True
+    m["provisional_reasons"] = []
+    manifest.write(run_dir, m)
+    publish.promote(run_dir, tmp_path / "published")
+    return run_dir
+
+
+def test_a_replay_keeps_the_first_judge_and_the_published_status(wired, tmp_path, capsys):
+    run_dir = _published_run(wired, tmp_path, capsys)
+    before = manifest.read_optional(run_dir)
+    assert _run(run_dir, "--stage", "judge", "--judge-model", "gpt-4.1-2025-04-14",
+                "--purpose", "second judge") == 0, capsys.readouterr().err
+    after = manifest.read_optional(run_dir)
+    assert after["judge"]["model"] == "gpt-4o-2024-08-06", "the first judge stays the manifest's"
+    assert after["purpose"] == before["purpose"] and after["cost"] == before["cost"]
+    assert after["status"] == "published"
+    (entry,) = after["judge"]["replays"]
+    assert entry["file"] == "judge_replay_1.json" and entry["judge_model"] == "gpt-4.1-2025-04-14"
+    assert entry["purpose"] == "second judge" and after["judge"]["replay_count"] == 1
+    (row,) = manifest.index_rows(run_dir.parent)
+    assert row["status"] == "published"
+
+
+def test_a_replay_is_published_beside_the_run_and_nothing_else_moves(wired, tmp_path, capsys):
+    run_dir = _published_run(wired, tmp_path, capsys)
+    assert _run(run_dir, "--stage", "judge", "--judge-model", "gpt-4.1-2025-04-14") == 0
+    target = tmp_path / "published" / "r"
+    frozen = {n: (target / n).read_bytes()
+              for n in ("predictions.jsonl", "results.json", "summary.json", "pins.json")}
+    path = publish.promote_replay(run_dir, "judge_replay_1.json", tmp_path / "published")
+    assert path == target / "judge_replay_1.json" and path.exists()
+    assert {n: (target / n).read_bytes() for n in frozen} == frozen
+    m = manifest.read_optional(target)
+    assert m["judge"]["model"] == "gpt-4o-2024-08-06" and len(m["judge"]["replays"]) == 1
+    with pytest.raises(FileExistsError):
+        publish.promote_replay(run_dir, "judge_replay_1.json", tmp_path / "published")

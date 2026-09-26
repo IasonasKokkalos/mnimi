@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
+from evals import stats
 from evals.stats import (
     HARNESS_PARITY_FIELDS,
     _format,
@@ -273,3 +276,55 @@ def test_a_reported_field_never_masks_a_refused_one():
     }
     with pytest.raises(ValueError, match="reader_model"):
         assert_harness_parity(identities)
+
+def _replay(directory, n, model, verdicts, judge_hash="h"):
+    payload = {"judge": {"judge_model": model}, "judge_hash": judge_hash,
+               "results": [{"question_id": q, "correct": c} for q, c in verdicts.items()]}
+    (directory / f"judge_replay_{n}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _arm(directory, system, first, second, judge_hash="h"):
+    directory.mkdir(parents=True)
+    (directory / "results.json").write_text(json.dumps({
+        "pins": {"system": system}, "pins_hash": "p", "judge": {},
+        "results": [{"question_id": q, "correct": c} for q, c in first.items()],
+    }), encoding="utf-8")
+    _replay(directory, 1, "gpt-4.1-2025-04-14", second, judge_hash)
+
+
+def test_judge_selected_verdicts_come_from_that_judges_replay(tmp_path):
+    _replay(tmp_path, 1, "gpt-4.1-2025-04-14", {"a": False, "b": True})
+    verdicts = stats.load_correctness(tmp_path, judge_model="gpt-4.1-2025-04-14")
+    assert verdicts == {"a": False, "b": True}
+
+
+def test_judge_selected_pairs_refuse_ambiguous_or_mismatched_replays(tmp_path):
+    _replay(tmp_path, 1, "gpt-4.1-2025-04-14", {"a": True})
+    _replay(tmp_path, 2, "gpt-4.1-2025-04-14", {"a": False})
+    with pytest.raises(ValueError, match="exactly one"):
+        stats.load_correctness(tmp_path, judge_model="gpt-4.1-2025-04-14")
+    with pytest.raises(ValueError, match="exactly one"):
+        stats.load_correctness(tmp_path, judge_model="gpt-4o-2024-11-20")
+
+
+def test_a_judge_selected_pair_is_saved_beside_never_over_the_pair_of_record(tmp_path):
+    a, b = tmp_path / "naive_rag__x", tmp_path / "mnimi__x"
+    _arm(a, "naive_rag", {"q1": False, "q2": True}, {"q1": False, "q2": False})
+    _arm(b, "mnimi", {"q1": True, "q2": True}, {"q1": True, "q2": True})
+    out = tmp_path / "analyses"
+    assert stats.main([str(a), str(b), "--judge", "gpt-4.1-2025-04-14", "--out", str(out)]) == 0
+    saved = json.loads((out / "naive_rag__x__vs__mnimi__x__judge-gpt-4.1-2025-04-14.json")
+                       .read_text(encoding="utf-8"))
+    assert saved["b_second_wins"] == 2 and saved["c_first_wins"] == 0
+    assert saved["source"].startswith(
+        "per-question verdicts of the judge replay under gpt-4.1-2025-04-14")
+    assert not (out / "naive_rag__x__vs__mnimi__x.json").exists()
+
+
+def test_a_judge_selected_pair_refuses_two_judges(tmp_path, capsys):
+    a, b = tmp_path / "naive_rag__x", tmp_path / "mnimi__x"
+    _arm(a, "naive_rag", {"q1": False}, {"q1": False}, judge_hash="h1")
+    _arm(b, "mnimi", {"q1": True}, {"q1": True}, judge_hash="h2")
+    out = str(tmp_path / "o")
+    assert stats.main([str(a), str(b), "--judge", "gpt-4.1-2025-04-14", "--out", out]) == 2
+    assert "judge_hash" in capsys.readouterr().err

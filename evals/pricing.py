@@ -28,9 +28,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 #: Official OpenAI pricing page, read on this date. USD per million tokens.
-PRICES_AS_OF = "2026-09-11"
+PRICES_AS_OF = "2026-09-26"
 PRICES_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "gpt-4o-2024-08-06": {"input": 2.50, "output": 10.00},
+    # Phase 7 D5: the second judge (P3), read on PRICES_AS_OF.
+    "gpt-4.1-2025-04-14": {"input": 2.00, "output": 8.00},
 }
 #: The Batch API halves both input and output.
 BATCH_DISCOUNT = 0.5

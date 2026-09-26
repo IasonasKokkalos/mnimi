@@ -117,7 +117,7 @@ def test_estimate_uses_the_dated_table_and_the_batch_discount():
     assert pricing.estimate_usd("gpt-4o-2024-08-06", 0, 1_000_000) == pytest.approx(10.00)
     both = pricing.estimate_usd("gpt-4o-2024-08-06", 1_000_000, 1_000_000, batch=True)
     assert both == pytest.approx(6.25)
-    assert pricing.PRICES_AS_OF == "2026-09-11"
+    assert pricing.PRICES_AS_OF == "2026-09-26"
     assert pricing.API_BUDGET_USD == 83.85  # 33.85 spent + the $50 top-up of 2026-09-22
 
 
@@ -302,3 +302,7 @@ def test_judge_tolerates_a_completion_without_usage():
     assert judge.is_correct(question_id="x", question="q", answer="a", response="r",
                             question_type="single-session-user", abstention=False)
     assert judge.calls == 1 and judge.prompt_tokens == 0
+
+def test_the_second_judge_is_priced_and_projects():
+    assert pricing.price("gpt-4.1-2025-04-14") == {"input": 2.00, "output": 8.00}
+    assert pricing.estimate_usd("gpt-4.1-2025-04-14", 1_000_000, 0) == pytest.approx(2.00)

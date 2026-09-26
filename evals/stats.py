@@ -335,14 +335,33 @@ def minimum_detectable_gap(
     return high
 
 
-def load_correctness(run_dir: str | Path) -> dict[str, bool]:
+def replay_for(run_dir: str | Path, judge_model: str) -> dict:
+    """The one ``judge_replay_*.json`` of ``run_dir`` graded by ``judge_model`` (Phase 7 D5)."""
+    run_dir = Path(run_dir)
+    found = []
+    for path in sorted(run_dir.glob("judge_replay_*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (payload.get("judge") or {}).get("judge_model") == judge_model:
+            found.append(payload)
+    if len(found) != 1:
+        raise ValueError(
+            f"{run_dir}: {len(found)} judge replays under {judge_model}; exactly one is needed"
+        )
+    return found[0]
+
+
+def load_correctness(run_dir: str | Path, judge_model: str | None = None) -> dict[str, bool]:
     """Per-question correctness, always from per-question rows, never from a summary.
 
     The first verdict in ``predictions.jsonl`` (the run-documentation rule:
     verdicts travel with the predictions and the first one is never
     overwritten) when the rows carry one; otherwise the ``results.json`` rows
-    of an artifact written before the rule.
+    of an artifact written before the rule. With ``judge_model``, the verdicts
+    of that judge's replay.
     """
+    if judge_model is not None:
+        rows = replay_for(run_dir, judge_model)["results"]
+        return {row["question_id"]: bool(row["correct"]) for row in rows}
     run_dir = Path(run_dir)
     predictions = run_dir / "predictions.jsonl"
     if predictions.exists():
@@ -364,6 +383,7 @@ def load_correctness(run_dir: str | Path) -> dict[str, bool]:
 
 def pair_record(
     first_dir: str | Path, second_dir: str | Path, first: dict[str, bool], second: dict[str, bool],
+    source: str | None = None,
 ) -> dict:
     """One paired comparison as ``analyses/`` stores it: both run ids, the rows, b, c, p.
 
@@ -410,14 +430,15 @@ def pair_record(
         "p_exact_mcnemar": result.p_value,
         "second_wins_ids": wins,
         "first_wins_ids": losses,
-        "source": "per-question verdicts (predictions.jsonl first verdict, else results.json rows)",
+        "source": source
+        or "per-question verdicts (predictions.jsonl first verdict, else results.json rows)",
     }
 
 
-def save_pair(record: dict, out_dir: str | Path = "analyses") -> Path:
+def save_pair(record: dict, out_dir: str | Path = "analyses", suffix: str = "") -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{record['first']['run_id']}__vs__{record['second']['run_id']}.json"
+    path = out_dir / f"{record['first']['run_id']}__vs__{record['second']['run_id']}{suffix}.json"
     path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
@@ -544,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     save = True
     out_dir = "analyses"
+    judge_model: str | None = None
     dirs: list[str] = []
     it = iter(argv)
     for arg in it:
@@ -551,12 +573,28 @@ def main(argv: list[str] | None = None) -> int:
             save = False
         elif arg == "--out":
             out_dir = next(it, out_dir)
+        elif arg == "--judge":
+            judge_model = next(it, None)
         else:
             dirs.append(arg)
     if not dirs:
-        print("usage: python -m evals.stats <run_dir> [<run_dir> ...] [--no-save] [--out DIR]",
-              file=sys.stderr)
+        print("usage: python -m evals.stats <run_dir> [<run_dir> ...] [--no-save] [--out DIR] "
+              "[--judge <model>]", file=sys.stderr)
         return 2
+    source = None
+    if judge_model is not None:
+        try:
+            hashes = {d: replay_for(d, judge_model).get("judge_hash") for d in dirs}
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if len(set(hashes.values())) != 1:
+            print(f"ERROR: the arms' {judge_model} replays differ in judge_hash ({hashes}); "
+                  "a pair must be graded by one judge", file=sys.stderr)
+            return 2
+        (only,) = set(hashes.values())
+        source = (f"per-question verdicts of the judge replay under {judge_model} "
+                  f"(judge_hash {str(only)[:12]}...)")
     payloads = {d: json.loads((Path(d) / "results.json").read_text(encoding="utf-8")) for d in dirs}
     systems = [p["pins"]["system"] for p in payloads.values()]
     arms, identities, where = {}, {}, {}
@@ -565,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         # Two run dirs of one system: name each by its directory so both arms
         # survive and pair as a variant pair (see analyse).
         name = f"{system}@{Path(directory).name}" if systems.count(system) > 1 else system
-        arms[name] = load_correctness(directory)
+        arms[name] = load_correctness(directory, judge_model)
         identities[name] = harness_identity(payload)
         where[name] = directory
     report = analyse(arms, identities=identities)
@@ -588,8 +626,10 @@ def main(argv: list[str] | None = None) -> int:
             if (first, second) in seen or first == second:
                 continue
             seen.add((first, second))
-            record = pair_record(where[first], where[second], arms[first], arms[second])
-            path = save_pair(record, out_dir)
+            record = pair_record(where[first], where[second], arms[first], arms[second],
+                                 source=source)
+            suffix = f"__judge-{judge_model}" if judge_model else ""
+            path = save_pair(record, out_dir, suffix=suffix)
             print(f"saved {path}: b={record['b_second_wins']} c={record['c_first_wins']} "
                   f"p={record['p_exact_mcnemar']:.3g}", file=sys.stderr)
     return 0

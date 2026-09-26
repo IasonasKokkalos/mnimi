@@ -1119,6 +1119,14 @@ def _main(argv: list[str] | None = None) -> int:
     # verdict-cache fingerprint and the results.json judge block, so what
     # invalidates the cache and what is recorded beside the verdicts cannot
     # drift apart.
+    # A re-grade of a run that already has its first verdicts is a REPLAY: it
+    # gets its own file, never overwrites results.json, and is recorded in the
+    # manifest rather than merged into it (Phase 7 D6) — decided before any spend.
+    replaying = not auditing and not do_predict and (directory / "results.json").exists()
+    if replaying and manifest_mod.read_optional(directory) is None:
+        print(f"ERROR: {directory} has no manifest.json; a replay is recorded in the run's "
+              "manifest (python -m evals.backfill first).", file=sys.stderr)
+        return 2
     judge_info = judge_block(args.judge_model)
     _print_judge(judge_info)
 
@@ -1163,9 +1171,6 @@ def _main(argv: list[str] | None = None) -> int:
         mark = "PASS" if correct else "FAIL"
         print(f"[{done}/{total}] {mark}  {p.question_id} ({p.category})", file=sys.stderr)
 
-    # A re-grade of a run that already has its first verdicts is a REPLAY: it
-    # gets its own file and never overwrites results.json (the rule).
-    replaying = not auditing and not do_predict and (directory / "results.json").exists()
     judge_started = time.perf_counter()
     judge = Judge(args.judge_model, client=judge_client, cache=cache)
     try:
@@ -1300,6 +1305,27 @@ def _main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     _record_spend(ledger_entry, budget_usd)
+    if replaying:
+        existing = manifest_mod.read_optional(directory)
+        correct = sum(1 for r in results if r.correct)
+        entry = {
+            "file": results_path.name,
+            "judge_model": judge_info["judge_model"],
+            "judge_prompt_hash": judge_info["judge_prompt_hash"],
+            "judge_hash": artifacts.fingerprint(artifacts.canonical(judge_info)),
+            "score": f"{correct}/{len(results)}",
+            "judge_usd": judge_usd_actual,
+            "judge_prompt_tokens": judge.prompt_tokens,
+            "judge_completion_tokens": judge.completion_tokens,
+            "graded_utc": manifest_mod.utc_now(),
+            "purpose": args.purpose,
+            "commit": artifacts.harness_git_sha(),
+        }
+        manifest_mod.write(directory, manifest_mod.record_replay(existing, entry))
+        _run_context["completed"] = True
+        print(f"replay recorded in {directory / manifest_mod.MANIFEST_FILE} (judge.replays); the "
+              "first judge, purpose, cost, status and registry row are unchanged", file=sys.stderr)
+        return 0
     # The manifest: the predict stage's (this invocation's or the one on disk)
     # plus the grading, the judge's cost and the registry row.
     existing = manifest_mod.read_optional(directory)

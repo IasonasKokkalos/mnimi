@@ -386,6 +386,26 @@ def merge_into(existing: dict | None, fresh: dict) -> dict:
     return merged
 
 
+def record_replay(existing: dict, entry: dict) -> dict:
+    """A judge replay is recorded, never merged (Phase 7 D6).
+
+    The run's first judge, purpose, cost, status and registry row describe the
+    run and its first verdicts. A replay appends one entry to ``judge.replays``,
+    names its file in ``outputs.judge_replays``, and moves nothing else.
+    """
+    updated = json.loads(json.dumps(existing))
+    judge = updated.setdefault("judge", {})
+    replays = judge.setdefault("replays", [])
+    if any(r.get("file") == entry["file"] for r in replays):
+        raise ValueError(f"replay {entry['file']} is already recorded")
+    replays.append(entry)
+    judge["replay_count"] = len(replays)
+    outputs = updated.setdefault("outputs", {})
+    outputs["judge_replays"] = sorted(set(outputs.get("judge_replays") or []) | {entry["file"]})
+    updated["updated_utc"] = utc_now()
+    return updated
+
+
 def format_missing(manifest: dict) -> str | None:
     """The line printed at the end of every run: what is missing, if anything."""
     missing, unknown = manifest.get("missing_fields", []), manifest.get("unknown_fields", [])
