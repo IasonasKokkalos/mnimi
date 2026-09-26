@@ -382,9 +382,11 @@ def build_extractor(name: str | None):
     if name in (None, "none"):
         return None
     if name == "qwen3":
-        from mnimi.extract.llama import QwenLlamaExtractor
+        # Constructed on the first cache miss (PHASE8 D10, PLAN A15): a store served
+        # entirely from the cache never loads the GGUF or needs a CUDA build.
+        from ..lazy_extractor import LazyQwenExtractor
 
-        return QwenLlamaExtractor()
+        return LazyQwenExtractor()
     raise SystemExit(f"unknown extractor {name!r}; expected none or qwen3")
 
 
