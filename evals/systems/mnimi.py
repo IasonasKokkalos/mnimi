@@ -56,6 +56,9 @@ class MnimiSystem(MemorySystem):
             embedder = BgeSmallEmbedder()
         self._embedder = embedder
         self._config = config if config is not None else MemoryConfig()
+        # Rounds the prefilter kept from the extractor, summed over the run's
+        # stores (the manifest's ``cost.prefilter_drops``, PHASE8 D6).
+        self.prefilter_drops_total = 0
         self._extractor = None
         if extractor is not None:
             from mnimi.extract.cache import CachedExtractor, default_cache_path
@@ -147,6 +150,7 @@ class MnimiSystem(MemorySystem):
 
     def reset(self) -> None:
         if self._memory is not None:
+            self.prefilter_drops_total += self._memory.extraction_stats.get("prefilter_skips", 0)
             self._memory.store.close()  # close before the file is unlinked
         self._memory = Memory(
             str(self._scratch.next()), self._embedder, self._config, extractor=self._extractor,

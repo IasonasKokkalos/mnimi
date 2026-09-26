@@ -60,6 +60,9 @@ def _manifest(**overrides):
         judge=JUDGE, replay_count=0, question_ids=["a", "b"],
         environment={"gpu_model": "G", "driver_version": "1", "cuda_version": "13"},
         cost=COST, outputs={},
+        # Schema /2 (PHASE8 D6): what a real run records at either stage.
+        src_mnimi_tree="tree", library_digest="digest", extractor_rounds_sent=0, prefilter_drops=0,
+        lockfile={"lockfile_hash": "l", "lockfile_source": "uv.lock"},
     )
     kwargs.update(overrides)
     return manifest.build(**kwargs)
@@ -536,6 +539,7 @@ def test_backfill_recovers_what_the_artifacts_hold_and_writes_unknown_elsewhere(
         run_dir, purpose="p", overrides={"cost.predict_wall_s": 100.0, "cost.ingest_s": "UNKNOWN"},
     )
     manifest.finalize(m, [])
+    assert m["manifest_schema"] == "mnimi-run-manifest/1", "a backfilled manifest stays /1"
     assert m["code"]["mnimi_version"] == "1.11.0", "the version at the run's commit, not today's"
     assert m["cost"]["judge_wall_s"] == 12.5 and m["cost"]["wall_clock_s"] == 112.5
     assert m["cost"]["reader_usd"] == manifest.UNKNOWN, "no reader_resolved.json"
@@ -635,3 +639,67 @@ def test_the_guard_ignores_line_endings():
     from evals.freeze import library_digest
 
     assert len(library_digest()) == 64
+
+def test_the_manifest_records_the_config_sha_and_its_commit_state(
+    wired, tmp_path, capsys, monkeypatch
+):
+    from evals import config_file
+    cfg = tmp_path / "configs" / "r.json"
+    cfg.parent.mkdir()
+    cfg.write_text(json.dumps({"config_schema": "mnimi-run-config/1",
+                               "args": ["--system", "no_memory", "--limit", "1"]}),
+                   encoding="utf-8")
+    monkeypatch.setattr(config_file, "_git_show", lambda p: None)
+    run_dir = tmp_path / "runs" / "r"
+    assert evals_main.main(["--config", str(cfg), "--reader-transport", "openai",
+                            "--run-dir", str(run_dir), "--purpose", "t", "--stage", "all",
+                            "--gpu-rental-usd", "3.5", "--gpu-rental-hours", "2"]) == 0, (
+        capsys.readouterr().err)
+    m = manifest.read_optional(run_dir)
+    assert m["manifest_schema"] == "mnimi-run-manifest/2"
+    assert m["arm"]["config_file"] == str(cfg)
+    assert m["arm"]["config_sha256"] == config_file.sha256(cfg)
+    assert m["arm"]["config_committed"] is False
+    assert m["cost"]["gpu_rental_usd"] == 3.5 and m["cost"]["gpu_rental_h"] == 2.0
+    assert m["code"]["src_mnimi_tree"] and m["code"]["library_digest"]
+    assert "render_template_hash" in m["hashes"]
+    assert m["environment"]["lockfile_source"] in ("uv.lock", "none")
+    assert m["cost"]["extractor_rounds_sent"] == 0 and m["cost"]["prefilter_drops"] == 0
+    assert m["missing_fields"] == []
+
+
+def test_config_file_flags_are_overridden_by_the_command_line(wired, tmp_path, capsys):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"config_schema": "mnimi-run-config/1",
+                               "args": ["--system", "no_memory", "--limit", "1",
+                                        "--purpose", "from file"]}),
+                   encoding="utf-8")
+    run_dir = tmp_path / "runs" / "r"
+    assert evals_main.main(["--config", str(cfg), "--reader-transport", "openai",
+                            "--run-dir", str(run_dir),
+                            "--purpose", "from the command line", "--stage", "all"]) == 0, \
+        capsys.readouterr().err
+    assert manifest.read_optional(run_dir)["purpose"] == "from the command line"
+
+
+def test_a_schema_1_manifest_keeps_its_required_set():
+    m = _manifest(schema="mnimi-run-manifest/1")
+    assert m["manifest_schema"] == "mnimi-run-manifest/1"
+    assert manifest.check(m) == ([], [])
+
+
+def test_a_run_of_record_needs_a_committed_config(wired, tmp_path, capsys, monkeypatch):
+    from evals import config_file, freeze
+    monkeypatch.setattr(freeze, "check", lambda root=None: [])
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "predict", "--limit", "100") == 2
+    assert "--config" in capsys.readouterr().err
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"config_schema": "mnimi-run-config/1", "args": ["--limit", "100"]}),
+                   encoding="utf-8")
+    monkeypatch.setattr(config_file, "_git_show", lambda p: None)
+    assert _run(run_dir, "--stage", "predict", "--config", str(cfg)) == 2
+    assert "not committed" in capsys.readouterr().err
+    monkeypatch.setattr(config_file, "_git_show", lambda p: cfg.read_bytes())
+    assert _run(run_dir, "--stage", "predict", "--config", str(cfg)) == 0, capsys.readouterr().err
+    assert manifest.read_optional(run_dir)["arm"]["config_committed"] is True

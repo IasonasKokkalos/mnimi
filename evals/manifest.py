@@ -38,7 +38,8 @@ from pathlib import Path
 
 from . import artifacts
 
-MANIFEST_SCHEMA = "mnimi-run-manifest/1"
+MANIFEST_SCHEMA = "mnimi-run-manifest/2"
+MANIFEST_SCHEMA_V1 = "mnimi-run-manifest/1"
 MANIFEST_FILE = "manifest.json"
 SUMMARY_FILE = "summary.json"
 INDEX_FILE = "INDEX.md"
@@ -50,7 +51,7 @@ STATUSES = ("published", "provisional", "aborted", "incomplete", "complete")
 #: Dotted paths that must be present (not ``None``) for a manifest to be
 #: complete. ``UNKNOWN`` counts as present-but-unrecovered and is listed
 #: separately by :func:`check`.
-REQUIRED_FIELDS: tuple[str, ...] = (
+REQUIRED_FIELDS_V1: tuple[str, ...] = (
     "run_id", "created_utc", "purpose", "claim",
     "code.commit", "code.clean_tree", "code.mnimi_version", "code.harness_version",
     "arm.system",
@@ -67,6 +68,18 @@ REQUIRED_FIELDS: tuple[str, ...] = (
     "cost.reader_usd", "cost.judge_usd", "cost.tokens_in", "cost.tokens_out",
     "cost.wall_clock_s", "cost.ingest_s", "cost.llm_calls_at_write",
 )
+#: Schema /2 (PHASE8 D6): what the paper's provenance appendix reads on top of /1.
+#: ``arm.config_sha256`` is not required — a smoke run has no config; a run of
+#: record is refused without a committed one (PHASE8 D5, the freeze guard).
+REQUIRED_FIELDS_V2: tuple[str, ...] = REQUIRED_FIELDS_V1 + (
+    "code.src_mnimi_tree", "code.library_digest", "hashes",
+    "cost.extractor_rounds_sent", "cost.prefilter_drops", "environment.lockfile_source",
+)
+REQUIRED_FIELDS = REQUIRED_FIELDS_V2
+REQUIRED_FIELDS_BY_SCHEMA = {
+    MANIFEST_SCHEMA_V1: REQUIRED_FIELDS_V1,
+    MANIFEST_SCHEMA: REQUIRED_FIELDS_V2,
+}
 
 INDEX_COLUMNS = ("run_id", "date", "arm", "reader", "n", "score", "clean", "status", "claim")
 INDEX_HEADER = (
@@ -122,6 +135,21 @@ def environment_digest() -> dict:
         "the repo has no lockfile",
         "distributions": len(dists),
     }
+
+
+def lockfile_digest(root: Path | None = None) -> dict:
+    """``uv.lock``'s sha256 when the repo has one (PHASE8 D7), else UNKNOWN."""
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    lock = root / "uv.lock"
+    if lock.exists():
+        return {"lockfile_hash": artifacts.fingerprint(lock.read_text(encoding="utf-8")),
+                "lockfile_source": "uv.lock"}
+    return {"lockfile_hash": UNKNOWN, "lockfile_source": "none"}
+
+
+def hashes_block(pins: dict) -> dict:
+    """Every frozen-artifact hash the pins carry, plus the resolver version, in one place."""
+    return {k: v for k, v in sorted(pins.items()) if k.endswith("_hash") or k == "resolver_version"}
 
 
 def hardware_block(environment: dict | None) -> dict:
@@ -219,6 +247,21 @@ def build(
     outputs: dict,
     created_utc: str | None = None,
     env_digest: dict | None = None,
+    schema: str = MANIFEST_SCHEMA,
+    config_file: str | None = None,
+    config_sha256: str | None = None,
+    config_committed: bool | None = None,
+    tag: str | None = None,
+    nearest_tag: str | None = None,
+    src_mnimi_tree: str | None = None,
+    library_digest: str | None = None,
+    gpu_rental_usd: float | None = None,
+    gpu_rental_h: float | None = None,
+    extractor_rounds_sent: int | None = None,
+    extractor_cache_misses: int | None = None,
+    prefilter_drops: int | None = None,
+    competitor_llm_usd: float | None = None,
+    lockfile: dict | None = None,
 ) -> dict:
     """Assemble a manifest from the pieces the harness has at the end of a stage.
 
@@ -230,8 +273,9 @@ def build(
     sha = pins.get("harness_git_sha")
     clean = None if sha is None else not str(sha).endswith("-dirty")
     digest = env_digest or environment_digest()
+    lock = lockfile or lockfile_digest()
     manifest = {
-        "manifest_schema": MANIFEST_SCHEMA,
+        "manifest_schema": schema,
         "run_id": run_id,
         "created_utc": created_utc or utc_now(),
         "updated_utc": utc_now(),
@@ -244,12 +288,22 @@ def build(
             "git_status_porcelain": porcelain,
             "mnimi_version": mnimi_version(),
             "harness_version": harness_version(),
+            # /2 (PHASE8 D6): the tag on HEAD, the library's own tree id and its digest.
+            "tag": tag,
+            "nearest_tag": nearest_tag,
+            "src_mnimi_tree": src_mnimi_tree,
+            "library_digest": library_digest,
         },
         "arm": {
             "system": pins.get("system"),
             "config": arm_config(pins),
             "pins_hash": artifacts.pins_hash(pins) if pins else None,
+            # /2: the committed argument list the run named (PHASE8 D5).
+            "config_file": config_file,
+            "config_sha256": config_sha256,
+            "config_committed": config_committed,
         },
+        "hashes": hashes_block(pins),
         "reader": {
             "transport": pins.get("reader_transport"),
             "requested_model": pins.get("reader_model"),
@@ -289,8 +343,9 @@ def build(
         },
         "environment": {
             "python": sys.version.split()[0],
-            "lockfile_hash": digest.get("lockfile_hash"),
-            "lockfile_source": digest.get("lockfile_source"),
+            "lockfile_hash": lock["lockfile_hash"],
+            "lockfile_source": lock["lockfile_source"],
+            "installed_digest": digest.get("lockfile_hash"),
             "hardware": hardware_block(environment),
             "daemon_flags": daemon_flags(pins, environment),
         },
@@ -308,6 +363,13 @@ def build(
             "judge_wall_s": cost.get("judge_wall_s"),
             "ingest_s": cost.get("ingest_s"),
             "llm_calls_at_write": cost.get("llm_calls_at_write"),
+            # /2 (PHASE8 D6): rental, the extractor's real work, a competitor's own LLM.
+            "gpu_rental_usd": gpu_rental_usd,
+            "gpu_rental_h": gpu_rental_h,
+            "extractor_rounds_sent": extractor_rounds_sent,
+            "extractor_cache_misses": extractor_cache_misses,
+            "prefilter_drops": prefilter_drops,
+            "competitor_llm_usd": competitor_llm_usd,
         },
         "outputs": outputs,
         "status": None,
@@ -329,7 +391,8 @@ def _get(manifest: dict, dotted: str):
 def check(manifest: dict) -> tuple[list[str], list[str]]:
     """``(missing, unknown)``: fields ``None`` or absent, and fields written ``UNKNOWN``."""
     missing, unknown = [], []
-    for field in REQUIRED_FIELDS:
+    fields = REQUIRED_FIELDS_BY_SCHEMA.get(manifest.get("manifest_schema"), REQUIRED_FIELDS_V1)
+    for field in fields:
         value = _get(manifest, field)
         if value is None:
             missing.append(field)

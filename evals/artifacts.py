@@ -76,6 +76,16 @@ def harness_git_tag() -> str | None:
     return _git("describe", "--tags", "--exact-match", "HEAD")
 
 
+def harness_nearest_tag() -> str | None:
+    """The nearest tag reachable from HEAD, or ``None``."""
+    return _git("describe", "--tags", "--abbrev=0")
+
+
+def src_mnimi_tree() -> str | None:
+    """The git tree id of ``src/mnimi`` at HEAD: the library's identity, harness aside."""
+    return _git("rev-parse", "HEAD:src/mnimi")
+
+
 def default_serve_log() -> str | None:
     """Best guess at the Ollama server log, if one is being written."""
     explicit = os.environ.get("OLLAMA_SERVE_LOG")

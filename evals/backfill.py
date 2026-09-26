@@ -19,7 +19,8 @@ from pathlib import Path
 
 from . import artifacts
 from . import manifest as manifest_mod
-from .manifest import REQUIRED_FIELDS, UNKNOWN, _get
+from .manifest import MANIFEST_SCHEMA_V1, UNKNOWN, _get
+from .manifest import REQUIRED_FIELDS_V1 as REQUIRED_FIELDS
 
 
 def backfill(
@@ -57,6 +58,7 @@ def backfill(
     served = resolved.get("served_models") or None
     m = manifest_mod.build(
         run_id=run_dir.name,
+        schema=MANIFEST_SCHEMA_V1,  # a backfilled run predates /2 (PHASE8 D6)
         purpose=purpose,
         claim=claim,
         rule_commit=rule_commit,

@@ -15,7 +15,7 @@ from pathlib import Path
 # Stdlib-only, so importing these here keeps `python -m evals --help` from
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
-from . import artifacts, freeze, knobs, pricing
+from . import artifacts, config_file, freeze, knobs, pricing
 from . import audit as audit_mod
 from . import manifest as manifest_mod
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
@@ -316,6 +316,8 @@ def _resume_extras(args) -> str:
     if args.dedup_entropy_gate is not None:
         extras.append(f"--dedup-entropy-gate {args.dedup_entropy_gate}")
     extras.extend(knobs.read_path_resume_extras(args))
+    if getattr(args, "config_path", None):
+        extras.append(f"--config {args.config_path}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -648,6 +650,19 @@ def _main(argv: list[str] | None = None) -> int:
         "cannot modify it.",
     )
     parser.add_argument(
+        "--config",
+        help="a committed configs/<run_id>.json holding the run's argument list; expanded in "
+        "place, later flags override (PHASE8 D5)",
+    )
+    parser.add_argument(
+        "--gpu-rental-usd", type=float, default=None,
+        help="rented GPU dollars for this run, recorded in the manifest (PLAN A5)",
+    )
+    parser.add_argument(
+        "--gpu-rental-hours", type=float, default=None,
+        help="rented GPU hours for this run, recorded in the manifest (PLAN A5)",
+    )
+    parser.add_argument(
         "--allow-unfrozen",
         action="store_true",
         help="run a --limit >= 100 predict on an unfrozen library or a dirty tree; the run is "
@@ -665,7 +680,14 @@ def _main(argv: list[str] | None = None) -> int:
         default=None,
         help="with --predictions: write the Tier 1 audit record here (never beside the artifact)",
     )
+    # ``--config`` is spliced in before argparse sees the line (PHASE8 D5).
+    try:
+        argv, config_path = config_file.expand(list(sys.argv[1:] if argv is None else argv))
+    except (ValueError, OSError) as exc:
+        print(f"ERROR: --config: {exc}", file=sys.stderr)
+        return 2
     args = parser.parse_args(argv)
+    args.config_path = config_path
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
     # python-dotenv ships with the [eval] extra; without it (CI installs the
@@ -823,6 +845,12 @@ def _main(argv: list[str] | None = None) -> int:
         _UNFROZEN_REASONS.clear()
         if args.limit >= 100 and not args.pins_only:
             reasons = freeze.check()
+            if args.config_path is None:
+                reasons.append("no --config: a run of record names its committed "
+                               "configs/<run_id>.json (PHASE8 D5)")
+            elif not config_file.committed(args.config_path):
+                reasons.append(f"{args.config_path} is not committed (git show HEAD:<file> "
+                               "differs or is missing)")
             if reasons and not args.allow_unfrozen:
                 print(
                     "REFUSED: a run of record (--limit >= 100) needs the paper freeze and a "
@@ -1094,6 +1122,15 @@ def _main(argv: list[str] | None = None) -> int:
                 if cache_stats is not None else 0,
             },
             outputs={"predictions": "predictions.jsonl", "pins": "pins.json"},
+            extractor_rounds_sent=(
+                (cache_stats or {}).get("hits", 0) + (cache_stats or {}).get("misses", 0)
+                if cache_stats is not None else 0
+            ),
+            extractor_cache_misses=(
+                (cache_stats or {}).get("misses", 0) if cache_stats is not None else 0
+            ),
+            prefilter_drops=getattr(system, "prefilter_drops_total", 0),
+            **_provenance_kwargs(args),
         )
         manifest_mod.write(directory, run_manifest)
         if args.verify_drift:
@@ -1389,6 +1426,7 @@ def _main(argv: list[str] | None = None) -> int:
             "summary": "summary.json" if not replaying else None,
             "judge_replays": sorted(p.name for p in directory.glob("judge_replay_*.json")),
         },
+        **_provenance_kwargs(args),
     )
     merged = manifest_mod.merge_into(existing, judge_manifest)
     if do_predict:
@@ -2012,6 +2050,22 @@ def _print_judge(judge: dict) -> None:
             file=sys.stderr,
         )
     print("-------------", file=sys.stderr)
+
+
+def _provenance_kwargs(args) -> dict:
+    """The manifest /2 inputs the harness has at either stage (PHASE8 D5/D6)."""
+    path = getattr(args, "config_path", None)
+    return {
+        "config_file": path,
+        "config_sha256": config_file.sha256(path) if path else None,
+        "config_committed": config_file.committed(path) if path else None,
+        "tag": artifacts.harness_git_tag(),
+        "nearest_tag": artifacts.harness_nearest_tag(),
+        "src_mnimi_tree": artifacts.src_mnimi_tree(),
+        "library_digest": freeze.library_digest(),
+        "gpu_rental_usd": getattr(args, "gpu_rental_usd", None),
+        "gpu_rental_h": getattr(args, "gpu_rental_hours", None),
+    }
 
 
 #: Reasons the freeze guard adds when ``--allow-unfrozen`` let a run of record
