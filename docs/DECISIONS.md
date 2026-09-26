@@ -3859,3 +3859,33 @@ the camera-ready); R5 the freeze tag is `paper-v1`, on Task 11's commit.
 **The freeze.** The paper cites this phase's closing commit, tagged `paper-v1`; its `src/mnimi/` is byte-identical to
 v2.14.0's. Every published artifact keeps naming the commit it ran at. The Phase 5 arms ran at `f07c24d` (resolver v1)
 and are reproduced there, not at the freeze.
+
+## Phase 8 pre-registration: the paper's harness, reconciled (2026-09-26)
+
+**Scope.** No library change: `src/mnimi/` stays at v2.14.0's digest. Phase 7 stopped after Task 5 (P1: 17/4,000
+re-grades changed; P2: 277/500 texts changed, 429 vs 429, b=6 c=6). This phase carries Phase 7's Tasks 6–11 (P3, P4,
+P5, the close) and `paper docs/PLAN.md` §3's harness actions A2–A9, A13–A16, adds C2 (three same-judge replays with
+the cache off on the four arms of the main table) and C1's accounting over the judge-stable rows, and runs two
+competitor systems through the harness at n=500. It closes at the tag `paper-v1`.
+
+**The rulings (2026-09-26; the maintainer allowed every recommendation in advance — "dont ask me for anything, i
+allow every spend, command, commit"):** R1 (a) `--audit-out` implies `--judge-cache off`, audit records /2; R2 (a)
+Mem0's write LLM is `gpt-4o-mini` over the API, outside the ledger, hand-recorded; R3 the OMEGA retrieval-only arm
+only if Tasks 13–14 close by 2026-10-20; R4 `API_BUDGET_USD` 83.85 → 113.85 (a $30 top-up; the ledger is never
+reset); R5 `paper-v1`; R6 A15 in this phase as a harness object.
+
+**Decisions D1–D12** as `mnimi docs/PHASE8.md`. In one line each: Phase 7's tasks by reference (D1); C2 = 3 cache-off
+replays × 4 arms, judge-unstable = any verdict differs (D2); `--judge-cache off` skips reads and writes and an audit
+implies it (D3); the freeze guard refuses at `--limit ≥ 100` (D4); `--config` is a committed argument list (D5);
+manifest /2 with `check()` keyed by schema (D6); `uv.lock` under `[tool.uv]` constraints, a second CI job (D7); Holm
+and TOST saved with the family (D8); competitor hits rendered as `memory:` turns through `render_turns`, pins /12
+(D9); the lazy extractor is a harness object (D10); `paper-v1` on the close commit (D11).
+
+**Predictions** as PHASE8 D12, written before any run: P3 and P4 as Phase 7 D11; C2 ≤ 3 % of rows judge-unstable
+(≤ 60 of 2,000), no score moves > 8 rows in a replay, `no_memory` ≤ 5 unstable; C1 retrieval-bound ≥ 60 % of the
+paper system's stable misses with multi-session the largest; agentmemory v4 under gpt-4o 350–430, mnimi ahead (c > b,
+p < 0.05), < 460; Mem0 OSS v3 ≤ 400, knowledge-update its weakest category relative to mnimi, mnimi ahead (p < 0.05);
+A15's cache-served store never imports `llama_cpp.Llama`.
+
+**Budget.** R4: the cap becomes 113.85. Every paid step is projected and gated; Mem0's own LLM spend is outside the
+ledger and hand-recorded (`cost.competitor_llm_usd`).
