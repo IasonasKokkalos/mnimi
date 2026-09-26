@@ -13,3 +13,5 @@ One row per run, including failed and aborted ones. Append-only: only the `statu
 | `mnimi__500q_gpt4o_p6turns` | 2026-09-24 | mnimi | gpt-4o-2024-08-06 | 500 | 424/500 | Y | published | none |
 | `mnimi__500q_gpt4o_p6combo` | 2026-09-24 | mnimi | gpt-4o-2024-08-06 | 500 | 426/500 | Y | published | none |
 | `mnimi__500q_gpt4o_p6time_drift_2026-09-26` | 2026-09-26 | mnimi | gpt-4o-2024-08-06 | 500 | 429/500 | Y | published | none |
+| `p8_lock_smoke` | 2026-09-26 | no_memory | gpt-4o-2024-08-06 | 1 | pending | N | incomplete | none |
+| `p8_lock_smoke2` | 2026-09-26 | no_memory | gpt-4o-2024-08-06 | 1 | pending | N | incomplete | none |

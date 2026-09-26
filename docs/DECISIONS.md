@@ -3889,3 +3889,15 @@ A15's cache-served store never imports `llama_cpp.Llama`.
 
 **Budget.** R4: the cap becomes 113.85. Every paid step is projected and gated; Mem0's own LLM spend is outside the
 ledger and hand-recorded (`cost.competitor_llm_usd`).
+
+## The lockfile lands: `uv.lock` under the run environment's constraints (2026-09-27, v2.29.0)
+
+PLAN A7 / PHASE8 D7. `[tool.uv] constraint-dependencies` pins the transports every recorded run used (`openai==2.44.0`,
+`ollama==0.6.2`, `python-dotenv==1.2.2`, `huggingface-hub==1.24.0`, read from the system Python on 2026-09-26); the
+four exact numeric pins already lived in the extras. `uv lock` resolves 42 packages (`llama-cpp-python==0.3.35`
+included); `uv.lock`'s sha256 (`bcac45de…` at v2.29.0 — the lock records the project version, so every version bump re-runs
+`uv lock`) is the manifest's `environment.lockfile_hash` with `lockfile_source: "uv.lock"` (schema /2), which the
+one-question smokes `runs/p8_lock_smoke` and `runs/p8_lock_smoke2` ($0.0011 each) confirmed. CI
+gains a second job installing from the lockfile (`uv sync --locked --extra dev`). One consequence: `requires-python`
+moves from `>=3.10` to `>=3.11` — `numpy==2.4.6` never supported 3.10, so the old floor was a claim no install could
+meet; CI has tested 3.11 and 3.12 throughout. The README's "≥ 3.10" is corrected with the release README.

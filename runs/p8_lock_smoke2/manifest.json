@@ -1,0 +1,159 @@
+{
+  "arm": {
+    "config": {
+      "active_only": null,
+      "answer_reserve": 800,
+      "chunk_unit": "none",
+      "conflict_resolution": null,
+      "consolidate": false,
+      "dedup": {
+        "on": false
+      },
+      "embed_template_hash": "none",
+      "embedder": "none",
+      "embedder_dim": null,
+      "embedder_revision": "none",
+      "extractor_model": null,
+      "fact_embed_template_hash": null,
+      "query_instruction": null,
+      "ranking": null,
+      "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+      "render_unit": null,
+      "salience_weights": null,
+      "token_budget": 128000,
+      "top_k": 0
+    },
+    "config_committed": null,
+    "config_file": null,
+    "config_sha256": null,
+    "pins_hash": "63610fc26d0e8b96733bc2ac9b71dc88b0cd2434767cb505ef1891ae89e99539",
+    "system": "no_memory"
+  },
+  "claim": "none",
+  "code": {
+    "clean_tree": false,
+    "commit": "0012a101c4abc6dbd00ba8ada0c88c73151d759e",
+    "git_status_porcelain": "M .github/workflows/ci.yml\n M README.md\n M docs/DECISIONS.md\n M pyproject.toml\n M runs/INDEX.md\n?? runs/p8_lock_smoke/\n?? uv.lock",
+    "harness_version": {
+      "artifact_schema": "mnimi-eval-artifact/11",
+      "manifest_schema": "mnimi-run-manifest/2"
+    },
+    "library_digest": "172457a3fd7da3bd2fdaa0cce880d30933fa84b830e6f97a205939299797c259",
+    "mnimi_version": "2.29.0",
+    "nearest_tag": "v2.14.0",
+    "src_mnimi_tree": "401be3ee3eade8e95d838dde5d447f782edc6119",
+    "tag": null
+  },
+  "cost": {
+    "competitor_llm_usd": null,
+    "extractor_cache_misses": 0,
+    "extractor_rounds_sent": 0,
+    "gpu_rental_h": null,
+    "gpu_rental_usd": null,
+    "ingest_s": 0.0,
+    "judge_completion_tokens": null,
+    "judge_prompt_tokens": null,
+    "judge_usd": null,
+    "judge_wall_s": null,
+    "llm_calls_at_write": 0,
+    "predict_wall_s": 5.3,
+    "prefilter_drops": 0,
+    "reader_completion_tokens": 81,
+    "reader_prompt_tokens": 132,
+    "reader_usd": 0.00114,
+    "tokens_in": null,
+    "tokens_out": null,
+    "wall_clock_s": null
+  },
+  "created_utc": "2026-09-26T22:48:10Z",
+  "dataset": {
+    "file": ".data\\longmemeval_s_cleaned.json",
+    "n": 1,
+    "name": "longmemeval_s_cleaned.json",
+    "question_ids_sha256": "b0b929063b72f1ad5e83b6e409b8dafa4b934bd68dc2e7502a24efe7615aa691",
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "environment": {
+    "daemon_flags": {
+      "daemon": "none (API family: a dated snapshot served by the provider)"
+    },
+    "hardware": {
+      "cpu_count": 16,
+      "cuda_version": "13.2",
+      "driver_version": "595.95",
+      "gpu_model": "NVIDIA RTX 1000 Ada Generation Laptop GPU",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"
+    },
+    "installed_digest": "b9d21de609faac1946925a4d85366384f349d82bcfc2b74ccfecd40109f0dc9c",
+    "lockfile_hash": "bcac45de0bc82bc37d1e55e25511cd6be0ac9702b10ed97fe49a32c92ceadd40",
+    "lockfile_source": "uv.lock",
+    "python": "3.14.4"
+  },
+  "hashes": {
+    "conflict_rules_hash": null,
+    "decay_rules_hash": null,
+    "embed_template_hash": null,
+    "extractor_decode_hash": null,
+    "extractor_prompt_hash": null,
+    "fact_embed_template_hash": null,
+    "negation_lexicon_hash": null,
+    "prefilter_lexicon_hash": null,
+    "reader_prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+    "render_unit_template_hash": null,
+    "resolver_version": null,
+    "temporal_rules_hash": null
+  },
+  "judge": {
+    "max_tokens": null,
+    "model": null,
+    "prompt_hash": null,
+    "prompt_id": null,
+    "prompt_source": null,
+    "replay_count": null,
+    "temperature": null
+  },
+  "manifest_schema": "mnimi-run-manifest/2",
+  "missing_fields": [
+    "judge.model",
+    "judge.prompt_source",
+    "judge.replay_count",
+    "cost.judge_usd",
+    "cost.tokens_in",
+    "cost.tokens_out",
+    "cost.wall_clock_s"
+  ],
+  "outputs": {
+    "pins": "pins.json",
+    "predictions": "predictions.jsonl"
+  },
+  "provisional_reasons": [
+    "harness tree was dirty at run time"
+  ],
+  "purpose": "Phase 8 Task 10: lockfile hash smoke, after the version bump (D7)",
+  "reader": {
+    "max_tokens": 800,
+    "num_ctx": 128000,
+    "prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "prompt_id": "mnimi-con-v1",
+    "requested_model": "gpt-4o-2024-08-06",
+    "seed": 0,
+    "served_fingerprints": {
+      "fp_38255cd5f6": 1
+    },
+    "served_models": {
+      "gpt-4o-2024-08-06": 1
+    },
+    "temperature": 0,
+    "transport": "openai",
+    "transport_version": "gpt-4o-2024-08-06"
+  },
+  "rule_commit": "8f6192b",
+  "run_id": "p8_lock_smoke2",
+  "status": "incomplete",
+  "unknown_fields": [],
+  "updated_utc": "2026-09-26T22:48:10Z"
+}

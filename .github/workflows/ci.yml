@@ -30,3 +30,19 @@ jobs:
 
       - name: Pytest
         run: pytest -q
+
+  # The same suite installed from the lockfile (PHASE8 D7, PLAN A7): proves
+  # `uv.lock` resolves and that a reader of the paper can `uv sync --locked`.
+  locked:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install from the lockfile (dev extra only)
+        run: uv sync --locked --extra dev
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Pytest
+        run: uv run pytest -q

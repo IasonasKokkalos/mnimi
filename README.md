@@ -262,6 +262,9 @@ touches an API; the gpt-4o one reads and judges over the OpenAI API.
 
 ```bash
 pip install -e ".[eval]"
+# or the exact eval stack every recorded run used, from the lockfile (uv.lock;
+# its sha256 is every manifest's environment.lockfile_hash):
+#   uv sync --locked --extra eval
 ollama pull qwen2.5:1.5b-instruct-q4_0     # the pinned reader
 echo 'OPENAI_API_KEY=sk-...' >> .env       # judge only (gpt-4o-2024-08-06)
 

@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnimi"
-version = "2.28.0"
+version = "2.29.0"
 description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "mnimi authors" }]
@@ -88,6 +88,19 @@ Homepage = "https://github.com/mnimi/mnimi"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnimi"]
+
+[tool.uv]
+# The run environment's versions of the eval stack (PHASE8 D7, PLAN A7): every
+# recorded run was produced with these (read from the system Python on
+# 2026-09-26). The four exact pins in the extras already fix the numeric path;
+# these fix the transports, so `uv.lock` reproduces the environment and its
+# sha256 is the manifest's `environment.lockfile_hash`.
+constraint-dependencies = [
+    "openai==2.44.0",
+    "ollama==0.6.2",
+    "python-dotenv==1.2.2",
+    "huggingface-hub==1.24.0",
+]
 
 [tool.ruff]
 line-length = 100
