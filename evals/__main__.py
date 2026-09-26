@@ -648,6 +648,13 @@ def _main(argv: list[str] | None = None) -> int:
         "cannot modify it.",
     )
     parser.add_argument(
+        "--judge-cache",
+        choices=("on", "off"),
+        default="on",
+        help="off: every graded row is a fresh judge call and the verdict cache is neither read "
+        "nor written (C2 replays; implied by --audit-out, PHASE8 D3)",
+    )
+    parser.add_argument(
         "--audit-out",
         default=None,
         help="with --predictions: write the Tier 1 audit record here (never beside the artifact)",
@@ -1163,8 +1170,13 @@ def _main(argv: list[str] | None = None) -> int:
     # Without it, changing the judge model, prompt or decode config replays
     # stale verdicts and reports "nothing changed" — a false null, not a cheap
     # re-grade.
+    # ``--judge-cache off`` and every audit (PHASE8 D3): fresh calls only, the
+    # file untouched, so a replay can disagree with the grading before it and a
+    # second audit in one clone never replays the first audit's re-grades.
+    cache_enabled = args.judge_cache == "on" and not auditing
     cache = JudgeCache(
         judge_fingerprint=f"{judge_info['judge_model']}:{judge_info['judge_prompt_hash']}",
+        enabled=cache_enabled,
     )
 
     def judge_progress(done: int, total: int, p, correct: bool) -> None:
@@ -1254,6 +1266,7 @@ def _main(argv: list[str] | None = None) -> int:
         "reader_mean_prompt_tokens": round(sum(fed) / len(fed)) if fed else None,
         "truncated": truncated_n,
         "tokens_dropped_estimated": dropped_total,
+        "judge_cache": "on" if cache_enabled else "off",
         "judge_cache_hits": getattr(cache, "hits", 0),
         "judge_cache_misses": getattr(cache, "misses", 0),
         "abstention_questions": sum(1 for r in results if r.is_abstention),

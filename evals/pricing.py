@@ -42,7 +42,9 @@ BATCH_DISCOUNT = 0.5
 #: spent by 2026-09-22); on 2026-09-22 the maintainer made $50 available for
 #: what follows ("update the budget to 50 dollars"), so the cap is the spend
 #: at that moment plus fifty: the ledger keeps every line, nothing is reset.
-API_BUDGET_USD = 83.85
+#: On 2026-09-26 (PHASE8 R4, the maintainer's blanket allowance for Blocks 1-8)
+#: a further $30 for the paper's harness: 83.85 + 30 = 113.85. Same rule, no reset.
+API_BUDGET_USD = 113.85
 #: Judge call estimate: question + gold + a ~270-token answer + template.
 JUDGE_PROMPT_TOKENS_EST = 600
 JUDGE_COMPLETION_TOKENS_EST = 10

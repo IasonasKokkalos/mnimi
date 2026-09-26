@@ -242,10 +242,13 @@ class _FakeOpenAI:
     def __init__(self):
         outer = self
         self.calls = 0
+        self.judge_calls = 0
 
         class _Completions:
             def create(self, **kwargs):
                 outer.calls += 1
+                if kwargs.get("max_tokens") == 10:  # the judge's JUDGE_MAX_TOKENS
+                    outer.judge_calls += 1
                 text = kwargs["messages"][-1]["content"]
                 content = "yes" if "Luna" in text and "Question: What" not in text else "Luna."
                 return SimpleNamespace(
@@ -278,8 +281,9 @@ def wired(monkeypatch, tmp_path):
     monkeypatch.setattr(runner_mod, "load", lambda *a, **k: [_question()])
 
     class TmpCache(judge_cache.JudgeCache):
-        def __init__(self, path=None, *, judge_fingerprint=""):
-            super().__init__(str(tmp_path / "verdicts.json"), judge_fingerprint=judge_fingerprint)
+        def __init__(self, path=None, *, judge_fingerprint="", enabled=True):
+            super().__init__(str(tmp_path / "verdicts.json"), judge_fingerprint=judge_fingerprint,
+                             enabled=enabled)
 
     monkeypatch.setattr(judge_cache, "JudgeCache", TmpCache)
     return client
@@ -354,7 +358,7 @@ def test_an_audit_records_its_spend_and_writes_nothing_beside_the_artifact(wired
     assert rc == 0, capsys.readouterr().err
     assert {p.name: p.read_bytes() for p in run_dir.iterdir() if p.is_file()} == before
     record = json.loads(out.read_text(encoding="utf-8"))
-    assert record["analysis_schema"] == "mnimi-tier1-audit/1"
+    assert record["analysis_schema"] == "mnimi-tier1-audit/2"
     assert record["recomputed"] == record["published"] and record["verdict"] == "MATCHES"
     entries = [
         json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -581,3 +585,29 @@ def test_a_replay_is_published_beside_the_run_and_nothing_else_moves(wired, tmp_
     assert m["judge"]["model"] == "gpt-4o-2024-08-06" and len(m["judge"]["replays"]) == 1
     with pytest.raises(FileExistsError):
         publish.promote_replay(run_dir, "judge_replay_1.json", tmp_path / "published")
+
+def test_judge_cache_off_reads_and_writes_nothing(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    cache_file = tmp_path / "verdicts.json"
+    before = cache_file.read_bytes()
+    calls_before = wired.judge_calls
+    assert _run(run_dir, "--stage", "judge", "--judge-cache", "off",
+                "--purpose", "replay, cache off") == 0, capsys.readouterr().err
+    assert cache_file.read_bytes() == before, "an off cache never writes"
+    assert wired.judge_calls == calls_before + 1, "an off cache never serves a hit"
+    replay = json.loads((run_dir / "judge_replay_1.json").read_text(encoding="utf-8"))
+    assert replay["run"]["judge_cache"] == "off"
+
+
+def test_an_audit_implies_the_cache_off(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    calls_before = wired.judge_calls
+    out = tmp_path / "audit.json"
+    assert evals_main.main(["--stage", "judge", "--predictions", str(run_dir / "predictions.jsonl"),
+                            "--audit-out", str(out), "--purpose", "audit"]) == 0, \
+        capsys.readouterr().err
+    assert wired.judge_calls == calls_before + 1
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert record["analysis_schema"] == "mnimi-tier1-audit/2" and record["judge_cache"] == "off"

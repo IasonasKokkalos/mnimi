@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import artifacts
 
-AUDIT_SCHEMA = "mnimi-tier1-audit/1"
+AUDIT_SCHEMA = "mnimi-tier1-audit/2"
 
 
 def committed_verdicts(predictions_path: Path) -> dict[str, bool]:
@@ -95,6 +95,8 @@ def audit_record(
         "judge": judge_info,
         "judge_hash": artifacts.fingerprint(artifacts.canonical(judge_info)),
         "cache": {"hits": cache_hits, "misses": cache_misses},
+        # Since /2 (PHASE8 D3) an audit never reads or writes the verdict cache.
+        "judge_cache": "off",
         "recomputed": {"correct": sum(regraded.values()), "n": len(regraded)},
         "published": None if published is None else {"correct": published[0], "n": published[1]},
         "flips": flips(committed_verdicts(predictions_path), regraded),

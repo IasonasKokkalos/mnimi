@@ -28,13 +28,19 @@ DEFAULT_PATH = ".cache/judge_verdicts.json"
 class JudgeCache:
     """Flat JSON verdict cache. Counts hits/misses for run reporting."""
 
-    def __init__(self, path: str = DEFAULT_PATH, *, judge_fingerprint: str = "") -> None:
+    def __init__(
+        self, path: str = DEFAULT_PATH, *, judge_fingerprint: str = "", enabled: bool = True
+    ) -> None:
         self.path = Path(path)
         self.judge_fingerprint = judge_fingerprint
+        # ``enabled=False`` (``--judge-cache off``, PHASE8 D3): every graded row is
+        # a fresh call and the file is neither read nor written; ``misses`` still
+        # counts the rows, so the run's report reads the same way.
+        self.enabled = enabled
         self.hits = 0
         self.misses = 0
         self._data: dict[str, bool] = {}
-        if self.path.exists():
+        if self.enabled and self.path.exists():
             try:
                 self._data = json.loads(self.path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
@@ -48,6 +54,9 @@ class JudgeCache:
 
     def get(self, question_id: str, predicted: str) -> bool | None:
         """Return the cached verdict, or ``None`` on miss. Records the outcome."""
+        if not self.enabled:
+            self.misses += 1
+            return None
         k = self.key(question_id, predicted)
         # ``in`` not truthiness: a cached ``False`` is a hit, not a miss.
         if k in self._data:
@@ -58,6 +67,8 @@ class JudgeCache:
 
     def set(self, question_id: str, predicted: str, verdict: bool) -> None:
         """Store a verdict and write through to disk immediately."""
+        if not self.enabled:
+            return
         self._data[self.key(question_id, predicted)] = verdict
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
