@@ -406,6 +406,55 @@ def test_pins_only_writes_the_header_and_nothing_else(wired, tmp_path, capsys):
     assert _run(tmp_path / "runs" / "x", "--stage", "all", "--pins-only") == 2
 
 
+def test_a_failed_pins_only_preflight_registers_nothing(wired, tmp_path, capsys, monkeypatch):
+    run_dir = tmp_path / "runs" / "pre"
+    monkeypatch.setattr(evals_main, "_preflight_snapshot", lambda client, model: "snapshot refused")
+    assert _run(run_dir, "--stage", "predict", "--pins-only") == 2
+
+    def no_cuda(*args, **kwargs):
+        raise RuntimeError("CUDA is not on PATH")
+
+    monkeypatch.setattr(evals_main, "_preflight_snapshot", lambda client, model: None)
+    monkeypatch.setattr(evals_main, "build_system", no_cuda)
+    with pytest.raises(RuntimeError):
+        _run(run_dir, "--stage", "predict", "--pins-only")
+    assert manifest.index_rows(run_dir.parent) == [], "a pre-flight is not a run"
+    assert not run_dir.exists()
+
+
+@pytest.mark.parametrize("mode", ["audit", "judge"])
+def test_a_grading_that_dies_after_paid_calls_still_books_them(
+    wired, tmp_path, capsys, monkeypatch, mode
+):
+    from evals import runner as runner_mod
+
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "all") == 0, capsys.readouterr().err
+    (tmp_path / "verdicts.json").unlink()  # a cold cache: the re-grade's call is billable
+    ledger = tmp_path / "ledger.jsonl"
+    lines_before = len(ledger.read_text(encoding="utf-8").splitlines())
+    real = runner_mod.judge_predictions
+
+    def dies_after_grading(*args, **kwargs):
+        real(*args, **kwargs)
+        raise RuntimeError("connection reset after the paid calls")
+
+    monkeypatch.setattr(runner_mod, "judge_predictions", dies_after_grading)
+    if mode == "audit":
+        argv = ["--stage", "judge", "--predictions", str(run_dir / "predictions.jsonl"),
+                "--audit-out", str(tmp_path / "audit.json")]
+    else:
+        argv = ["--stage", "judge", "--run-dir", str(run_dir), "--purpose", "re-grade"]
+    with pytest.raises(RuntimeError):
+        evals_main.main(argv)
+    entries = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    assert len(entries) == lines_before + 1, "the paid calls are booked before the error leaves"
+    assert entries[-1]["stage"] == mode and entries[-1]["status"] == "failed"
+    assert entries[-1]["judge_calls"] == 1 and entries[-1]["actual_usd"] > 0
+
+
 def test_a_claim_needs_its_committed_rule(wired, tmp_path, capsys):
     run_dir = tmp_path / "runs" / "r"
     assert _run(run_dir, "--stage", "predict", "--claim", "C1") == 2

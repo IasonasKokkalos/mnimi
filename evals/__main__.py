@@ -822,9 +822,10 @@ def _main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-    if not auditing:
+    if not auditing and not args.pins_only:
         # Registered only once the run may proceed: a refused overwrite or a
-        # missing rule commit is not an aborted run of the directory it named.
+        # missing rule commit is not an aborted run of the directory it named,
+        # and a --pins-only pre-flight is not a run at all, failed or not.
         _run_context.update(
             directory=str(directory), purpose=args.purpose, claim=args.claim,
             rule_commit=args.rule_commit, porcelain=porcelain,
@@ -1167,13 +1168,31 @@ def _main(argv: list[str] | None = None) -> int:
     replaying = not auditing and not do_predict and (directory / "results.json").exists()
     judge_started = time.perf_counter()
     judge = Judge(args.judge_model, client=judge_client, cache=cache)
-    results = judge_predictions(
-        predictions,
-        judge_model=args.judge_model,
-        judge_cache=cache,
-        progress=judge_progress,
-        judge=judge,
-    )
+    try:
+        results = judge_predictions(
+            predictions,
+            judge_model=args.judge_model,
+            judge_cache=cache,
+            progress=judge_progress,
+            judge=judge,
+        )
+    except BaseException:
+        # Completed calls were billed whatever happens next: book them (status
+        # "failed") before the error leaves, so the ledger the budget gate reads
+        # never misses paid work (Phase 7 Review Focus 2, the failure path).
+        if judge.calls:
+            ledger_entry.update(
+                stage="audit" if auditing else ledger_entry["stage"],
+                status="failed",
+                judge_calls=judge.calls,
+                judge_prompt_tokens=judge.prompt_tokens,
+                judge_completion_tokens=judge.completion_tokens,
+                judge_actual_usd=pricing.estimate_usd(
+                    args.judge_model, judge.prompt_tokens, judge.completion_tokens
+                ),
+            )
+            _record_spend(ledger_entry, budget_usd)
+        raise
     elapsed = time.perf_counter() - started
     judge_usd_actual = pricing.estimate_usd(
         args.judge_model, judge.prompt_tokens, judge.completion_tokens
