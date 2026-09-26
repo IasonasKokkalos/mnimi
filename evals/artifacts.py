@@ -71,6 +71,11 @@ def harness_git_sha() -> str | None:
     return f"{sha}-dirty" if _git("status", "--porcelain") else sha
 
 
+def harness_git_tag() -> str | None:
+    """The annotated or lightweight tag exactly on HEAD, or ``None`` (PHASE8 D6)."""
+    return _git("describe", "--tags", "--exact-match", "HEAD")
+
+
 def default_serve_log() -> str | None:
     """Best guess at the Ollama server log, if one is being written."""
     explicit = os.environ.get("OLLAMA_SERVE_LOG")

@@ -15,7 +15,7 @@ from pathlib import Path
 # Stdlib-only, so importing these here keeps `python -m evals --help` from
 # pulling in ollama/openai/huggingface_hub (those stay lazy inside main()).
 # dataset's own heavy dep (huggingface_hub) is lazy inside download().
-from . import artifacts, knobs, pricing
+from . import artifacts, freeze, knobs, pricing
 from . import audit as audit_mod
 from . import manifest as manifest_mod
 from .dataset import DEFAULT_SAMPLE_SEED, SAMPLE_FILE_ORDER, SAMPLE_STRATIFIED
@@ -648,6 +648,12 @@ def _main(argv: list[str] | None = None) -> int:
         "cannot modify it.",
     )
     parser.add_argument(
+        "--allow-unfrozen",
+        action="store_true",
+        help="run a --limit >= 100 predict on an unfrozen library or a dirty tree; the run is "
+        "PROVISIONAL (PHASE8 D4)",
+    )
+    parser.add_argument(
         "--judge-cache",
         choices=("on", "off"),
         default="on",
@@ -812,6 +818,23 @@ def _main(argv: list[str] | None = None) -> int:
             )
         else:
             print("clean tree: git status --porcelain is empty", file=sys.stderr)
+        # A run of record needs the paper freeze and a clean tree (PHASE8 D4).
+        # Below --limit 100 the PROVISIONAL-and-continue path stays for smoke runs.
+        _UNFROZEN_REASONS.clear()
+        if args.limit >= 100 and not args.pins_only:
+            reasons = freeze.check()
+            if reasons and not args.allow_unfrozen:
+                print(
+                    "REFUSED: a run of record (--limit >= 100) needs the paper freeze and a "
+                    "clean tree (PHASE8 D4):\n  " + "\n  ".join(reasons)
+                    + "\n  --allow-unfrozen runs it as PROVISIONAL.",
+                    file=sys.stderr,
+                )
+                return 2
+            if reasons:
+                _UNFROZEN_REASONS.append(
+                    "run allowed unfrozen: " + "; ".join(r.splitlines()[0] for r in reasons)
+                )
         held_names = ("predictions.jsonl", "results.json", manifest_mod.MANIFEST_FILE)
         if args.pins_only:
             held_names += ("pins.json",)
@@ -1991,11 +2014,16 @@ def _print_judge(judge: dict) -> None:
     print("-------------", file=sys.stderr)
 
 
+#: Reasons the freeze guard adds when ``--allow-unfrozen`` let a run of record
+#: through (PHASE8 D4); reset at every ``_main`` so one process's runs stay apart.
+_UNFROZEN_REASONS: list[str] = []
+
+
 def _provisional_reasons(pins: dict) -> list[str]:
     """Why this artifact is not yet a publishable number. Empty list = it is."""
     from .runner import READER_CACHE_RAM, READER_NUM_BATCH, READER_NUM_GPU
 
-    reasons = []
+    reasons = list(_UNFROZEN_REASONS)
     # The daemon and decode-pin checks describe the Ollama family; on the API
     # family those pins are None by construction and carry no meaning.
     is_api = pins.get("reader_transport") == "openai"

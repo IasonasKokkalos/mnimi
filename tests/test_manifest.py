@@ -611,3 +611,27 @@ def test_an_audit_implies_the_cache_off(wired, tmp_path, capsys):
     assert wired.judge_calls == calls_before + 1
     record = json.loads(out.read_text(encoding="utf-8"))
     assert record["analysis_schema"] == "mnimi-tier1-audit/2" and record["judge_cache"] == "off"
+
+def test_the_guard_refuses_a_changed_library_and_a_dirty_tree(wired, tmp_path, capsys, monkeypatch):
+    from evals import freeze
+    monkeypatch.setattr(
+        freeze, "check",
+        lambda root=None: ["src/mnimi differs from the paper freeze (v2.14.0): a != b"],
+    )
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "predict", "--limit", "100") == 2
+    err = capsys.readouterr().err
+    assert "paper freeze" in err and "--allow-unfrozen" in err
+    assert not (run_dir / "pins.json").exists()
+    assert _run(run_dir, "--stage", "predict", "--limit", "100", "--allow-unfrozen") == 0, \
+        capsys.readouterr().err
+    m = manifest.read_optional(run_dir)
+    assert "run allowed unfrozen" in " ".join(m["provisional_reasons"])
+    assert m["status"] == "incomplete", "a predict-only run is judged later; provisional then"
+
+
+def test_the_guard_ignores_line_endings():
+    # CRLF == LF is pinned in test_paper_freeze; this names the guard's digest.
+    from evals.freeze import library_digest
+
+    assert len(library_digest()) == 64
