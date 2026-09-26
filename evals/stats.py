@@ -435,7 +435,37 @@ def pair_record(
     }
 
 
-def save_pair(record: dict, out_dir: str | Path = "analyses", suffix: str = "") -> Path:
+def tost(b: int, c: int, n: int, margin: float) -> dict:
+    """Two one-sided tests of equivalence for a paired difference in proportions (PHASE8 D8).
+
+    ``delta = (b - c) / n`` with the Wald standard error of a paired difference,
+    ``sqrt(b + c - (b - c)^2 / n) / n``; each one-sided z-test is against the
+    margin, and ``p_tost`` is the larger p. Defined for a *written* equivalence
+    claim only (PLAN G2); nothing in the harness calls it otherwise.
+    """
+    delta = (b - c) / n
+    se = sqrt(max(b + c - (b - c) ** 2 / n, 0.0)) / n
+    if se == 0.0:
+        p_lower = p_upper = 0.0 if abs(delta) < margin else 1.0
+    else:
+        z_lower = (delta + margin) / se
+        z_upper = (margin - delta) / se
+        p_lower = 1.0 - NormalDist().cdf(z_lower)
+        p_upper = 1.0 - NormalDist().cdf(z_upper)
+    p_tost = max(p_lower, p_upper)
+    return {"delta": delta, "se": se, "p_lower": p_lower, "p_upper": p_upper,
+            "p_tost": p_tost, "equivalent": p_tost < 0.05}
+
+
+def save_pair(
+    record: dict, out_dir: str | Path = "analyses", suffix: str = "",
+    family: str | None = None, p_holm: float | None = None,
+) -> Path:
+    """Write one pair record; ``family`` and ``p_holm`` (PHASE8 D8) are stored when given."""
+    if family is not None:
+        record = {**record, "family": family}
+    if p_holm is not None:
+        record = {**record, "p_holm": p_holm}
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{record['first']['run_id']}__vs__{record['second']['run_id']}{suffix}.json"
@@ -566,6 +596,7 @@ def main(argv: list[str] | None = None) -> int:
     save = True
     out_dir = "analyses"
     judge_model: str | None = None
+    family: str | None = None
     dirs: list[str] = []
     it = iter(argv)
     for arg in it:
@@ -575,11 +606,13 @@ def main(argv: list[str] | None = None) -> int:
             out_dir = next(it, out_dir)
         elif arg == "--judge":
             judge_model = next(it, None)
+        elif arg == "--family":
+            family = next(it, None)
         else:
             dirs.append(arg)
     if not dirs:
         print("usage: python -m evals.stats <run_dir> [<run_dir> ...] [--no-save] [--out DIR] "
-              "[--judge <model>]", file=sys.stderr)
+              "[--judge <model>] [--family <id>]", file=sys.stderr)
         return 2
     source = None
     if judge_model is not None:
@@ -622,16 +655,27 @@ def main(argv: list[str] | None = None) -> int:
             first, second = label.split(" vs ")
             pairs.append((second, first))
         seen = set()
+        records: dict[tuple[str, str], dict] = {}
         for first, second in pairs:
             if (first, second) in seen or first == second:
                 continue
             seen.add((first, second))
-            record = pair_record(where[first], where[second], arms[first], arms[second],
-                                 source=source)
-            suffix = f"__judge-{judge_model}" if judge_model else ""
-            path = save_pair(record, out_dir, suffix=suffix)
+            records[(first, second)] = pair_record(
+                where[first], where[second], arms[first], arms[second], source=source
+            )
+        # A family is Holm-corrected across every pair saved by this invocation
+        # (PHASE8 D8; PLAN G2's F1/F2/F3); each record carries its own p_holm.
+        corrected = (
+            holm({f"{a}|{b}": r["p_exact_mcnemar"] for (a, b), r in records.items()})
+            if family is not None else {}
+        )
+        suffix = f"__judge-{judge_model}" if judge_model else ""
+        for (first, second), record in records.items():
+            path = save_pair(record, out_dir, suffix=suffix, family=family,
+                             p_holm=corrected.get(f"{first}|{second}"))
+            extra = f" p_holm={corrected[f'{first}|{second}']:.3g}" if family is not None else ""
             print(f"saved {path}: b={record['b_second_wins']} c={record['c_first_wins']} "
-                  f"p={record['p_exact_mcnemar']:.3g}", file=sys.stderr)
+                  f"p={record['p_exact_mcnemar']:.3g}{extra}", file=sys.stderr)
     return 0
 
 

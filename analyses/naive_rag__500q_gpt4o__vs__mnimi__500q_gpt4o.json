@@ -3,8 +3,11 @@
   "b_second_wins": 75,
   "c_first_wins": 26,
   "discordant": 101,
+  "family": "F1",
   "first": {
+    "artifact_schema": "mnimi-eval-artifact/10",
     "correct": 373,
+    "harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
     "n": 500,
     "pins_hash": "049438e5c09cb9c00bf4a612c2118201d3c610c3bd1fef655b5c0542eb6be9a1",
     "run_id": "naive_rag__500q_gpt4o"
@@ -37,10 +40,14 @@
     "gpt4_65aabe59",
     "gpt4_d12ceb0e"
   ],
+  "harness_notes": {},
   "n_pairs": 500,
   "p_exact_mcnemar": 1.1154954264353164e-06,
+  "p_holm": 1.1154954264353164e-06,
   "second": {
+    "artifact_schema": "mnimi-eval-artifact/10",
     "correct": 422,
+    "harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
     "n": 500,
     "pins_hash": "7216d94b6d597b2cd9823e4b3a6381d4ddff348b5d65f02ce66ab9ccb50cf818",
     "run_id": "mnimi__500q_gpt4o"

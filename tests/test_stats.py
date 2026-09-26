@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 from evals import stats
@@ -328,3 +329,32 @@ def test_a_judge_selected_pair_refuses_two_judges(tmp_path, capsys):
     out = str(tmp_path / "o")
     assert stats.main([str(a), str(b), "--judge", "gpt-4.1-2025-04-14", "--out", out]) == 2
     assert "judge_hash" in capsys.readouterr().err
+
+def test_tost_on_a_fixed_vector():
+    r = stats.tost(b=30, c=26, n=500, margin=0.05)
+    assert r["delta"] == pytest.approx(0.008)
+    assert r["se"] == pytest.approx(math.sqrt(56 - 16 / 500) / 500)
+    assert r["p_tost"] == pytest.approx(max(r["p_lower"], r["p_upper"]))
+    assert r["equivalent"] is (r["p_tost"] < 0.05)
+    degenerate = stats.tost(b=0, c=0, n=10, margin=0.1)
+    assert degenerate["se"] == 0.0 and degenerate["equivalent"] is True
+
+
+def test_save_pair_records_family_and_holm(tmp_path):
+    record = {"first": {"run_id": "a"}, "second": {"run_id": "b"}, "p_exact_mcnemar": 0.01}
+    path = stats.save_pair(record, tmp_path, family="F2", p_holm=0.02)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["family"] == "F2" and saved["p_holm"] == 0.02
+
+
+def test_a_family_of_pairs_is_holm_corrected_and_saved(tmp_path):
+    a, b, c = tmp_path / "naive_rag__x", tmp_path / "mnimi__x", tmp_path / "mnimi__y"
+    _arm(a, "naive_rag", {"q1": False, "q2": True, "q3": False},
+         {"q1": False, "q2": True, "q3": False})
+    _arm(b, "mnimi", {"q1": True, "q2": True, "q3": True}, {"q1": True, "q2": True, "q3": True})
+    _arm(c, "mnimi", {"q1": True, "q2": True, "q3": False}, {"q1": True, "q2": True, "q3": False})
+    out = tmp_path / "analyses"
+    assert stats.main([str(a), str(b), str(c), "--family", "F9", "--out", str(out)]) == 0
+    saved = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("*.json"))]
+    assert saved and all(s["family"] == "F9" for s in saved)
+    assert all(s["p_holm"] >= s["p_exact_mcnemar"] for s in saved)
