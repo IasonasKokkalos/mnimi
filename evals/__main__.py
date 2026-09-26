@@ -628,6 +628,12 @@ def _main(argv: list[str] | None = None) -> int:
         "silently (use a fresh --run-dir, or pass this after asking).",
     )
     parser.add_argument(
+        "--pins-only",
+        action="store_true",
+        help="predict-stage pre-flight: build the system and its pins, write pins.json, stop "
+             "before any ingest or billable call",
+    )
+    parser.add_argument(
         "--run-dir",
         default=None,
         help="where staged artifacts live (default runs/<system>__<limit>q). "
@@ -718,6 +724,10 @@ def _main(argv: list[str] | None = None) -> int:
 
     do_predict = args.stage in {"all", "predict"} and not auditing
     do_judge = args.stage in {"all", "judge"} or auditing
+    if args.pins_only and (auditing or args.stage != "predict"):
+        print("ERROR: --pins-only is a predict-stage pre-flight: --stage predict, "
+              "no --predictions.", file=sys.stderr)
+        return 2
     if do_predict and not args.system:
         print(
             f"ERROR: --system is required for the predict stage (choices: "
@@ -795,16 +805,16 @@ def _main(argv: list[str] | None = None) -> int:
             )
         else:
             print("clean tree: git status --porcelain is empty", file=sys.stderr)
-        held = [
-            name for name in ("predictions.jsonl", "results.json", manifest_mod.MANIFEST_FILE)
-            if (directory / name).exists()
-        ]
+        held_names = ("predictions.jsonl", "results.json", manifest_mod.MANIFEST_FILE)
+        if args.pins_only:
+            held_names += ("pins.json",)
+        held = [name for name in held_names if (directory / name).exists()]
         batch_resume = (
             args.batch
             and (directory / artifacts.BATCH_STATE_FILE).exists()
             and not (directory / "predictions.jsonl").exists()
         )
-        if held and not batch_resume and not args.overwrite_run_dir:
+        if held and (args.pins_only or (not batch_resume and not args.overwrite_run_dir)):
             print(
                 f"ERROR: {directory} already holds a run ({', '.join(held)}). A run directory "
                 "is never overwritten: choose another --run-dir, or pass --overwrite-run-dir "
@@ -969,6 +979,11 @@ def _main(argv: list[str] | None = None) -> int:
             **system.retrieval_pins(),
         )
         _print_pins(pins, declared_ctx)
+        if args.pins_only:
+            artifacts.write_pins(directory, pins)
+            print(f"--pins-only: wrote {directory / 'pins.json'}; nothing ingested, no billable "
+                  "call, no ledger line, no registry row", file=sys.stderr)
+            return 0
 
         def predict_progress(done: int, total: int, q, truncated: bool) -> None:
             mark = "TRUNC" if truncated else "  ok "

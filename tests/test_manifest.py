@@ -393,6 +393,19 @@ def test_a_fresh_regrade_that_disagrees_is_reported_as_the_judges_flips(wired, t
     assert "instrument error" in capsys.readouterr().err
 
 
+def test_pins_only_writes_the_header_and_nothing_else(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "pre"
+    assert _run(run_dir, "--stage", "predict", "--pins-only") == 0, capsys.readouterr().err
+    assert sorted(p.name for p in run_dir.iterdir()) == ["pins.json"]
+    assert wired.calls == 0, "no reader or judge completion"
+    assert not (tmp_path / "ledger.jsonl").exists()
+    assert manifest.index_rows(run_dir.parent) == []
+    assert _run(run_dir, "--stage", "predict", "--pins-only") == 2, (
+        "a pins-only dir is never overwritten"
+    )
+    assert _run(tmp_path / "runs" / "x", "--stage", "all", "--pins-only") == 2
+
+
 def test_a_claim_needs_its_committed_rule(wired, tmp_path, capsys):
     run_dir = tmp_path / "runs" / "r"
     assert _run(run_dir, "--stage", "predict", "--claim", "C1") == 2
