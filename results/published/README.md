@@ -456,6 +456,52 @@ replication, never "+4 points". The gpt-4o family's Tier 2 is "score reproducibl
 flips; text not reproducible", and the judge is the reader's own snapshot (see the provenance
 row), so no absolute difference of a few points is interpretable on its own; the paired rows are.
 
+### Phase 7: the drift pair of the shipped configuration, n=500 (2026-09-26)
+
+Pre-registered as P2 in `docs/DECISIONS.md` "Phase 7 pre-registration: what the paper needs from the
+harness" (2026-09-26, `82bcd35`): one n=500 predict of the shipped configuration (L1 alone) with
+`mnimi__500q_gpt4o_p6time`'s exact flags at a later commit, judged, and read against the published
+`p6time` artifact as a drift pair. Every value is copied from the artifacts or printed by
+`python -m evals.drift` and `python -m evals.stats` over these two directories (the drift report and
+the pair are saved under `analyses/`).
+
+**Provenance:**
+
+| field | value |
+| --- | --- |
+| date | 2026-09-26: predict 11:32:57 → 18:46 UTC (the 500 stores built until 17:19, across a laptop sleep, so the recorded `ingest_s` / `predict_wall_s` overstate compute; then the batch reader); judge 18:48:12 → 18:50:00 UTC |
+| harness commit | `685e16b` (v2.18.0), **clean tree**, `feature/phase7`; the reference ran at `f0a7de3` (v2.8.0) — the commit is reported, never refused. Between the two, `src/mnimi` differs only in `config.py`'s `time_weight` default (0.0 → 0.05) and docstrings, which the flag overrides |
+| pins | a $0 `--pins-only` pre-flight at `685e16b` against the published `p6time` pins: `differ: []`, `only one side: []`, `harness_git_sha` reported, `mnimi-eval-artifact/11` on both; `pins_hash` `4e46197a019b…` (the reference's `c7ebab0b143c…` differs by the commit alone) |
+| `provisional` / manifest | `[]`; `manifest.json` `status: complete` → published, `missing_fields: []`, `purpose` set, `claim none`, `rule_commit 82bcd35` (the Phase 7 pre-registration) |
+| reader / judge | `openai` — `gpt-4o-2024-08-06` for both, temperature 0, `seed=0`, `max_tokens=800`, `num_ctx=128000`; judge `longmemeval-paper-v3`, `max_tokens=10` — one snapshot reads and grades, as in every gpt-4o arm |
+| how it was served | Batch API under the 90,000 enqueued-token cap: 42 sub-batches, 500/500 `completed`, 0 failed, 0 sync fallbacks; projected $6.0224 upper bound (identical to the reference's projection: ~3,217,932 input tokens) |
+| configuration | `--system mnimi --limit 500 --reader-transport openai --batch --extractor qwen3 --active-only on --ranking score --consolidate off --render-unit round+facts --time-weight 0.05`; the extraction cache `e15153f838b8…` (95,846 rows), `llm_calls_at_write: 0`; `resolver_version v2`, `temporal_rules_hash 7803a1a3…`, `render_unit_template_hash 2aab8f27…` |
+| the job | `runs/p7_drift.sh` (predict, then judge). The predict process wrote every artifact and then aborted in llama-cpp's CUDA teardown at interpreter exit (`ggml-cuda.cu:106: CUDA error`, exit 127 — most likely the sleep had invalidated the idle extractor's CUDA context; every round came from the cache), so the chained judge stage was started by hand with the script's exact command at the same commit |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=500 |
+| dollars | $4.09 (reader 3.9442, judge 0.1408: 352 of the 500 verdicts came from the cache); programme $53.26 of $83.85 |
+
+| run | configuration | score | 95% CI | mean fed tokens | texts changed vs `p6time` | prompt tokens changed | b / c vs `p6time` (429) | p | quotable? |
+| --- | --- | --- | --- | --- | ---: | ---: | :---: | ---: | --- |
+| `mnimi__500q_gpt4o_p6time_drift_2026-09-26` | L1, the shipped configuration — a second reading | 429/500 (85.8%) | [82.5, 88.6] | 5,498 | **277/500** | **0/500** | **6 / 6** | 1.00 | yes |
+
+| category | n | `p6time` | drift arm |
+| --- | ---: | ---: | ---: |
+| single-session-user | 70 | 66 | 67 |
+| single-session-assistant | 56 | 56 | 55 |
+| single-session-preference | 30 | 25 | 25 |
+| knowledge-update | 78 | 71 | 70 |
+| temporal-reasoning | 133 | 113 | 112 |
+| multi-session | 133 | 98 | 100 |
+
+**Reading.** Byte-identical prompts on all 500 rows (prompt tokens changed on 0) produced 277 different
+answers at temperature 0 and `seed=0` (the served `system_fingerprint` histograms: nine values on the
+reference, eight here, six shared), and the score did not move: 429 both times, 12 discordant rows split
+6 / 6. **Tier 2 for the gpt-4o family, on the shipped configuration at n=500: "score reproducible within
+12/500 flips (b=6, c=6); text not reproducible (277/500 changed)."** This is the Tier 2 figure the paper
+cites (D4); the 2026-09-12 reading (the Phase 0 configuration at n=100, "within 6/100 flips") stays as it
+was measured. The pre-registered prediction that ≥ 60 % of the texts would change did not hold (55.4 %);
+the other three clauses did (prompt tokens 0, score moved 0 rows, b + c = 12 ≤ 40).
+
 ### Provisional smoke artifacts, n=20 (2026-07-28) — not quotable
 
 | run | score | quotable? |
