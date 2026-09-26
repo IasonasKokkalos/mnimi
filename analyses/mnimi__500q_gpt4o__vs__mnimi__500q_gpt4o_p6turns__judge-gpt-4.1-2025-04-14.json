@@ -1,0 +1,88 @@
+{
+  "analysis_schema": "mnimi-paired-analysis/1",
+  "b_second_wins": 27,
+  "c_first_wins": 22,
+  "discordant": 49,
+  "first": {
+    "artifact_schema": "mnimi-eval-artifact/10",
+    "correct": 415,
+    "harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
+    "n": 500,
+    "pins_hash": "7216d94b6d597b2cd9823e4b3a6381d4ddff348b5d65f02ce66ab9ccb50cf818",
+    "run_id": "mnimi__500q_gpt4o"
+  },
+  "first_wins_ids": [
+    "07741c45",
+    "08f4fc43",
+    "0bc8ad93",
+    "0edc2aef",
+    "1d4e3b97",
+    "59524333",
+    "852ce960",
+    "8c18457d",
+    "95228167",
+    "a9f6b44c",
+    "b46e15ed",
+    "b86304ba",
+    "bf659f65",
+    "dad224aa",
+    "eaca4986",
+    "ec81a493",
+    "edced276_abs",
+    "eeda8a6d_abs",
+    "gpt4_70e84552_abs",
+    "gpt4_74aed68e",
+    "gpt4_93159ced_abs",
+    "gpt4_e072b769"
+  ],
+  "harness_notes": {
+    "artifact_schema": {
+      "first": "mnimi-eval-artifact/10",
+      "second": "mnimi-eval-artifact/11"
+    },
+    "harness_git_sha": {
+      "first": "f07c24d1739afea4727783906621e526b91fdee2",
+      "second": "3845c4eb70fb31065af8f3821694268715712df8"
+    }
+  },
+  "n_pairs": 500,
+  "p_exact_mcnemar": 0.5681724128491661,
+  "second": {
+    "artifact_schema": "mnimi-eval-artifact/11",
+    "correct": 420,
+    "harness_git_sha": "3845c4eb70fb31065af8f3821694268715712df8",
+    "n": 500,
+    "pins_hash": "8bcfbb25f31230fa87a84a90dd7e15996892d9eec9247d61aaec97d3d350f9a4",
+    "run_id": "mnimi__500q_gpt4o_p6turns"
+  },
+  "second_wins_ids": [
+    "01493427",
+    "09ba9854",
+    "1c0ddc50",
+    "2133c1b5_abs",
+    "41275add",
+    "41698283",
+    "4d6b87c8",
+    "51a45a95",
+    "51c32626",
+    "5a7937c8",
+    "618f13b2",
+    "6456829e",
+    "7405e8b1",
+    "75f70248",
+    "778164c6",
+    "80ec1f4f",
+    "830ce83f",
+    "caf03d32",
+    "e493bb7c",
+    "eac54adc",
+    "edced276",
+    "ef9cf60a",
+    "f35224e0",
+    "gpt4_15e38248",
+    "gpt4_483dd43c",
+    "gpt4_65aabe59",
+    "gpt4_731e37d7"
+  ],
+  "source": "per-question verdicts of the judge replay under gpt-4.1-2025-04-14 (judge_hash bc432272c472...)"
+}

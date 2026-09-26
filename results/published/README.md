@@ -524,6 +524,44 @@ the two claims separate. `provisional` answers "may I quote this number?"; Tier
 are published for the second question and fail the first. They stay because a
 published artifact is immutable, not because they say anything.
 
+### Phase 8: the second judge over the nine n=500 arms (2026-09-26)
+
+Every n=500 arm of record — the five Phase 5 arms, the three Phase 6 arms and the Phase 7 drift arm — was re-graded
+under a second OpenAI snapshot, **`gpt-4.1-2025-04-14`** (Phase 7 D5; the same five templates, one user message,
+temperature 0, `max_tokens=10`, so `judge_prompt_hash` stays `be3dd639…`), each as `judge_replay_1.json` beside the
+artifact, recorded as one `judge.replays` entry in its `manifest.json` (Phase 7 D6: the first judge, purpose, cost,
+status and registry row untouched). The pairs of record were re-read under it with `python -m evals.stats … --judge
+gpt-4.1-2025-04-14` (the `__judge-gpt-4.1-2025-04-14.json` files under `analyses/`). A pair **holds** iff the sign of
+b − c is the same under both judges (Phase 7 D7); nothing adopted was re-decided.
+
+| arm | under gpt-4o-2024-08-06 (the pre-registered judge) | under gpt-4.1-2025-04-14 | rows the judges agree on |
+| --- | ---: | ---: | ---: |
+| `no_memory__500q_gpt4o` | 31 | 31 | 500/500 |
+| `naive_rag__500q_gpt4o` | 373 | 368 | 485/500 |
+| `mnimi__500q_gpt4o` | 422 | 415 | 491/500 |
+| `mnimi__500q_gpt4o_decay` | 391 | 391 | 494/500 |
+| `oracle__500q_gpt4o` | 459 | 451 | 490/500 |
+| `mnimi__500q_gpt4o_p6time` | 429 | 417 | 486/500 |
+| `mnimi__500q_gpt4o_p6turns` | 424 | 420 | 488/500 |
+| `mnimi__500q_gpt4o_p6combo` | 426 | 423 | 491/500 |
+| `mnimi__500q_gpt4o_p6time_drift_2026-09-26` | 429 | 417 | 484/500 |
+
+| pair (first → second; b = the second's wins) | b / c / p under gpt-4o | b / c / p under gpt-4.1 | holds |
+| --- | :---: | :---: | :---: |
+| `naive_rag` → `mnimi` (the primary) | 75 / 26 / 1.1e-06 | 75 / 28 / 4.0e-06 | **yes — significant under both judges** |
+| `no_memory` → `mnimi` | 393 / 2 / 1.9e-114 | 386 / 2 / 2.4e-112 | yes |
+| `oracle` → `mnimi` | 17 / 54 / 1.3e-05 | 20 / 56 / 4.4e-05 | yes |
+| `mnimi` → `mnimi_decay` | 19 / 50 / 2.4e-04 | 23 / 47 / 5.6e-03 | yes |
+| `mnimi` → `p6time` (L1) | 15 / 8 / 0.21 | 13 / 11 / 0.84 | yes |
+| `mnimi` → `p6turns` (L3) | 22 / 20 / 0.88 | 27 / 22 / 0.57 | yes |
+| `mnimi` → `p6combo` (L1 + L3) | 18 / 14 / 0.60 | 25 / 17 / 0.28 | yes |
+| `p6time` → the drift arm (the null pair) | 6 / 6 / 1.0 | 7 / 7 / 1.0 | null under both (descriptive) |
+
+Absolute scores under the second judge are reported beside the first judge's, never instead of them; the 85 criterion
+stays read under the pre-registered judge. The nine re-grades cost $2.57 (2026-09-26 21:10 → 21:47 UTC, at `e009871`,
+`--rule-commit 8f6192b`); the inter-judge agreement and kappa are the next phase step. Language: "under a second judge
+(gpt-4.1-2025-04-14)", never "validated".
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A

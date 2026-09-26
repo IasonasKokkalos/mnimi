@@ -90,13 +90,30 @@
     "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
     "prompt_id": "longmemeval-paper-v3",
     "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
-    "replay_count": 0,
+    "replay_count": 1,
+    "replays": [
+      {
+        "commit": "e0098715a84b22def8451e33d4f5c186977a3d4d-dirty",
+        "file": "judge_replay_1.json",
+        "graded_utc": "2026-09-26T21:46:42Z",
+        "judge_completion_tokens": 152,
+        "judge_hash": "bc432272c472a51b052cf3bb0f89e3f64509b13f78a1f348d8604585f75706df",
+        "judge_model": "gpt-4.1-2025-04-14",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 56577,
+        "judge_usd": 0.11437,
+        "purpose": "Phase 7 P3 (PHASE8 Task 4): second-judge re-grade under gpt-4.1-2025-04-14 (D5)",
+        "score": "417/500"
+      }
+    ],
     "temperature": 0
   },
   "manifest_schema": "mnimi-run-manifest/1",
   "missing_fields": [],
   "outputs": {
-    "judge_replays": [],
+    "judge_replays": [
+      "judge_replay_1.json"
+    ],
     "pins": "pins.json",
     "predictions": "predictions.jsonl",
     "results": "results.json",
@@ -133,5 +150,5 @@
   "run_id": "mnimi__500q_gpt4o_p6time_drift_2026-09-26",
   "status": "published",
   "unknown_fields": [],
-  "updated_utc": "2026-09-26T18:49:59Z"
+  "updated_utc": "2026-09-26T21:46:42Z"
 }
