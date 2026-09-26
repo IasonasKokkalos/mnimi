@@ -1,0 +1,548 @@
+{
+  "L01": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "b86304ba",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L02": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "0a34ad58",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L03": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "75f70248",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": false
+  },
+  "L04": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "01493427",
+    "run_ids": [
+      "mnimi__500q_gpt4o",
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L05": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "7024f17c",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L06": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "2133c1b5",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L07": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "eaca4986",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L08": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "6e984301",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L09": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "caf03d32",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L10": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "75f70248",
+    "run_ids": [
+      "mnimi__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L11": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "9ee3ecd6",
+    "run_ids": [
+      "mnimi__500q_gpt4o",
+      "mnimi__500q_gpt4o_decay"
+    ],
+    "second": true
+  },
+  "L12": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "5d3d2817",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L13": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "6f9b354f",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L14": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "32260d93",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": false
+  },
+  "L15": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "6b7dfb22",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": true
+  },
+  "L16": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "41275add",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L17": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "eaca4986",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L18": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "88432d0a_abs",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L19": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "eaca4986",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": false
+  },
+  "L20": {
+    "first": false,
+    "kind": "control",
+    "question_id": "gpt4_e05b82a6",
+    "run_ids": [
+      "no_memory__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L21": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "0bc8ad93",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L22": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "1d4e3b97",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L23": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "f685340e_abs",
+    "run_ids": [
+      "mnimi__500q_gpt4o_decay"
+    ],
+    "second": false
+  },
+  "L24": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "edced276_abs",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L25": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "eeda8a6d_abs",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L26": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "caf03d32",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": true
+  },
+  "L27": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "d24813b1",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L28": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "gpt4_4929293b",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L29": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "32260d93",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L30": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "031748ae_abs",
+    "run_ids": [
+      "mnimi__500q_gpt4o_decay"
+    ],
+    "second": false
+  },
+  "L31": {
+    "first": true,
+    "kind": "control",
+    "question_id": "42ec0761",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L32": {
+    "first": true,
+    "kind": "control",
+    "question_id": "51a45a95",
+    "run_ids": [
+      "mnimi__500q_gpt4o_decay"
+    ],
+    "second": true
+  },
+  "L33": {
+    "first": true,
+    "kind": "control",
+    "question_id": "118b2229",
+    "run_ids": [
+      "mnimi__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L34": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "15745da0",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": true
+  },
+  "L35": {
+    "first": true,
+    "kind": "control",
+    "question_id": "58bf7951",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L36": {
+    "first": true,
+    "kind": "control",
+    "question_id": "720133ac",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns",
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L37": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "0a34ad58",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L38": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "1d4e3b97",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L39": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "1da05512",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L40": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "95228167",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L41": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "1c0ddc50",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L42": {
+    "first": true,
+    "kind": "control",
+    "question_id": "gpt4_2f8be40d",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": true
+  },
+  "L43": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "1d4e3b97",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": false
+  },
+  "L44": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "184da446",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L45": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "caf03d32",
+    "run_ids": [
+      "mnimi__500q_gpt4o",
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L46": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "b86304ba",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L47": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "cc539528",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L48": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "0bc8ad93",
+    "run_ids": [
+      "mnimi__500q_gpt4o_decay"
+    ],
+    "second": true
+  },
+  "L49": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "dd2973ad",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": true
+  },
+  "L50": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "778164c6",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L51": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "d24813b1",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": true
+  },
+  "L52": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "75f70248",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L53": {
+    "first": false,
+    "kind": "control",
+    "question_id": "gpt4_4fc4f797",
+    "run_ids": [
+      "no_memory__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L54": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "37f165cf",
+    "run_ids": [
+      "oracle__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L55": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "32260d93",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L56": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "2133c1b5",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": false
+  },
+  "L57": {
+    "first": true,
+    "kind": "control",
+    "question_id": "d52b4f67",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo",
+      "mnimi__500q_gpt4o_p6turns"
+    ],
+    "second": true
+  },
+  "L58": {
+    "first": true,
+    "kind": "disagree",
+    "question_id": "2133c1b5",
+    "run_ids": [
+      "naive_rag__500q_gpt4o"
+    ],
+    "second": false
+  },
+  "L59": {
+    "first": false,
+    "kind": "control",
+    "question_id": "7405e8b1",
+    "run_ids": [
+      "mnimi__500q_gpt4o",
+      "mnimi__500q_gpt4o_p6time"
+    ],
+    "second": false
+  },
+  "L60": {
+    "first": false,
+    "kind": "disagree",
+    "question_id": "15745da0",
+    "run_ids": [
+      "mnimi__500q_gpt4o_p6combo"
+    ],
+    "second": true
+  }
+}
