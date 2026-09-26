@@ -64,6 +64,7 @@ def test_a_cache_miss_constructs_the_real_extractor_once_and_delegates(tmp_path,
 
 @pytest.mark.extract
 def test_lazy_pins_equal_the_real_pins():
+    pytest.importorskip("llama_cpp")  # the [extract] extra; skipped in CI like the bge tests
     from evals import lazy_extractor
 
     from mnimi.extract.llama import QwenLlamaExtractor
