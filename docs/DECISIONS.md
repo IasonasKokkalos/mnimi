@@ -4024,3 +4024,36 @@ library's `store()` default.
 
 **Disclosed, not patched:** OMEGA reads the wall clock for `created_at`, access times and decay. The backdating makes
 the decay's input logical time, to within the seconds between the rewrite and the query.
+
+## Gate 8-iii read: OMEGA 1.5.17's retrieval over naive_rag's rounds at n=500 — 365/500, b=45 c=53 against naive_rag (p = 0.48), b=19 c=83 against the shipped mnimi (2026-09-27, v2.36.1)
+
+`runs/omega__500q_gpt4o` ran `configs/omega__500q_gpt4o.json` at `4aaeb39` (clean), 2026-09-27 17:03 → 21:02 UTC,
+with `--rule-commit 8f6192b` and `--claim none`:
+- **contexts:** two workers built them in 2.5 hours, 36 s per history;
+- **reader:** 39 sub-batches, projected at $5.69, actual $3.6485;
+- **judges:** $0.4453, and the gpt-4.1 replay $0.3544;
+- **record:** manifest `complete`, `provisional: []`, promoted with its replay.
+
+**The reading: 365/500 = 73.0 %, Wilson [68.9, 76.7]; 356 under the second judge.** On the same stored rounds as
+naive_rag, OMEGA's retrieval is not distinguishable from naive_rag's cosine top-10: b=45, c=53, p = 0.48 (gpt-4.1: 47 /
+59, p = 0.29). It is far below the shipped mnimi: b=19, c=83, p = 1.0 × 10⁻¹⁰ (gpt-4.1: 24 / 85, 3.5 × 10⁻⁹).
+
+By category against naive_rag it gains on temporal reasoning (93 against 86) and loses on multi-session (69 against
+83); the other four categories are within two rows. The multi-session contexts were as full as every other category's
+(5,085 tokens, 10.1 rounds on average). So the loss is which rounds the fused, text-dominant default profile ranks first
+when a question needs several, not how much context arrived. The temporal gain is consistent with the parts of the
+stack that read dates: the reranker sees each round's `referenced_date`, and the decay runs on the backdated ages.
+
+**What the two competitor arms say together.** The harness puts the same reader, prompt, judge, question set and
+context budget in front of every system. Under those conditions:
+- Mem0's LLM-routed facts read **336**, below naive_rag, with the disclosed dating defect of its open-source build;
+- OMEGA's hybrid retrieval over naive_rag's own units reads **365**, level with naive_rag;
+- the shipped mnimi reads **429**, ahead of both by margins significant under both judges.
+
+The paper reports these as readings through this harness, never as replications of either system's published numbers.
+
+**Kept as disclosed** (DECISIONS "OMEGA runs its authors' type-independent LongMemEval ingest…"):
+- the authors' ingest, not `store()`'s defaults;
+- no `query_hint`;
+- expansion off;
+- the wall clock read for `created_at`, access times and decay, with the backdating in place.

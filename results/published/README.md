@@ -673,6 +673,78 @@ rarely survive. It is also behind on temporal reasoning, where the dating disclo
 Language: "the n=500 reading of Mem0 OSS 2.2.1 through this harness at this budget, 336/500". It is not a replication
 of Mem0's published numbers, which come from its own harness and reader.
 
+### Phase 8: OMEGA 1.5.17's retrieval over naive_rag's rounds, n=500 (2026-09-27)
+
+`omega__500q_gpt4o/` is `omega-memory==1.5.17` from PyPI. OMEGA has no raw-conversation ingestion, so this arm stores
+**exactly naive_rag's units** and reads them back with OMEGA's retrieval (PHASE8 Task 15, ruling R3; DECISIONS "OMEGA
+runs its authors' type-independent LongMemEval ingest over naive_rag's rounds"):
+- **write:** one OMEGA record per round, whose content is the round's frozen embed text, the string naive_rag embeds.
+  The ingest follows the type-independent settings of OMEGA's own LongMemEval script: `skip_inference=True`, the
+  session date as `referenced_date`, and `created_at` rewritten to the session date with the question's date as the
+  present;
+- **read:** the library's `query(question, limit=100)` at its defaults. That covers vector search, FTS5, rank fusion,
+  rule-based decomposition, the cross-encoder over the fused top 10, decay, abstention and adaptive retry. No
+  `query_hint`, and LLM query expansion off. The returned rounds render as their verbatim turns, the bytes naive_rag
+  shows, fitted to the third-party budget of 5,364 tokens;
+- **pinned:** the embedder files from `BAAI/bge-small-en-v1.5` at mnimi's revision, and the reranker
+  `ms-marco-MiniLM-L-6-v2` verified by sha256. The configuration is `configs/omega_competitor.json`, and the run's
+  arguments are `configs/omega__500q_gpt4o.json`.
+
+The run: `4aaeb39` clean, 2026-09-27 17:03 → 21:02 UTC, two context workers, 39 sub-batches, manifest `complete`,
+`provisional: []`, promoted by `evals.publish`. The second judge is `judge_replay_1.json`.
+
+| arm | gpt-4o judge | Wilson 95 % | gpt-4.1 judge |
+| --- | ---: | :---: | ---: |
+| **`omega__500q_gpt4o`** | **365 (73.0 %)** | [68.9, 76.7] | 356 (71.2 %) |
+| `naive_rag__500q_gpt4o` (the same units, cosine top-10) | 373 (74.6 %) | [70.6, 78.2] | 368 (73.6 %) |
+| `mnimi__500q_gpt4o_p6time` (the shipped configuration) | 429 (85.8 %) | [82.5, 88.6] | 417 (83.4 %) |
+
+Paired by `python -m evals.stats … --family F1`; b = OMEGA's wins, c = the other arm's:
+
+| pair | judge | b | c | p (exact McNemar) |
+| --- | --- | ---: | ---: | ---: |
+| shipped mnimi vs OMEGA | gpt-4o | 19 | 83 | 1.0 × 10⁻¹⁰ |
+| shipped mnimi vs OMEGA | gpt-4.1 | 24 | 85 | 3.5 × 10⁻⁹ |
+| naive_rag vs OMEGA | gpt-4o | 45 | 53 | 0.48 |
+| naive_rag vs OMEGA | gpt-4.1 | 47 | 59 | 0.29 |
+
+By category, gpt-4o judge:
+
+| arm | single-session-user | -assistant | -preference | knowledge-update | temporal-reasoning | multi-session |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| OMEGA | 66/70 | 55/56 | 16/30 | 66/78 | **93/133** | **69/133** |
+| naive_rag | 64/70 | 55/56 | 18/30 | 67/78 | 86/133 | 83/133 |
+| shipped mnimi | 66/70 | 56/56 | 25/30 | 71/78 | 113/133 | 98/133 |
+
+**The reading.** Over the same stored rounds, OMEGA's retrieval stack is not distinguishable from naive_rag's cosine
+top-10 under either judge (98 discordant rows, 45 against 53). Its date-aware parts gain on temporal reasoning (+7):
+the reranker reads each round's date, and the decay runs on the backdated ages. Its ranking loses on multi-session
+questions (−14). Those contexts were as full as the others (5,085 tokens and 10.1 rounds on average), so the loss is in
+which rounds were chosen, not how many. The shipped mnimi leads both by 56 and 64 questions.
+
+**What it fed and cost.**
+
+| measure | value |
+| --- | --- |
+| reader prompt tokens | 5,014 mean (966–5,513); 125 contexts end under 5,000 tokens, where OMEGA's abstention returned less than the budget |
+| rounds per context | 9.9 mean; no empty context |
+| reader / judge / second judge | $3.6485 / $0.4453 / $0.3544 (the ledger: $70.15 of $113.85) |
+| context building | 17,998 process-seconds, 36 s per history, two processes (no LLM at write or read time) |
+
+**Disclosed, not patched.**
+- The ingest is OMEGA's authors' benchmark ingest where it does not depend on question type, not its `store()`
+  default. With the default write-time contradiction check a history took 216–238 s, 82 % of it the check. The check's
+  edges feed the query's graph expansion, so the default would retrieve differently.
+- OMEGA's LongMemEval question-type profiles were not used: `query_hint` is a gold benchmark label.
+- OMEGA reads the wall clock for `created_at`, access times and decay. The backdating makes the decay's input the
+  logical age, to within the seconds between the rewrite and the query.
+- OMEGA's query-side benchmark code (temporal-range inference, query variants, per-type boosts) lives in its script, not
+  the library, and was not used.
+
+Language: "the n=500 reading of OMEGA 1.5.17's retrieval over naive_rag's rounds through this harness, 365/500". It
+says nothing about OMEGA's write path, which the arm replaced with naive_rag's units, and it is not a replication of
+OMEGA's published LongMemEval number, which its own harness produces.
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A
