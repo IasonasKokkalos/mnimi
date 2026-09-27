@@ -1,0 +1,159 @@
+{
+  "arm": {
+    "config": {
+      "answer_reserve": 800,
+      "chunk_unit": "the system's own memories",
+      "competitor_config_hash": "f75429538bde95d35749a48e198e7b35ad95078d86a68493f23fee5b6bdfae47",
+      "competitor_context_budget_tokens": 5364,
+      "competitor_embedder": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "competitor_llm": "openai:gpt-4o-mini-2024-07-18",
+      "competitor_name": "mem0",
+      "competitor_version": "mem0ai==2.2.1",
+      "consolidate": false,
+      "dedup": {
+        "on": "the system's own write policy"
+      },
+      "embed_template_hash": "none",
+      "embedder": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "embedder_dim": null,
+      "embedder_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+      "render_unit": "turns",
+      "token_budget": 128000,
+      "top_k": "context budget 5364 tokens (units vary per question)"
+    },
+    "config_committed": true,
+    "config_file": "configs/mem0__500q_gpt4o.json",
+    "config_sha256": "d57410e8ed6aff62f2ddab2fef8846e960795306379056669efb86e155b1121a",
+    "pins_hash": "6b6f8d5d6faffb0942d2b98a5240e40e43c7df1984a359fd29d609837b6c22ba",
+    "system": "mem0"
+  },
+  "claim": "none",
+  "code": {
+    "clean_tree": true,
+    "commit": "f2a92fb237a603adcd0d80235d512e742366c64f",
+    "git_status_porcelain": "",
+    "harness_version": {
+      "artifact_schema": "mnimi-eval-artifact/12",
+      "manifest_schema": "mnimi-run-manifest/2"
+    },
+    "library_digest": "172457a3fd7da3bd2fdaa0cce880d30933fa84b830e6f97a205939299797c259",
+    "mnimi_version": "2.35.0",
+    "nearest_tag": "v2.14.0",
+    "src_mnimi_tree": "401be3ee3eade8e95d838dde5d447f782edc6119",
+    "tag": null
+  },
+  "cost": {
+    "competitor_llm_usd": 0.314876,
+    "extractor_cache_misses": 0,
+    "extractor_rounds_sent": 0,
+    "gpu_rental_h": null,
+    "gpu_rental_usd": null,
+    "ingest_s": 1016.5,
+    "judge_completion_tokens": null,
+    "judge_prompt_tokens": null,
+    "judge_usd": null,
+    "judge_wall_s": null,
+    "llm_calls_at_write": 0,
+    "predict_wall_s": 431.7,
+    "prefilter_drops": 0,
+    "reader_completion_tokens": 1199,
+    "reader_prompt_tokens": 27460,
+    "reader_usd": 0.04032,
+    "tokens_in": null,
+    "tokens_out": null,
+    "wall_clock_s": null
+  },
+  "created_utc": "2026-09-27T12:21:46Z",
+  "dataset": {
+    "file": ".data\\longmemeval_s_cleaned.json",
+    "n": 5,
+    "name": "longmemeval_s_cleaned.json",
+    "question_ids_sha256": "e95edeacea1f87e1a5e4ba4690a03b750ed8e61ba88f5af48517a2a134b83cac",
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "environment": {
+    "daemon_flags": {
+      "daemon": "none (API family: a dated snapshot served by the provider)"
+    },
+    "hardware": {
+      "cpu_count": 16,
+      "cuda_version": "13.2",
+      "driver_version": "595.95",
+      "gpu_model": "NVIDIA RTX 1000 Ada Generation Laptop GPU",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"
+    },
+    "installed_digest": "2182e22299e262d2c81f285829d7242578a4046b4c6042f02a0c4a0913e0e064",
+    "lockfile_hash": "15a11d1855a9caf9d752029a88bacb44b04d6d9cee3fef4c1637f3087834bdb7",
+    "lockfile_source": "uv.lock (sha256 over LF bytes, the project's own version line excluded)",
+    "python": "3.12.13"
+  },
+  "hashes": {
+    "competitor_config_hash": "f75429538bde95d35749a48e198e7b35ad95078d86a68493f23fee5b6bdfae47",
+    "conflict_rules_hash": null,
+    "decay_rules_hash": null,
+    "embed_template_hash": null,
+    "extractor_decode_hash": null,
+    "extractor_prompt_hash": null,
+    "fact_embed_template_hash": null,
+    "negation_lexicon_hash": null,
+    "prefilter_lexicon_hash": null,
+    "reader_prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+    "render_unit_template_hash": "266002498b7ba407841c45d82a4c3ffa27668e3c4852d0cc93f8ff6e2694188b",
+    "resolver_version": null,
+    "temporal_rules_hash": null
+  },
+  "judge": {
+    "max_tokens": null,
+    "model": null,
+    "prompt_hash": null,
+    "prompt_id": null,
+    "prompt_source": null,
+    "replay_count": null,
+    "temperature": null
+  },
+  "manifest_schema": "mnimi-run-manifest/2",
+  "missing_fields": [
+    "judge.model",
+    "judge.prompt_source",
+    "judge.replay_count",
+    "cost.judge_usd",
+    "cost.tokens_in",
+    "cost.tokens_out",
+    "cost.wall_clock_s"
+  ],
+  "outputs": {
+    "pins": "pins.json",
+    "predictions": "predictions.jsonl"
+  },
+  "provisional_reasons": [],
+  "purpose": "Phase 8 Task 14 E7t: Mem0 timing and cost, 5 histories",
+  "reader": {
+    "max_tokens": 800,
+    "num_ctx": 128000,
+    "prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "prompt_id": "mnimi-con-v1",
+    "requested_model": "gpt-4o-2024-08-06",
+    "seed": 0,
+    "served_fingerprints": {
+      "fp_95d3055667": 1,
+      "fp_d4160bf518": 1,
+      "fp_ed8626b4f9": 3
+    },
+    "served_models": {
+      "gpt-4o-2024-08-06": 5
+    },
+    "temperature": 0,
+    "transport": "openai",
+    "transport_version": "gpt-4o-2024-08-06"
+  },
+  "rule_commit": "8f6192b",
+  "run_id": "p8_mem0_timing",
+  "status": "incomplete",
+  "unknown_fields": [],
+  "updated_utc": "2026-09-27T12:21:46Z"
+}
