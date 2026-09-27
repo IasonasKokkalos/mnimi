@@ -90,7 +90,7 @@
     "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
     "prompt_id": "longmemeval-paper-v3",
     "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
-    "replay_count": 1,
+    "replay_count": 4,
     "replays": [
       {
         "commit": "e0098715a84b22def8451e33d4f5c186977a3d4d-dirty",
@@ -104,6 +104,45 @@
         "judge_usd": 0.356088,
         "purpose": "Phase 7 P3 (PHASE8 Task 4): second-judge re-grade under gpt-4.1-2025-04-14 (D5)",
         "score": "368/500"
+      },
+      {
+        "commit": "498aaaf5ffc57376329f3c3beec551008b395d6b-dirty",
+        "file": "judge_replay_2.json",
+        "graded_utc": "2026-09-26T23:37:36Z",
+        "judge_completion_tokens": 941,
+        "judge_hash": "e150d260a0e8bc116924b96112825ed7acc0d8336d6d1d3c86c5825c7c00f4a0",
+        "judge_model": "gpt-4o-2024-08-06",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 176040,
+        "judge_usd": 0.44950999999999997,
+        "purpose": "Phase 8 C2: same-judge replay 1/3 with the cache off (D2)",
+        "score": "371/500"
+      },
+      {
+        "commit": "498aaaf5ffc57376329f3c3beec551008b395d6b-dirty",
+        "file": "judge_replay_3.json",
+        "graded_utc": "2026-09-26T23:42:29Z",
+        "judge_completion_tokens": 942,
+        "judge_hash": "e150d260a0e8bc116924b96112825ed7acc0d8336d6d1d3c86c5825c7c00f4a0",
+        "judge_model": "gpt-4o-2024-08-06",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 176040,
+        "judge_usd": 0.44952,
+        "purpose": "Phase 8 C2: same-judge replay 2/3 with the cache off (D2)",
+        "score": "371/500"
+      },
+      {
+        "commit": "498aaaf5ffc57376329f3c3beec551008b395d6b-dirty",
+        "file": "judge_replay_4.json",
+        "graded_utc": "2026-09-26T23:47:15Z",
+        "judge_completion_tokens": 940,
+        "judge_hash": "e150d260a0e8bc116924b96112825ed7acc0d8336d6d1d3c86c5825c7c00f4a0",
+        "judge_model": "gpt-4o-2024-08-06",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 176040,
+        "judge_usd": 0.4495,
+        "purpose": "Phase 8 C2: same-judge replay 3/3 with the cache off (D2)",
+        "score": "371/500"
       }
     ],
     "temperature": 0
@@ -112,7 +151,10 @@
   "missing_fields": [],
   "outputs": {
     "judge_replays": [
-      "judge_replay_1.json"
+      "judge_replay_1.json",
+      "judge_replay_2.json",
+      "judge_replay_3.json",
+      "judge_replay_4.json"
     ],
     "pins": "pins.json",
     "predictions": "predictions.jsonl",
@@ -152,5 +194,5 @@
   "unknown_fields": [
     "environment.lockfile_hash"
   ],
-  "updated_utc": "2026-09-26T21:20:22Z"
+  "updated_utc": "2026-09-26T23:47:15Z"
 }

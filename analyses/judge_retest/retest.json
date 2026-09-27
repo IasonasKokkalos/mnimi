@@ -1,0 +1,102 @@
+{
+  "analysis_schema": "mnimi-judge-retest/1",
+  "arms": {
+    "mnimi__500q_gpt4o_p6time": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 1,
+      "flips_to_wrong": 10,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.012,
+      "rate_high": 0.02593036111644729,
+      "rate_low": 0.005510995174027701,
+      "replays": 3,
+      "run_id": "mnimi__500q_gpt4o_p6time",
+      "score_by_grading": [
+        429,
+        426,
+        426,
+        426
+      ],
+      "unstable": 6,
+      "unstable_ids": [
+        "01493427",
+        "2133c1b5",
+        "57f827a0",
+        "66f24dbb",
+        "7024f17c",
+        "cc539528"
+      ]
+    },
+    "naive_rag__500q_gpt4o": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 1,
+      "flips_to_wrong": 7,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.008,
+      "rate_high": 0.020387035834105165,
+      "rate_low": 0.003115315180062238,
+      "replays": 3,
+      "run_id": "naive_rag__500q_gpt4o",
+      "score_by_grading": [
+        373,
+        371,
+        371,
+        371
+      ],
+      "unstable": 4,
+      "unstable_ids": [
+        "66f24dbb",
+        "778164c6",
+        "852ce960",
+        "cc539528"
+      ]
+    },
+    "no_memory__500q_gpt4o": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 0,
+      "flips_to_wrong": 0,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.0,
+      "rate_high": 0.007624340461552238,
+      "rate_low": 0.0,
+      "replays": 3,
+      "run_id": "no_memory__500q_gpt4o",
+      "score_by_grading": [
+        31,
+        31,
+        31,
+        31
+      ],
+      "unstable": 0,
+      "unstable_ids": []
+    },
+    "oracle__500q_gpt4o": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 3,
+      "flips_to_wrong": 5,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.006,
+      "rate_high": 0.017490252104053375,
+      "rate_low": 0.0020425962719602397,
+      "replays": 3,
+      "run_id": "oracle__500q_gpt4o",
+      "score_by_grading": [
+        459,
+        459,
+        458,
+        458
+      ],
+      "unstable": 3,
+      "unstable_ids": [
+        "15745da0",
+        "66f24dbb",
+        "6e984301"
+      ]
+    }
+  },
+  "judge_model": "gpt-4o-2024-08-06"
+}

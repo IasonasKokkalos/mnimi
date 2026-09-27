@@ -1,0 +1,81 @@
+{
+  "analysis_schema": "mnimi-accounting/1",
+  "by_category": {
+    "abstention": {
+      "both_right": 26,
+      "both_wrong": 1,
+      "n_stable": 30,
+      "n_unstable": 0,
+      "oracle_right_system_wrong": 1,
+      "system_right_oracle_wrong": 2
+    },
+    "knowledge-update": {
+      "both_right": 63,
+      "both_wrong": 3,
+      "n_stable": 70,
+      "n_unstable": 2,
+      "oracle_right_system_wrong": 2,
+      "system_right_oracle_wrong": 2
+    },
+    "multi-session": {
+      "both_right": 84,
+      "both_wrong": 9,
+      "n_stable": 120,
+      "n_unstable": 1,
+      "oracle_right_system_wrong": 25,
+      "system_right_oracle_wrong": 2
+    },
+    "single-session-assistant": {
+      "both_right": 55,
+      "both_wrong": 0,
+      "n_stable": 55,
+      "n_unstable": 1,
+      "oracle_right_system_wrong": 0,
+      "system_right_oracle_wrong": 0
+    },
+    "single-session-preference": {
+      "both_right": 21,
+      "both_wrong": 5,
+      "n_stable": 29,
+      "n_unstable": 1,
+      "oracle_right_system_wrong": 0,
+      "system_right_oracle_wrong": 3
+    },
+    "single-session-user": {
+      "both_right": 58,
+      "both_wrong": 1,
+      "n_stable": 62,
+      "n_unstable": 2,
+      "oracle_right_system_wrong": 2,
+      "system_right_oracle_wrong": 1
+    },
+    "temporal-reasoning": {
+      "both_right": 102,
+      "both_wrong": 6,
+      "n_stable": 126,
+      "n_unstable": 1,
+      "oracle_right_system_wrong": 14,
+      "system_right_oracle_wrong": 4
+    }
+  },
+  "oracle": "oracle__500q_gpt4o",
+  "overall": {
+    "both_right": 409,
+    "both_wrong": 25,
+    "n_stable": 492,
+    "n_unstable": 8,
+    "oracle_right_system_wrong": 44,
+    "system_right_oracle_wrong": 14
+  },
+  "system": "mnimi__500q_gpt4o_p6time",
+  "unstable_ids": [
+    "01493427",
+    "15745da0",
+    "2133c1b5",
+    "57f827a0",
+    "66f24dbb",
+    "6e984301",
+    "7024f17c",
+    "cc539528"
+  ]
+}

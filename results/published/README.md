@@ -562,6 +562,43 @@ stays read under the pre-registered judge. The nine re-grades cost $2.57 (2026-0
 `--rule-commit 8f6192b`); the inter-judge agreement and kappa are the next phase step. Language: "under a second judge
 (gpt-4.1-2025-04-14)", never "validated".
 
+### Phase 8: judge test-retest (C2) and the oracle-paired accounting (C1) on the four arms of the main table (2026-09-27)
+
+Pre-registered as PHASE8 D2 (DECISIONS "Phase 8 pre-registration", 2026-09-26). Each of `no_memory`, `naive_rag`, the
+paper system `mnimi__500q_gpt4o_p6time` and `oracle` was re-graded **three more times by the pre-registered judge**
+(`gpt-4o-2024-08-06`, the same templates) with `--judge-cache off`, so every one of the 6,000 gradings was a fresh
+call (`judge_replay_N.json` beside each artifact, `judge.replays` entries in the manifests, `$5.02`, 2026-09-26 23:17 →
+2026-09-27 00:17 UTC at `498aaaf`, `--rule-commit 8f6192b`). A row is **judge-unstable** when any of its four verdicts
+differs from the others (`python -m evals.accounting retest`, `analyses/judge_retest/retest.json`):
+
+| arm | judge-unstable rows / 500 | Wilson 95 % | score by grading (first, then the three replays) | flips to wrong / to right (over the three replays) |
+| --- | ---: | :---: | :---: | :---: |
+| `no_memory__500q_gpt4o` | 0 | [0.000, 0.008] | 31, 31, 31, 31 | 0 / 0 |
+| `naive_rag__500q_gpt4o` | 4 | [0.003, 0.020] | 373, 371, 371, 371 | 7 / 1 |
+| `mnimi__500q_gpt4o_p6time` | 6 | [0.006, 0.026] | 429, 426, 426, 426 | 10 / 1 |
+| `oracle__500q_gpt4o` | 3 | [0.002, 0.017] | 459, 459, 458, 458 | 5 / 3 |
+| **pooled** | **13 / 2,000 = 0.65 %** | | | 22 / 5 |
+
+The judge's own test-retest term is small (no score moves by more than 3 rows) and one-sided toward *wrong* on the
+re-grades, as Phase 7's cold audits also read. **The accounting** (`python -m evals.accounting buckets`,
+`analyses/judge_retest/buckets.json`) removes the union of the paper system's and the oracle's unstable rows (8) and
+splits the rest against the oracle:
+
+| category | n stable | both right | **oracle right, system wrong** (retrieval-bound) | both wrong | system right, oracle wrong | unstable |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| single-session-user | 62 | 58 | 2 | 1 | 1 | 2 |
+| single-session-assistant | 55 | 55 | 0 | 0 | 0 | 1 |
+| single-session-preference | 29 | 21 | 0 | 5 | 3 | 1 |
+| knowledge-update | 70 | 63 | 2 | 3 | 2 | 2 |
+| temporal-reasoning | 126 | 102 | 14 | 6 | 4 | 1 |
+| multi-session | 120 | 84 | **25** | 9 | 2 | 1 |
+| abstention (the `_abs` rows) | 30 | 26 | 1 | 1 | 2 | 0 |
+| **overall** | **492** | **409** | **44** | **25** | **14** | **8** |
+
+Of the paper system's 69 stable misses, **44 (63.8 %) are retrieval-bound** — the oracle answers them with the same
+reader — and 25 are misses the oracle shares; multi-session holds 25 of the 44. Language: the buckets are read on the
+pre-registered judge's first verdicts over judge-stable rows; a row's bucket is a property of this artifact pair.
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A
