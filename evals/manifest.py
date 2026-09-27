@@ -206,6 +206,8 @@ def question_ids_sha256(question_ids: list[str]) -> str:
 
 def arm_config(pins: dict) -> dict:
     """The number-determining configuration, named the way the rule names it."""
+    if pins.get("competitor_name"):
+        return _competitor_arm_config(pins)
     dedup = None
     if pins.get("dedup_cosine_threshold") is not None:
         dedup = {
@@ -243,6 +245,31 @@ def arm_config(pins: dict) -> dict:
         "salience_weights": pins.get("salience_weights"),
         "conflict_resolution": pins.get("conflict_resolution"),
         "query_instruction": pins.get("query_instruction"),
+    }
+
+
+_COMPETITOR_KEYS = ("competitor_name", "competitor_version", "competitor_embedder",
+                    "competitor_llm", "competitor_config_hash", "competitor_context_budget_tokens")
+
+
+def _competitor_arm_config(pins: dict) -> dict:
+    """A third-party system's arm (schema /12, PHASE8 D9): its own units under a token budget."""
+    embedder = pins.get("competitor_embedder") or "none"
+    return {
+        "top_k": f"context budget {pins.get('competitor_context_budget_tokens')} tokens "
+        "(units vary per question)",
+        "token_budget": pins.get("reader_num_ctx"),
+        "answer_reserve": pins.get("reader_answer_reserve"),
+        "chunk_unit": "the system's own memories",
+        "dedup": {"on": "the system's own write policy"},
+        "consolidate": False,
+        "embedder": embedder,
+        "embedder_revision": embedder.split("@", 1)[1] if "@" in embedder else "none",
+        "embedder_dim": None,
+        "render_template_hash": pins.get("render_template_hash"),
+        "embed_template_hash": "none",
+        "render_unit": pins.get("render_unit"),
+        **{k: pins[k] for k in _COMPETITOR_KEYS if k in pins},
     }
 
 

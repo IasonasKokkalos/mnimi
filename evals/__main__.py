@@ -36,6 +36,9 @@ OLLAMA_HOST = "http://localhost:11434"
 # message quoting them cannot drift apart — they already had, listing two
 # systems in a message the parser had also enumerated.
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
+#: Third-party systems run through the same harness (PHASE8 D9). Each needs
+#: --competitor-config; none is imported unless named.
+COMPETITOR_SYSTEMS = ("agentmemory",)
 
 
 MNIMI_DEFAULT_EXTRACTOR = "qwen3"
@@ -69,6 +72,7 @@ def build_system(
     dedup_entropy_gate: float | None = None,
     read_path: dict | None = None,
     consolidate: bool | None = None,
+    competitor_config: dict | None = None,
 ):
     """Construct a system by name. Imports are lazy — only mnimi and naive_rag
     need the embedder, and the other three must stay runnable without it.
@@ -119,6 +123,12 @@ def build_system(
         config_knobs["dedup_entropy_gate"] = dedup_entropy_gate
     config_knobs.update(read_path or {})  # PHASE4: an unset flag is absent
     config = MemoryConfig(**config_knobs)
+    if name in COMPETITOR_SYSTEMS:
+        if competitor_config is None:
+            raise SystemExit(f"--system {name} needs --competitor-config <file> (PHASE8 D9)")
+        from .systems.agentmemory_v4 import AgentMemorySystem
+
+        return AgentMemorySystem(competitor_config, render_format=render_format)
     if name == "no_memory":
         from .systems.no_memory import NoMemorySystem
 
@@ -318,6 +328,8 @@ def _resume_extras(args) -> str:
     extras.extend(knobs.read_path_resume_extras(args))
     if getattr(args, "config_path", None):
         extras.append(f"--config {args.config_path}")
+    if getattr(args, "competitor_config", None):
+        extras.append(f"--competitor-config {args.competitor_config}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -386,7 +398,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--system",
-        choices=list(SYSTEMS),
+        choices=list(SYSTEMS) + list(COMPETITOR_SYSTEMS),
         help="which baseline to evaluate. Required to predict; NOT required to "
         "judge, because predictions.jsonl carries everything the judge reads.",
     )
@@ -556,6 +568,12 @@ def _main(argv: list[str] | None = None) -> int:
         "the v1 arm (rounds only). Default for mnimi: qwen3 (adopted 2026-09-15, gate "
         "4-iii); other systems ignore it. Pinned "
         "(schema /8) and a memory_meta row; naive_rag never extracts.",
+    )
+    parser.add_argument(
+        "--competitor-config",
+        default=None,
+        help="a committed JSON file whose 'competitor' block configures a third-party system "
+        "(--system agentmemory); its sha256 is the pin competitor_config_hash (PHASE8 D9)",
     )
     parser.add_argument(
         "--render-unit",
@@ -1005,6 +1023,7 @@ def _main(argv: list[str] | None = None) -> int:
             dedup_entropy_gate=args.dedup_entropy_gate,
             read_path=knobs.read_path_knobs(args),
             consolidate=knobs.consolidate_flag(args),
+            competitor_config=_competitor_config(args),
         )
         pins = artifacts.build_pins(
             dataset_file=str(dataset_path),
@@ -2058,6 +2077,18 @@ def _print_judge(judge: dict) -> None:
             file=sys.stderr,
         )
     print("-------------", file=sys.stderr)
+
+
+def _competitor_config(args) -> dict | None:
+    """The ``competitor`` block of ``--competitor-config`` (PHASE8 D9), or ``None``."""
+    path = getattr(args, "competitor_config", None)
+    if path is None:
+        return None
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    block = payload.get("competitor") if isinstance(payload, dict) else None
+    if not isinstance(block, dict):
+        raise SystemExit(f"{path}: expected a top-level 'competitor' object")
+    return block
 
 
 def _provenance_kwargs(args, existing: dict | None = None) -> dict:

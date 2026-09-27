@@ -1,0 +1,36 @@
+{
+  "competitor": {
+    "package": "agentmemory @ git+https://github.com/JordanMcCann/agentmemory@3aa3b8389896f81dd813fdf9176ef3ca122d809e",
+    "embedder": {
+      "repo": "sentence-transformers/all-mpnet-base-v2",
+      "revision": "e8c3b32edf5434bc2275fc9bab85f82640a19130",
+      "device": "cpu"
+    },
+    "reranker": {
+      "repo": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+    },
+    "store": {
+      "prefer_dense": true,
+      "auto_graph": true,
+      "write_validation": false,
+      "streaming_consolidation": false,
+      "proactive_surfacing": false,
+      "auto_consolidate": false,
+      "query_expansion": true,
+      "reranker": true,
+      "ann_ef_construction": 200,
+      "ann_ef_search": 100,
+      "auto_calibrate_abstention": false
+    },
+    "pythonhashseed": 42,
+    "source": "store settings of the author's run_longmemeval_full.py at 3aa3b83 that do not depend on question type; every per-type branch of that script excluded; reference_date = each session's own date; recall(question, limit=candidates) then the longest recall-order prefix that fits context.budget_tokens; ids and wall-clock use disclosed in evals/systems/agentmemory_v4.py",
+    "context": {
+      "budget_tokens": 5364,
+      "candidates": 500,
+      "tokenizer": "tiktoken:o200k_base",
+      "source": "the shipped mnimi arm's mean rendered context: mnimi__500q_gpt4o_p6time mean reader_prompt_tokens 5,498 minus no_memory__500q_gpt4o's 133 (scaffold and question), from the committed predictions; the maintainer's decision of 2026-09-27"
+    },
+    "status": "deferred 2026-09-27 by the maintainer: 20-28 min per history on the laptop (the library's pure-Python HNSW distance is 94 % of ingest time); ready to run"
+  }
+}

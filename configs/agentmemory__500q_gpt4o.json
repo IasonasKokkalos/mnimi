@@ -1,0 +1,24 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "agentmemory",
+    "--competitor-config",
+    "configs/agentmemory_competitor.json",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "openai",
+    "--batch",
+    "--purpose",
+    "Phase 8 Task 13: agentmemory v4 through the harness at n=500 (D9)",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "8f6192b",
+    "--run-dir",
+    "runs/agentmemory__500q_gpt4o"
+  ]
+}

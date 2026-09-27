@@ -3905,3 +3905,37 @@ while any resolved package still changes it. The two smokes recorded the earlier
 gains a second job installing from the lockfile (`uv sync --locked --extra dev`). One consequence: `requires-python`
 moves from `>=3.10` to `>=3.11` — `numpy==2.4.6` never supported 3.10, so the old floor was a claim no install could
 meet; CI has tested 3.11 and 3.12 throughout. The README's "≥ 3.10" is corrected with the release README.
+
+## Third-party systems get the shipped mnimi arm's context budget; agentmemory is deferred (2026-09-27, v2.34.0)
+
+Two decisions of the maintainer, 2026-09-27. Both were taken before any competitor number existed.
+
+**The context budget.** A third-party system's units are its own memories. agentmemory stores sentence fragments
+(about 8 per message) and Mem0 stores single facts; both are about 20× smaller than the rounds mnimi and naive_rag
+render. At the harness's k=10, agentmemory handed the reader about 250 tokens, against mnimi's 5,364. So a third-party
+system's context is now **the longest prefix of its own recall order whose rendering fits a fixed budget of 5,364
+tokens**, always at least the top hit:
+- the rendering goes through the one renderer;
+- the tokens are counted in the reader's own tokenizer (`tiktoken` `o200k_base`, gpt-4o's);
+- the value is the shipped mnimi arm's mean rendered context. `mnimi__500q_gpt4o_p6time` averages 5,498
+  `reader_prompt_tokens`; `no_memory__500q_gpt4o` averages 133 for the scaffold and question alone;
+- the budget is the same for every question type.
+
+The in-house arms keep their identical `k=10`. This supersedes the paper plan's A16 `limit=10` and PHASE8 D9's `k` for
+third-party systems. It is pinned as `competitor_context_budget_tokens` (schema /12), and each arm's API prompt tokens
+report what its reader actually saw.
+
+**agentmemory is deferred.** The system is JordanMcCann/agentmemory at `3aa3b83` (v4.0.0), installed from GitHub:
+PyPI's `agentmemory` is an unrelated 2023 package. The smoke's two histories took 2,489.5 s to ingest on this machine
+(Ryzen 7 PRO 8845HS, CPU), about 20 to 28 minutes each. A profile of six sessions put **94 % of ingest time (424 of 449 s)
+in the library's own pure-Python cosine similarity inside its HNSW index construction** (`ef_construction=200` over
+768-dimensional lists). The embedding model took about 18 s, so a GPU would not help. n=500 would take about 10 days
+sequentially, or 20 to 24 hours with 12 processes. The maintainer deferred it ("ingest agentmemory when i dont need the
+laptop"). The adapter, its tests and its committed configuration stay ready; the paper reports the measured ingest cost.
+
+The author's own LongMemEval script branches the memory setup on question type: ingestion, reference dates, extra
+temporal nodes, recall anchoring, per-type token budgets and per-type reader prompts. The adapter takes only its
+type-independent store settings.
+
+The smoke used the superseded k=10 path and is scratch. Its batch completed before the process was stopped, so the
+run was resumed to book the spend: $0.0047.

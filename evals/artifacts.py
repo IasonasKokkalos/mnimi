@@ -34,7 +34,7 @@ DEFAULT_RUNS_DIR = "runs"
 
 # Schema version for the artifact layout itself, so a future reader can tell a
 # v0.2 artifact from whatever replaces it.
-ARTIFACT_SCHEMA = "mnimi-eval-artifact/11"
+ARTIFACT_SCHEMA = "mnimi-eval-artifact/12"
 
 
 def fingerprint(text: str) -> str:
@@ -479,6 +479,12 @@ def build_pins(
     reranker_model: str | None = None,
     reranker_revision: str | None = None,
     rerank_pool: int | None = None,
+    competitor_name: str | None = None,
+    competitor_version: str | None = None,
+    competitor_embedder: str | None = None,
+    competitor_llm: str | None = None,
+    competitor_config_hash: str | None = None,
+    competitor_context_budget_tokens: int | None = None,
 ) -> dict:
     """Everything that determines the *predictions*, and nothing that does not.
 
@@ -601,7 +607,7 @@ def build_pins(
     ``system_fingerprint`` is resolved, not requested, so it lives in
     ``reader_resolved.json`` / ``run.environment`` — the /5 split again.
     """
-    return {
+    pins = {
         "artifact_schema": ARTIFACT_SCHEMA,
         "harness_git_sha": harness_git_sha(),
         "dataset_file": dataset_file,
@@ -685,6 +691,18 @@ def build_pins(
         "reranker_revision": reranker_revision,
         "rerank_pool": rerank_pool,
     }
+    # Schema /12 (PHASE8 D9): a third-party system's identity. Added only when set,
+    # so the five in-house arms' pins — and every published pins_hash — are unchanged.
+    competitor = {
+        "competitor_name": competitor_name,
+        "competitor_version": competitor_version,
+        "competitor_embedder": competitor_embedder,
+        "competitor_llm": competitor_llm,
+        "competitor_config_hash": competitor_config_hash,
+        "competitor_context_budget_tokens": competitor_context_budget_tokens,
+    }
+    pins.update({k: v for k, v in competitor.items() if v is not None})
+    return pins
 
 
 def pins_hash(pins: dict) -> str:
