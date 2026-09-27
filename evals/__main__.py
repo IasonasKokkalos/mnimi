@@ -38,7 +38,7 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 #: Third-party systems run through the same harness (PHASE8 D9). Each needs
 #: --competitor-config; none is imported unless named.
-COMPETITOR_SYSTEMS = ("agentmemory", "mem0")
+COMPETITOR_SYSTEMS = ("agentmemory", "mem0", "omega")
 
 
 MNIMI_DEFAULT_EXTRACTOR = "qwen3"
@@ -130,6 +130,10 @@ def build_system(
             from .systems.mem0_oss import Mem0System
 
             return Mem0System(competitor_config, render_format=render_format)
+        if name == "omega":
+            from .systems.omega_retrieval import OmegaSystem
+
+            return OmegaSystem(competitor_config, render_format=render_format)
         from .systems.agentmemory_v4 import AgentMemorySystem
 
         return AgentMemorySystem(competitor_config, render_format=render_format)

@@ -436,3 +436,230 @@ def test_predict_stats_sums_the_llm_usage_it_is_given():
     stats.record_llm_usage({"m": {"calls": 2, "prompt": 10, "completion": 2}})
     assert stats.as_resolved("openai", "gpt-4o-2024-08-06")["competitor_llm"] == {
         "m": {"calls": 3, "prompt": 15, "completion": 3, "cached": 2}}
+
+# -- OMEGA's retrieval over per-round verbatim storage (PHASE8 Task 15) ----------------------
+
+
+def test_render_hits_renders_a_hit_that_carries_turns_as_those_turns():
+    from mnimi.memory import render_turns
+
+    turns = [{"role": "user", "content": "I moved."}, {"role": "assistant", "content": "Nice."}]
+    hit = competitor.Hit("r0", "embed text", TS_A, turns)
+    assert competitor.render_hits([hit], "text") == render_turns(
+        [{**t, "ts": TS_A} for t in turns], fmt="text")
+
+
+class _FakeOmegaResult:
+    def __init__(self, id_, content, metadata):
+        self.id, self.content, self.metadata = id_, content, metadata
+
+
+class _FakeOmegaConn:
+    def __init__(self, events):
+        self.events, self.updates = events, []
+
+    def execute(self, sql, params=()):
+        assert sql == "UPDATE memories SET created_at = ? WHERE node_id = ?", sql
+        self.updates.append(params)
+        self.events.append("update")
+        return self
+
+    def commit(self):
+        self.events.append("commit")
+
+
+class _FakeOmegaStore:
+    instances: list = []
+
+    def __init__(self, db_path=None, decompose_queries=True):
+        self.db_path, self.decompose_queries = db_path, decompose_queries
+        self.records, self.queries, self.closed = [], [], False
+        self.skip_inference, self.events = [], []
+        self._conn = _FakeOmegaConn(self.events)
+        _FakeOmegaStore.instances.append(self)
+
+    def store(self, content, session_id=None, metadata=None, skip_inference=False, **extra):
+        assert not extra, f"unexpected store() keywords {sorted(extra)}"
+        node_id = f"mem-{len(self.records)}"
+        self.records.append((node_id, content, session_id, dict(metadata or {})))
+        self.skip_inference.append(skip_inference)
+        self.events.append("store")
+        return node_id
+
+    def query(self, query_text, limit=10, **extra):
+        self.queries.append((query_text, limit, extra))
+        self.events.append("query")
+        rows = [_FakeOmegaResult(nid, content, {**meta, "session_id": sid})
+                for nid, content, sid, meta in reversed(self.records)]
+        return rows[:limit]
+
+    def _invalidate_query_cache(self):
+        self.events.append("invalidate")
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def fake_omega(monkeypatch):
+    omega = types.ModuleType("omega")
+    store_mod = types.ModuleType("omega.sqlite_store")
+    store_mod.SQLiteStore = _FakeOmegaStore
+    embedding = types.ModuleType("omega.embedding")
+    embedding.get_embedding_model_info = lambda: {"model_name": "bge-small-en-v1.5",
+                                                  "backend": "onnx"}
+    embedding.is_embedding_degraded = lambda: False
+    omega.sqlite_store, omega.embedding, omega.__version__ = store_mod, embedding, "1.5.17-fake"
+    for name, mod in (("omega", omega), ("omega.sqlite_store", store_mod),
+                      ("omega.embedding", embedding)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    for var in ("OMEGA_HOME", "OMEGA_ONNX_MODEL_DIR", "OMEGA_RERANKER_AUTODOWNLOAD"):
+        monkeypatch.delenv(var, raising=False)
+    _FakeOmegaStore.instances.clear()
+    return omega
+
+
+def _omega_config(**overrides):
+    block = {"package": "omega-memory==fake", "store": {"decompose_queries": True},
+             "embedder": None, "reranker": None,
+             "context": {"budget_tokens": 1_000_000, "candidates": 100, "tokenizer": "chars/4"}}
+    block.update(overrides)
+    return block
+
+
+def test_omega_stores_naive_rags_rounds_and_renders_their_turns(fake_omega):
+    import os
+
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    from mnimi.memory import _messages_to_rounds
+
+    system = OmegaSystem(_omega_config())
+    assert os.environ["OMEGA_HOME"].startswith(system._scratch.name), "no side file in ~/.omega"
+    system.reset()
+    session_a = [{"role": "user", "content": "I live in Boston.", "ts": TS_A},
+                 {"role": "assistant", "content": "Noted.", "ts": TS_A}]
+    session_b = [{"role": "user", "content": "I adopted a cat.", "ts": TS_B}]
+    system.add(session_a)
+    system.add(session_b)
+    store = _FakeOmegaStore.instances[-1]
+    expected = [r.content for r in _messages_to_rounds(session_a) + _messages_to_rounds(session_b)]
+    assert [content for _id, content, _sid, _meta in store.records] == expected, \
+        "naive_rag's frozen embed text, one record per round"
+    assert [sid for _id, _c, sid, _m in store.records] == ["s000", "s001"]
+    # the session date through OMEGA's own event-time field, not its wall-clock created_at
+    assert store.records[0][3] == {"session_date": TS_A, "round": "r0",
+                                   "referenced_date": "2023-05-20T09:00:00+00:00"}
+    ctx = system.get_context("where do I live")
+    assert store.queries == [("where do I live", 100, {})]
+    assert system.retrieved_ids() == ["mem-1", "mem-0"], "OMEGA's own order and ids"
+    assert "user: I live in Boston." in ctx and "assistant: Noted." in ctx
+    assert ctx.index(f"[Session date: {TS_A}]") < ctx.index(f"[Session date: {TS_B}]")
+
+
+def test_omega_reset_closes_the_store_and_opens_a_fresh_file(fake_omega):
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    system = OmegaSystem(_omega_config())
+    system.reset()
+    first = _FakeOmegaStore.instances[-1]
+    system.reset()
+    assert first.closed and _FakeOmegaStore.instances[-1].db_path != first.db_path
+
+
+def test_omega_refuses_a_degraded_or_other_embedder(fake_omega, monkeypatch):
+    from evals.systems import omega_retrieval
+
+    monkeypatch.setattr(omega_retrieval, "_model_dir", lambda spec, root: str(root))
+    monkeypatch.setattr(fake_omega.embedding, "is_embedding_degraded", lambda: True)
+    spec = {"repo": "BAAI/bge-small-en-v1.5", "revision": "5c38", "omega_name": "bge-small-en-v1.5"}
+    with pytest.raises(RuntimeError, match="embedder"):
+        omega_retrieval.OmegaSystem(_omega_config(embedder=spec))
+
+
+def test_omega_refuses_a_candidate_pool_over_the_vec0_k_ceiling(fake_omega):
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    context = {"budget_tokens": 5364, "candidates": 1000, "tokenizer": "chars/4"}
+    with pytest.raises(ValueError, match="4096"):
+        OmegaSystem(_omega_config(context=context))
+
+
+def test_omega_turns_off_its_llm_query_expansion(fake_omega, monkeypatch):
+    import os
+
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    monkeypatch.setenv("OMEGA_QUERY_EXPANSION", "1")
+    OmegaSystem(_omega_config())
+    assert os.environ["OMEGA_QUERY_EXPANSION"] == "0", "competitor_llm is pinned 'none'"
+
+
+def test_omega_lays_out_pinned_files_and_refuses_other_bytes(tmp_path, monkeypatch):
+    import hashlib
+
+    from evals.systems import omega_retrieval
+
+    snap = tmp_path / "snap"
+    (snap / "onnx").mkdir(parents=True)
+    (snap / "onnx" / "model.onnx").write_bytes(b"pinned bytes")
+    calls = []
+    monkeypatch.setattr(omega_retrieval, "_snapshot",
+                        lambda repo, revision, patterns: calls.append(patterns) or snap)
+    digest = hashlib.sha256(b"pinned bytes").hexdigest()
+    spec = {"repo": "org/model", "revision": "abc",
+            "files": [["onnx/model.onnx", "model.onnx", digest]]}
+    target = omega_retrieval._lay_out(spec, tmp_path / "out")
+    assert (target / "model.onnx").read_bytes() == b"pinned bytes"
+    assert calls == [["onnx/model.onnx"]], "only the named files are fetched"
+    omega_retrieval._lay_out(spec, tmp_path / "out")
+    assert len(calls) == 1, "files already in place and matching are not fetched again"
+    bad = {**spec, "files": [["onnx/model.onnx", "model.onnx", "0" * 64]]}
+    with pytest.raises(RuntimeError, match="does not match"):
+        omega_retrieval._lay_out(bad, tmp_path / "other")
+
+
+def test_omega_follows_its_authors_type_independent_ingest(fake_omega):
+    from datetime import datetime, timedelta, timezone
+
+    from evals.systems.competitor import epoch
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    question_date = "2023/05/30 (Tue) 10:00"
+    system = OmegaSystem(_omega_config(ingest={"skip_inference": True,
+                                               "backdate_created_at": True}))
+    system.reset()
+    system.add([{"role": "user", "content": "I live in Boston.", "ts": TS_A}])
+    system.add([{"role": "user", "content": "I adopted a cat.", "ts": TS_B}])
+    store = _FakeOmegaStore.instances[-1]
+    assert store.skip_inference == [True, True], "the authors' script stores with skip_inference"
+    system.set_question_date(question_date)
+    system.get_context("where do I live")
+    assert store.events[-4:] == ["update", "commit", "invalidate", "query"], \
+        "backdated once, after every store and before the query"
+    stamps = {nid: datetime.fromisoformat(stamp) for stamp, nid in store._conn.updates}
+    assert stamps["mem-1"] - stamps["mem-0"] == timedelta(seconds=epoch(TS_B) - epoch(TS_A))
+    age = datetime.now(timezone.utc) - stamps["mem-0"]
+    expected = timedelta(seconds=epoch(question_date) - epoch(TS_A))
+    assert abs(age - expected) < timedelta(minutes=1), "the question's date reads as now"
+
+
+def test_omega_ingest_defaults_are_the_librarys(fake_omega):
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    system = OmegaSystem(_omega_config())
+    system.reset()
+    system.add([{"role": "user", "content": "I live in Boston.", "ts": TS_A}])
+    system.set_question_date("2023/05/30 (Tue) 10:00")
+    system.get_context("where do I live")
+    store = _FakeOmegaStore.instances[-1]
+    assert store.skip_inference == [False] and store._conn.updates == []
+
+
+def test_omega_pins_name_the_system(fake_omega):
+    from evals.systems.omega_retrieval import OmegaSystem
+
+    pins = OmegaSystem(_omega_config()).retrieval_pins()
+    assert pins["competitor_name"] == "omega" and pins["competitor_llm"] == "none"
+    assert pins["competitor_version"] == "omega-memory==fake"
+    assert pins["competitor_context_budget_tokens"] == 1_000_000

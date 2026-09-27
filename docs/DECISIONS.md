@@ -3979,3 +3979,48 @@ the disclosure, not a corrected number.
 assistant's content as facts about the user ("User was recommended X"), so the questions that ask for specifics of
 what the assistant said (list items, exact wording) rarely find them. naive_rag renders the verbatim turns and
 answers 55 of 56.
+
+## OMEGA runs its authors' type-independent LongMemEval ingest over naive_rag's rounds (2026-09-27, v2.36.0)
+
+PHASE8 R3 runs: Tasks 13 and 14 closed well before 10-20. The system is `omega-memory==1.5.17` from PyPI, installed in
+its own environment (`D:\Projects\Personal\mnimi-envs\omega`) with mnimi's pins as constraints. OMEGA has no
+raw-conversation ingestion, so the arm is the one PHASE8 D9 kept for it: **naive_rag's units under OMEGA's
+retrieval**. Each round is one OMEGA record, whose content is the round's frozen embed text, the string naive_rag
+embeds. The rounds a query returns render as their verbatim turns through the one renderer, fitted to the third-party
+context budget of 5,364 tokens.
+
+**The ingest follows OMEGA's own LongMemEval script where it does not depend on question type**, as Task 13 did for
+agentmemory. The script is `scripts/longmemeval_official.py` in the OMEGA repository. It does four things the arm adopts:
+- it stores with `skip_inference=True`;
+- it gives each record the session date as `referenced_date`, OMEGA's field for an explicit event time;
+- it rewrites `created_at` to the session date, shifted so the question's date is the present. OMEGA decays a record
+  from `created_at` against the wall clock, so without the shift every record is minutes old and the decay is flat;
+- it passes the date to the reranker through `referenced_date` rather than the storage day.
+
+The script also does things the arm does not adopt. It stores whole sessions; the arm keeps rounds, as pre-registered.
+Its query side passes `query_hint=question_type`, which selects OMEGA's LongMemEval question-type profiles. It boosts
+recency for knowledge-update questions and infers temporal ranges. It runs several query variants and an optional LLM
+augmentation. That code is the script's, not the library's, and a question-type label is gold benchmark metadata. The
+arm calls the library's `query(question, limit=100)` with no hint.
+
+**What `skip_inference` costs and buys.** OMEGA's write-time contradiction check scores every new record against its
+ten nearest neighbours with its cross-encoder. On this machine (Ryzen 7 PRO 8845HS, CPU) a history took 216 to 238 s
+with it on, and 82 % of that was the check; with the script's settings it took 29 to 36 s. The check's `contradicts`
+edges feed the query's graph expansion, so the arm reads OMEGA as its authors ingest this benchmark, not as the
+library's `store()` default.
+
+**Pinned, and the reasons.**
+- `OMEGA_QUERY_EXPANSION=0`. OMEGA's optional query expansion calls an LLM: Anthropic's by default, at temperature 0.3
+  with a 3-second timeout. The SDK is absent from the environment, so it returns nothing here anyway. Off makes the
+  run deterministic and keeps `competitor_llm` "none" true.
+- The embedder is the four files OMEGA's own setup installs for `bge-small-en-v1.5`, from the same repository at
+  mnimi's pinned revision, where OMEGA downloads from `main`. The arm refuses to start if OMEGA reports another model
+  or its hash fallback.
+- The reranker is the one a fresh install downloads, `ms-marco-MiniLM-L-6-v2`. It is named explicitly, so a larger one
+  left on disk cannot switch in. Its three files are verified by sha256 against the snapshot mnimi's L2 probe pinned,
+  and auto-download is off.
+- `candidates` is 100. OMEGA asks sqlite-vec for five times the limit in neighbours and swallows vec0's error above
+  k = 4,096, which would silently drop its vector channel. The adapter refuses a pool over 819.
+
+**Disclosed, not patched:** OMEGA reads the wall clock for `created_at`, access times and decay. The backdating makes
+the decay's input logical time, to within the seconds between the rewrite and the query.

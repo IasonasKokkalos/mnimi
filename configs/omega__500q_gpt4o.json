@@ -1,0 +1,26 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "omega",
+    "--competitor-config",
+    "configs/omega_competitor.json",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "openai",
+    "--batch",
+    "--workers",
+    "2",
+    "--purpose",
+    "Phase 8 Task 15: OMEGA 1.5.17's retrieval over per-round verbatim storage at n=500 (R3, the context budget)",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "8f6192b",
+    "--run-dir",
+    "runs/omega__500q_gpt4o"
+  ]
+}

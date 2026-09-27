@@ -54,19 +54,30 @@ _WEEKDAY = re.compile(r"\s*\([^)]*\)\s*")
 
 
 class Hit(NamedTuple):
-    """One memory a system returned: its own id, its text, its session's date."""
+    """One memory a system returned: its own id, its text, its session's date.
+
+    ``turns``, when set, are the verbatim turns of a stored round (a system that
+    stores naive_rag's units, PHASE8 Task 15): the hit renders as those turns, the
+    bytes naive_rag shows for the same round, instead of one ``memory:`` line.
+    """
 
     id: str
     text: str
     ts: str | None
+    turns: tuple | None = None
 
 
 def render_hits(hits: list[Hit], fmt: str = "text") -> str:
     """Oldest session first, recall order within a session, through the one renderer."""
     ordered = sorted(hits, key=lambda h: h.ts or "")  # stable: recall order within a date
-    return render_turns(
-        [{"role": "memory", "content": h.text, "ts": h.ts} for h in ordered], fmt=fmt
-    )
+    turns: list[dict] = []
+    for h in ordered:
+        if h.turns:
+            turns.extend({"role": t.get("role", ""), "content": t.get("content", ""), "ts": h.ts}
+                         for t in h.turns)
+        else:
+            turns.append({"role": "memory", "content": h.text, "ts": h.ts})
+    return render_turns(turns, fmt=fmt)
 
 
 def make_counter(name: str) -> Callable[[str], int]:

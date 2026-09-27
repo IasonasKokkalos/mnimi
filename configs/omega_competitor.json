@@ -1,0 +1,73 @@
+{
+  "competitor": {
+    "package": "omega-memory==1.5.17",
+    "embedder": {
+      "repo": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "omega_name": "bge-small-en-v1.5",
+      "files": [
+        [
+          "onnx/model.onnx",
+          "model.onnx",
+          "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35"
+        ],
+        [
+          "tokenizer.json",
+          "tokenizer.json",
+          "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+        ],
+        [
+          "config.json",
+          "config.json",
+          "094f8e891b932f2000c92cfc663bac4c62069f5d8af5b5278c4306aef3084750"
+        ],
+        [
+          "tokenizer_config.json",
+          "tokenizer_config.json",
+          "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3"
+        ]
+      ],
+      "source": "the four files OMEGA's own setup installs for bge-small-en-v1.5 (omega/cli.py), from the same repo at mnimi's pinned revision instead of main; OMEGA's own ONNX inference and pooling"
+    },
+    "reranker": {
+      "repo": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+      "omega_name": "ms-marco-MiniLM-L-6-v2",
+      "omega_dir": "~/.cache/omega/models/ms-marco-MiniLM-L-6-v2-onnx",
+      "files": [
+        [
+          "onnx/model.onnx",
+          "model.onnx",
+          "5d3e70fd0c9ff14b9b5169a51e957b7a9c74897afd0a35ce4bd318150c1d4d4a"
+        ],
+        [
+          "tokenizer.json",
+          "tokenizer.json",
+          "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+        ],
+        [
+          "config.json",
+          "config.json",
+          "380e02c93f431831be65d99a4e7e5f67c133985bf2e77d9d4eba46847190bacc"
+        ]
+      ],
+      "source": "the reranker OMEGA auto-downloads on a fresh install (omega/reranker.py), named explicitly so a larger one left on disk cannot switch in; the same revision mnimi's L2 probe pinned"
+    },
+    "store": {
+      "decompose_queries": true
+    },
+    "ingest": {
+      "skip_inference": true,
+      "backdate_created_at": true,
+      "source": "the type-independent ingest settings of OMEGA's own LongMemEval script (scripts/longmemeval_official.py, ingest_question): store(..., skip_inference=True) and created_at rewritten to the session date shifted so the question date is now (its decay reads created_at against the wall clock); the script's query-side code (query_hint=question_type, per-type recency boosts, temporal-range inference, query variants) is not the library's and is not used"
+    },
+    "context": {
+      "budget_tokens": 5364,
+      "candidates": 100,
+      "tokenizer": "tiktoken:o200k_base",
+      "source": "the shipped mnimi arm's mean rendered context: mnimi__500q_gpt4o_p6time mean reader_prompt_tokens 5,498 minus no_memory__500q_gpt4o's 133 (scaffold and question); the maintainer's decision of 2026-09-27. candidates=100 keeps OMEGA's vector k (5 x limit) under sqlite-vec's ceiling of 4096, which OMEGA would otherwise hit and swallow"
+    },
+    "environment": "set by the adapter before import: OMEGA_HOME in scratch, OMEGA_ONNX_MODEL_DIR at the laid-out embedder, OMEGA_RERANKER_MODEL=ms-marco-MiniLM-L-6-v2, OMEGA_RERANKER_AUTODOWNLOAD=0, OMEGA_QUERY_EXPANSION=0",
+    "source": "OMEGA 1.5.17's retrieval over naive_rag's units (PHASE8 Task 15, R3): one record per round whose content is the round's frozen embed text, the session date as OMEGA's referenced_date; the authors' type-independent LongMemEval ingest (skip_inference, created_at backdated to the session date with the question date as now); query(question, limit=candidates) at the library's defaults (vector + FTS5 + fusion, rule-based decomposition, cross-encoder over the fused top 10, decay, abstention, adaptive retry), no query_hint; LLM query expansion off; the returned rounds' verbatim turns under the context budget"
+  }
+}
