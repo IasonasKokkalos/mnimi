@@ -599,6 +599,80 @@ Of the paper system's 69 stable misses, **44 (63.8 %) are retrieval-bound** — 
 reader — and 25 are misses the oracle shares; multi-session holds 25 of the 44. Language: the buckets are read on the
 pre-registered judge's first verdicts over judge-stable rows; a row's bucket is a property of this artifact pair.
 
+### Phase 8: Mem0 OSS 2.2.1 through the harness, n=500 (2026-09-27)
+
+`mem0__500q_gpt4o/` is Mem0's open-source build (`mem0ai==2.2.1` from PyPI) run as shipped through the harness's
+third-party contract (PHASE8 D9). Its configuration is `configs/mem0_competitor.json`, and the run's argument list is
+`configs/mem0__500q_gpt4o.json`, both committed before the run:
+- **write:** one `Memory.add` per session with `infer=True`. The write LLM is `gpt-4o-mini-2024-07-18` at temperature
+  0 (PHASE8 R2a). The embedder is `BAAI/bge-small-en-v1.5` at mnimi's pinned revision, through sentence-transformers.
+  Each question gets a fresh local Qdrant store and history database;
+- **the date:** the session date goes in as metadata, because the open-source `add()` refuses `timestamp=`;
+- **read:** the context is the longest prefix of Mem0's own `search` order that fits the third-party budget of 5,364
+  tokens (DECISIONS 2026-09-27), rendered as `memory:` lines under their session dates through the one renderer.
+
+The run: `2939867` clean, 2026-09-27 12:22 → 16:46 UTC, contexts built by ten processes (`--workers 10`), 42
+sub-batches, manifest `complete`, `provisional: []`, promoted by `evals.publish`. The second judge is
+`judge_replay_1.json`.
+
+| arm | gpt-4o judge | Wilson 95 % | gpt-4.1 judge |
+| --- | ---: | :---: | ---: |
+| **`mem0__500q_gpt4o`** | **336 (67.2 %)** | [63.0, 71.2] | 322 (64.4 %) |
+| `naive_rag__500q_gpt4o` | 373 (74.6 %) | [70.6, 78.2] | 368 (73.6 %) |
+| `mnimi__500q_gpt4o_p6time` (the shipped configuration) | 429 (85.8 %) | [82.5, 88.6] | 417 (83.4 %) |
+
+Paired by `python -m evals.stats … --family F1`; b = Mem0's wins, c = the other arm's:
+
+| pair | judge | b | c | p (exact McNemar) |
+| --- | --- | ---: | ---: | ---: |
+| shipped mnimi vs Mem0 | gpt-4o | 28 | 121 | 5.6 × 10⁻¹⁵ |
+| shipped mnimi vs Mem0 | gpt-4.1 | 28 | 123 | 2.1 × 10⁻¹⁵ |
+| naive_rag vs Mem0 | gpt-4o | 67 | 104 | 0.0058 |
+| naive_rag vs Mem0 | gpt-4.1 | 67 | 113 | 7.5 × 10⁻⁴ |
+
+By category, gpt-4o judge:
+
+| arm | single-session-user | -assistant | -preference | knowledge-update | temporal-reasoning | multi-session |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mem0 | 64/70 | **19/56** | 23/30 | 70/78 | **70/133** | 90/133 |
+| naive_rag | 64/70 | 55/56 | 18/30 | 67/78 | 86/133 | 83/133 |
+| shipped mnimi | 66/70 | 56/56 | 25/30 | 71/78 | 113/133 | 98/133 |
+
+Mem0 is ahead of naive_rag on knowledge-update, preference and multi-session questions. It is far behind on
+single-session-assistant questions, which ask for specifics of what the assistant said. Mem0 does extract from both
+speakers, but as condensed facts framed around the user ("User was recommended X"), so list items and exact wording
+rarely survive. It is also behind on temporal reasoning, where the dating disclosure below applies.
+
+**What it fed and cost.**
+
+| measure | value |
+| --- | --- |
+| reader prompt tokens | 5,481 mean (5,382–5,536: the budget binds on every question) |
+| memories per context | 162.6 mean; no empty context |
+| reader / judge / second judge | $3.9665 / $0.4658 / $0.3693 (the ledger: $65.70 of $113.85) |
+| Mem0's write LLM, outside the ledger | 23,867 calls; 254.5 M prompt tokens (66.6 % served from OpenAI's prompt cache); 8.2 M completion tokens; **$30.41** |
+| context building | 99,422 process-seconds, 3.3 minutes per history, ten processes |
+
+**Disclosed, not patched.**
+- **The dating.** The open-source build never tells its extraction prompt when a conversation happened. `add()` passes
+  no date to `generate_additive_extraction_prompt`, whose `_resolve_dates` then sets both the "Observation Date" and
+  the "Current Date" to the machine's date, 2026-09-27. The prompt tells the model to ground every relative date
+  against the observation date. **494 of the 500 contexts hold at least one memory dated 2026, and 4,990 of their
+  81,299 memory lines (6.1 %) carry a 2026 date**, for example "User fixed the flat tire on their mountain bike around
+  September 27, 2026" under a 2023 session header. Mem0's hosted platform takes a timestamp; the open-source build
+  refuses one. A variant that passes the date through `add(prompt=…)`, the custom instructions, is possible and was
+  not run.
+- Mem0 stamps `created_at` from the wall clock; its search ranking does not read it.
+- The embedder runs through sentence-transformers, not mnimi's ONNX path, so the vectors differ in the last bits.
+- Telemetry is off (`MEM0_TELEMETRY=False`), which changes no behaviour.
+- spaCy and fastembed are installed so that the documented hybrid retrieval runs. Without them Mem0 degrades silently.
+- One extraction response in 23,867 was malformed JSON; Mem0 logged it and skipped that extraction.
+- The units differ: Mem0's are single facts, mnimi's and naive_rag's are rounds. The budget equalises the context's
+  size, not its unit.
+
+Language: "the n=500 reading of Mem0 OSS 2.2.1 through this harness at this budget, 336/500". It is not a replication
+of Mem0's published numbers, which come from its own harness and reader.
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A

@@ -3939,3 +3939,43 @@ type-independent store settings.
 
 The smoke used the superseded k=10 path and is scratch. Its batch completed before the process was stopped, so the
 run was resumed to book the spend: $0.0047.
+
+## Gate 8-ii read: Mem0 OSS 2.2.1 through the harness at n=500 — 336/500, b=28 c=121 against the shipped mnimi (2026-09-27, v2.35.2)
+
+`runs/mem0__500q_gpt4o` ran `configs/mem0__500q_gpt4o.json` at `2939867` (clean), 2026-09-27 12:22 → 16:46 UTC, with
+`--rule-commit 8f6192b` and `--claim none`. Its manifest is `complete` with `provisional: []`, and it is promoted to
+`results/published/mem0__500q_gpt4o/` with its gpt-4.1 replay.
+
+**The reading: 336/500 = 67.2 %, Wilson [63.0, 71.2]; 322 under the second judge.** Mem0 is below naive_rag (373) and
+far below the shipped mnimi (429), significantly under both judges:
+- shipped mnimi vs Mem0: b=28, c=121, p = 5.6 × 10⁻¹⁵ (gpt-4.1: 28 / 123, 2.1 × 10⁻¹⁵);
+- naive_rag vs Mem0: b=67, c=104, p = 0.0058 (gpt-4.1: 67 / 113, 7.5 × 10⁻⁴).
+
+By category it leads naive_rag on knowledge-update (+3), preference (+5) and multi-session (+7), and trails on
+temporal reasoning (−16) and single-session-assistant (19 against 55).
+
+**The size of the arm.** E7t measured 3.4 minutes per history in one process, over the pre-registered 2.5-minute bar.
+That bar was written for one process. Mem0's ingest waits on its write LLM, so `--workers 10` built the 500 contexts
+in 2.8 hours, and the arm ran at n=500, the size a citable competitor number needs. The write LLM cost **$30.41**,
+outside the harness ledger (R2a), against the $18 estimated before E7t. spaCy 3.8.16 with `en_core_web_sm` 3.8.0 and
+fastembed 0.8.1 were installed in the competitor environment so that the documented hybrid retrieval runs.
+
+**A finding about the open-source build: it cannot date a conversation.** Its `add()` refuses `timestamp=`
+("Platform-only temporal parameter"), and it passes no date to its extraction prompt. That prompt's `_resolve_dates`
+then sets both the "Observation Date" and the "Current Date" to the machine's date, and it tells the model to ground
+every relative date against the observation date. In this arm that date was 2026-09-27, 3.3 years after the
+conversations. **494 of the 500 reader contexts hold at least one memory dated 2026, and 4,990 of their 81,299 memory
+lines (6.1 %) carry a 2026 date**, for example "User finished reading 'The Power' by Naomi Alderman on September 27,
+2026". The session header above each line still shows the true 2023 date, so the reader sees the two contradict.
+The temporal-reasoning deficit is consistent with this, but no counterfactual was run to measure it.
+
+This is Mem0 as shipped: the adapter passed the date the only way the open-source API takes one, as metadata, which the
+extraction does not read. A variant that passes the session date through `add(prompt=…)`, Mem0's documented custom
+instructions, would test how much of the gap is the dating. It would cost about $35 (≈ $31 write LLM, ≈ $4.4 reader
+and judges) and about 4.5 hours. **Filed for the maintainer's decision; not run.** The paper reports this arm with
+the disclosure, not a corrected number.
+
+**Why single-session-assistant collapses.** Mem0 2.2.1's additive extraction reads both speakers. It frames the
+assistant's content as facts about the user ("User was recommended X"), so the questions that ask for specifics of
+what the assistant said (list items, exact wording) rarely find them. naive_rag renders the verbatim turns and
+answers 55 of 56.

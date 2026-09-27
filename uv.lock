@@ -415,7 +415,7 @@ wheels = [
 
 [[package]]
 name = "mnimi"
-version = "2.35.1"
+version = "2.35.2"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },

@@ -17,3 +17,4 @@ One row per run, including failed and aborted ones. Append-only: only the `statu
 | `p8_lock_smoke2` | 2026-09-26 | no_memory | gpt-4o-2024-08-06 | 1 | pending | N | incomplete | none |
 | `p8_agentmemory_smoke` | 2026-09-27 | agentmemory | gpt-4o-2024-08-06 | 2 | 1/2 | N | incomplete | none |
 | `p8_mem0_timing` | 2026-09-27 | mem0 | gpt-4o-2024-08-06 | 5 | pending | Y | incomplete | none |
+| `mem0__500q_gpt4o` | 2026-09-27 | mem0 | gpt-4o-2024-08-06 | 500 | 336/500 | Y | published | none |
