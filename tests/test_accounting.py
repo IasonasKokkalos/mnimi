@@ -22,6 +22,7 @@ def _arm(directory, first, replays, categories=None, judge="gpt-4o-2024-08-06"):
     for n, verdicts in enumerate(replays, start=1):
         (directory / f"judge_replay_{n}.json").write_text(json.dumps({
             "judge": {"judge_model": judge}, "judge_hash": "h",
+            "run": {"judge_cache": "off", "judge_cache_hits": 0},
             "results": [{"question_id": q, "correct": c} for q, c in verdicts.items()],
         }), encoding="utf-8")
 
@@ -65,3 +66,12 @@ def test_buckets_refuse_different_question_sets(tmp_path):
     _arm(tmp_path / "ora", {"q9": True}, [])
     with pytest.raises(ValueError, match="question sets differ"):
         accounting.buckets(tmp_path / "sys", tmp_path / "ora", unstable_ids=set())
+
+def test_retest_refuses_a_replay_that_read_the_cache(tmp_path):
+    _arm(tmp_path / "a", {"q1": True}, [{"q1": True}])
+    replay = tmp_path / "a" / "judge_replay_1.json"
+    payload = json.loads(replay.read_text(encoding="utf-8"))
+    payload["run"] = {"judge_cache": "on", "judge_cache_hits": 1}
+    replay.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="cache"):
+        accounting.retest(tmp_path / "a", "gpt-4o-2024-08-06")

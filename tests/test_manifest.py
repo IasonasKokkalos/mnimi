@@ -663,7 +663,7 @@ def test_the_manifest_records_the_config_sha_and_its_commit_state(
     assert m["cost"]["gpu_rental_usd"] == 3.5 and m["cost"]["gpu_rental_h"] == 2.0
     assert m["code"]["src_mnimi_tree"] and m["code"]["library_digest"]
     assert "render_template_hash" in m["hashes"]
-    assert m["environment"]["lockfile_source"] in ("uv.lock", "none")
+    assert m["environment"]["lockfile_source"].startswith(("uv.lock", "none"))
     assert m["cost"]["extractor_rounds_sent"] == 0 and m["cost"]["prefilter_drops"] == 0
     assert m["missing_fields"] == []
 
@@ -703,3 +703,45 @@ def test_a_run_of_record_needs_a_committed_config(wired, tmp_path, capsys, monke
     monkeypatch.setattr(config_file, "_git_show", lambda p: cfg.read_bytes())
     assert _run(run_dir, "--stage", "predict", "--config", str(cfg)) == 0, capsys.readouterr().err
     assert manifest.read_optional(run_dir)["arm"]["config_committed"] is True
+
+def test_the_unfrozen_marker_survives_a_separate_judge_stage(wired, tmp_path, capsys, monkeypatch):
+    from evals import freeze
+    monkeypatch.setattr(
+        freeze, "check",
+        lambda root=None: ["src/mnimi differs from the paper freeze (v2.14.0): a != b"],
+    )
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "predict", "--limit", "100", "--allow-unfrozen") == 0, \
+        capsys.readouterr().err
+    evals_main._UNFROZEN_REASONS.clear()  # the judge stage runs in another process
+    assert _run(run_dir, "--stage", "judge") == 0, capsys.readouterr().err
+    m = manifest.read_optional(run_dir)
+    assert m["status"] == "provisional"
+    assert any("unfrozen" in r for r in m["provisional_reasons"])
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    assert any("unfrozen" in r for r in results["provisional"])
+
+
+def test_the_lockfile_digest_ignores_the_projects_own_version_and_line_endings(tmp_path):
+    text = ('version = 1\n\n[[package]]\nname = "mnimi"\nversion = "2.32.0"\n'
+            'source = { editable = "." }\n\n[[package]]\nname = "numpy"\nversion = "2.4.6"\n')
+    crlf = text.replace('"2.32.0"', '"2.33.0"').replace("\n", "\r\n")
+    cases = (("a", text), ("b", crlf), ("c", text.replace('"2.4.6"', '"2.5.0"')))
+    dirs = {}
+    for name, body in cases:
+        d = tmp_path / name
+        d.mkdir()
+        (d / "uv.lock").write_bytes(body.encode("utf-8"))
+        dirs[name] = manifest.lockfile_digest(d)
+    assert dirs["a"]["lockfile_hash"] == dirs["b"]["lockfile_hash"], "the version is not the env"
+    assert dirs["a"]["lockfile_hash"] != dirs["c"]["lockfile_hash"], "a resolved package is"
+    assert dirs["a"]["lockfile_source"].startswith("uv.lock")
+
+
+def test_the_judge_stage_keeps_the_predict_stages_provenance(wired, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(artifacts, "harness_git_tag", lambda: "predict-tag")
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "predict") == 0, capsys.readouterr().err
+    monkeypatch.setattr(artifacts, "harness_git_tag", lambda: "judge-tag")
+    assert _run(run_dir, "--stage", "judge") == 0, capsys.readouterr().err
+    assert manifest.read_optional(run_dir)["code"]["tag"] == "predict-tag"

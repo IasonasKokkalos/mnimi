@@ -148,6 +148,12 @@ class MnimiSystem(MemorySystem):
         )
         return pins
 
+    @property
+    def prefilter_drops(self) -> int:
+        """The closed stores' prefilter drops plus the open store's (the manifest's count)."""
+        current = self._memory.extraction_stats.get("prefilter_skips", 0) if self._memory else 0
+        return self.prefilter_drops_total + current
+
     def reset(self) -> None:
         if self._memory is not None:
             self.prefilter_drops_total += self._memory.extraction_stats.get("prefilter_skips", 0)

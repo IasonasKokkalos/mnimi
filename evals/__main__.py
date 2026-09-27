@@ -1129,7 +1129,7 @@ def _main(argv: list[str] | None = None) -> int:
             extractor_cache_misses=(
                 (cache_stats or {}).get("misses", 0) if cache_stats is not None else 0
             ),
-            prefilter_drops=getattr(system, "prefilter_drops_total", 0),
+            prefilter_drops=getattr(system, "prefilter_drops", 0),
             **_provenance_kwargs(args),
         )
         manifest_mod.write(directory, run_manifest)
@@ -1338,6 +1338,14 @@ def _main(argv: list[str] | None = None) -> int:
         ),
     }
     provisional = _provisional_reasons(pins)
+    # A reason the predict stage recorded (``--allow-unfrozen``, PHASE8 D4) has no
+    # carrier in the pins, so a judge stage in another process reads it back from
+    # the manifest instead of silently clearing it.
+    if not auditing:
+        recorded = (manifest_mod.read_optional(directory) or {}).get("provisional_reasons") or []
+        for reason in recorded:
+            if reason not in provisional:
+                provisional.append(reason)
     if replaying:
         results_path = artifacts.write_judge_replay(directory, {
             "pins": pins, "pins_hash": artifacts.pins_hash(pins), "judge": judge_info,
@@ -1426,7 +1434,7 @@ def _main(argv: list[str] | None = None) -> int:
             "summary": "summary.json" if not replaying else None,
             "judge_replays": sorted(p.name for p in directory.glob("judge_replay_*.json")),
         },
-        **_provenance_kwargs(args),
+        **_provenance_kwargs(args, existing),
     )
     merged = manifest_mod.merge_into(existing, judge_manifest)
     if do_predict:
@@ -2052,17 +2060,28 @@ def _print_judge(judge: dict) -> None:
     print("-------------", file=sys.stderr)
 
 
-def _provenance_kwargs(args) -> dict:
-    """The manifest /2 inputs the harness has at either stage (PHASE8 D5/D6)."""
+def _provenance_kwargs(args, existing: dict | None = None) -> dict:
+    """The manifest /2 inputs the harness has at either stage (PHASE8 D5/D6).
+
+    With ``existing`` (a judge stage over a predict stage's manifest), a value the
+    predict stage recorded is passed as ``None`` so ``merge_into`` keeps it: the
+    tag, tree and digest describe the commit that predicted, not the one judging.
+    """
     path = getattr(args, "config_path", None)
+    code = (existing or {}).get("code") or {}
+    arm = (existing or {}).get("arm") or {}
+    if arm.get("config_file"):
+        path = None
+    kept_code = {k for k in ("tag", "nearest_tag", "src_mnimi_tree", "library_digest")
+                 if code.get(k) is not None}
     return {
         "config_file": path,
         "config_sha256": config_file.sha256(path) if path else None,
         "config_committed": config_file.committed(path) if path else None,
-        "tag": artifacts.harness_git_tag(),
-        "nearest_tag": artifacts.harness_nearest_tag(),
-        "src_mnimi_tree": artifacts.src_mnimi_tree(),
-        "library_digest": freeze.library_digest(),
+        "tag": None if "tag" in kept_code else artifacts.harness_git_tag(),
+        "nearest_tag": None if "nearest_tag" in kept_code else artifacts.harness_nearest_tag(),
+        "src_mnimi_tree": None if "src_mnimi_tree" in kept_code else artifacts.src_mnimi_tree(),
+        "library_digest": None if "library_digest" in kept_code else freeze.library_digest(),
         "gpu_rental_usd": getattr(args, "gpu_rental_usd", None),
         "gpu_rental_h": getattr(args, "gpu_rental_hours", None),
     }

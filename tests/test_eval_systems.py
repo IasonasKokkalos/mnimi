@@ -386,3 +386,14 @@ def _consolidations(wired: bool) -> list[int]:
 def test_mnimi_consolidates_once_per_store_before_the_question_only_when_wired():
     assert _consolidations(True) == [1, 1, 2, 2]
     assert _consolidations(False) == [0, 0, 0, 0]
+
+def test_prefilter_drops_count_the_open_store_too(tmp_path):
+    from mnimi.extract.fake import RuleExtractor
+
+    system = _mnimi(extractor=RuleExtractor(), extraction_cache=str(tmp_path / "c.sqlite"))
+    system.reset()
+    system.add(_round("Thanks!", "You are welcome.", "2023/05/20 (Sat) 09:00"))
+    assert system.prefilter_drops_total == 0, "the closed stores' total"
+    assert system.prefilter_drops == 1, "plus the open store's"
+    system.reset()
+    assert system.prefilter_drops_total == 1 and system.prefilter_drops == 1

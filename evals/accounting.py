@@ -26,11 +26,30 @@ BUCKETS = ("both_right", "oracle_right_system_wrong", "both_wrong", "system_righ
 
 
 def _replays(run_dir: Path, judge_model: str) -> list[dict[str, bool]]:
+    """The run's replays under ``judge_model`` — each a fresh grading, or refused.
+
+    A replay that read the verdict cache reproduces the first grading by
+    construction (PHASE8 D2 needs ``--judge-cache off``); one under another
+    judge prompt measures a different instrument. Both are refused by name.
+    """
     out = []
+    first = json.loads((run_dir / "results.json").read_text(encoding="utf-8")).get("judge") or {}
     for path in sorted(run_dir.glob("judge_replay_*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if (payload.get("judge") or {}).get("judge_model") == judge_model:
-            out.append({r["question_id"]: bool(r["correct"]) for r in payload["results"]})
+        judge = payload.get("judge") or {}
+        if judge.get("judge_model") != judge_model:
+            continue
+        run = payload.get("run") or {}
+        if run.get("judge_cache") != "off" or (run.get("judge_cache_hits") or 0) > 0:
+            raise ValueError(
+                f"{path.name}: a retest replay must be graded with --judge-cache off and no "
+                f"cache hit (found judge_cache={run.get('judge_cache')!r}, "
+                f"hits={run.get('judge_cache_hits')!r})"
+            )
+        first_hash, this_hash = first.get("judge_prompt_hash"), judge.get("judge_prompt_hash")
+        if first_hash and this_hash and first_hash != this_hash:
+            raise ValueError(f"{path.name}: judge_prompt_hash differs from the first grading's")
+        out.append({r["question_id"]: bool(r["correct"]) for r in payload["results"]})
     return out
 
 

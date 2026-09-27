@@ -40,25 +40,40 @@ def expand(argv: list[str]) -> tuple[list[str], str | None]:
     return argv[:i] + load(path) + argv[i + 2:], path
 
 
+def _lf(data: bytes) -> bytes:
+    """CRLF → LF: a config's identity is its text, not the checkout's line endings."""
+    return data.replace(b"\r\n", b"\n")
+
+
 def sha256(path: str | Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    """sha256 over LF-normalised bytes: ``sha256sum`` on a Linux checkout gives the same value."""
+    return hashlib.sha256(_lf(Path(path).read_bytes())).hexdigest()
 
 
-def _git_show(path: str | Path) -> bytes | None:
-    """The committed bytes of ``path`` at HEAD, or ``None`` when git has none."""
+def _git(cwd: Path, *args: str) -> bytes | None:
     try:
-        rel = Path(path).resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        rel = Path(path).as_posix()
-    try:
-        proc = subprocess.run(["git", "show", f"HEAD:{rel}"], capture_output=True, timeout=5,
+        proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, timeout=5,
                               check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _git_show(path: str | Path) -> bytes | None:
+    """The committed bytes of ``path`` at HEAD of the repository that holds it, or ``None``."""
+    path = Path(path).resolve()
+    top = _git(path.parent, "rev-parse", "--show-toplevel")
+    if top is None:
+        return None
+    root = Path(top.decode("utf-8", errors="replace").strip()).resolve()
+    try:
+        rel = path.relative_to(root).as_posix()
+    except ValueError:
+        return None
+    return _git(path.parent, "show", f"HEAD:{rel}")
+
+
 def committed(path: str | Path) -> bool:
-    """Whether the file's bytes are what HEAD holds at that path."""
+    """Whether the file's text is what HEAD holds at that path (line endings aside)."""
     shown = _git_show(path)
-    return shown is not None and hashlib.sha256(shown).hexdigest() == sha256(path)
+    return shown is not None and hashlib.sha256(_lf(shown)).hexdigest() == sha256(path)

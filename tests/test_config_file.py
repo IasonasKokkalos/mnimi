@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 
 import pytest
 from evals import config_file
@@ -38,4 +40,22 @@ def test_sha256_and_committed(tmp_path, monkeypatch):
     monkeypatch.setattr(config_file, "_git_show", lambda p: cfg.read_bytes())
     assert config_file.committed(cfg) is True
     monkeypatch.setattr(config_file, "_git_show", lambda p: None)
+    assert config_file.committed(cfg) is False
+
+def test_committed_and_sha256_ignore_line_endings_against_real_git(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.autocrlf=false"]
+    subprocess.run([*git, "init", "-q"], cwd=repo, check=True)
+    cfg = repo / "configs" / "r.json"
+    cfg.parent.mkdir()
+    lf = b'{"config_schema": "mnimi-run-config/1",\n "args": ["--limit", "1"]}\n'
+    cfg.write_bytes(lf)
+    subprocess.run([*git, "add", "."], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "c"], cwd=repo, check=True)
+    assert config_file.committed(cfg) is True
+    cfg.write_bytes(lf.replace(b"\n", b"\r\n"))  # the same file on a CRLF checkout
+    assert config_file.committed(cfg) is True
+    assert config_file.sha256(cfg) == hashlib.sha256(lf).hexdigest(), "sha256 over LF bytes"
+    cfg.write_bytes(b'{"config_schema": "mnimi-run-config/1", "args": []}\n')
     assert config_file.committed(cfg) is False

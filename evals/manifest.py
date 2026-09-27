@@ -137,14 +137,31 @@ def environment_digest() -> dict:
     }
 
 
+LOCKFILE_SOURCE = "uv.lock (sha256 over LF bytes, the project's own version line excluded)"
+
+
 def lockfile_digest(root: Path | None = None) -> dict:
-    """``uv.lock``'s sha256 when the repo has one (PHASE8 D7), else UNKNOWN."""
+    """``uv.lock``'s digest when the repo has one (PHASE8 D7), else UNKNOWN.
+
+    The lock records the project's own version, which every release bumps; that
+    line is not the environment, so it is dropped before hashing — the same
+    resolved set gives the same hash across versions and line endings.
+    """
     root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
     lock = root / "uv.lock"
-    if lock.exists():
-        return {"lockfile_hash": artifacts.fingerprint(lock.read_text(encoding="utf-8")),
-                "lockfile_source": "uv.lock"}
-    return {"lockfile_hash": UNKNOWN, "lockfile_source": "none"}
+    if not lock.exists():
+        return {"lockfile_hash": UNKNOWN, "lockfile_source": "none"}
+    lines = lock.read_bytes().replace(b"\r\n", b"\n").decode("utf-8").split("\n")
+    kept: list[str] = []
+    skip_version = False
+    for line in lines:
+        if skip_version and line.startswith("version = "):
+            skip_version = False
+            continue
+        skip_version = line.strip() == 'name = "mnimi"'
+        kept.append(line)
+    return {"lockfile_hash": artifacts.fingerprint("\n".join(kept)),
+            "lockfile_source": LOCKFILE_SOURCE}
 
 
 def hashes_block(pins: dict) -> dict:

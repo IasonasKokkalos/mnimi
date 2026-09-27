@@ -3897,7 +3897,11 @@ PLAN A7 / PHASE8 D7. `[tool.uv] constraint-dependencies` pins the transports eve
 four exact numeric pins already lived in the extras. `uv lock` resolves 42 packages (`llama-cpp-python==0.3.35`
 included); `uv.lock`'s sha256 (`bcac45de…` at v2.29.0 — the lock records the project version, so every version bump re-runs
 `uv lock`) is the manifest's `environment.lockfile_hash` with `lockfile_source: "uv.lock"` (schema /2), which the
-one-question smokes `runs/p8_lock_smoke` and `runs/p8_lock_smoke2` ($0.0011 each) confirmed. CI
+one-question smokes `runs/p8_lock_smoke` and `runs/p8_lock_smoke2` ($0.0011 each) confirmed. **Amended 2026-09-27 (the
+branch review, v2.33.0):** the lock records the project's own version, so the raw-file hash moved with every release and
+read as "a different environment"; since v2.33.0 `lockfile_hash` is the sha256 over the LF-normalised lock with the
+`mnimi` package's `version` line dropped (`environment.lockfile_source` says so), stable across releases and checkouts
+while any resolved package still changes it. The two smokes recorded the earlier raw-file hashes (`bcac45de…`), disclosed here. CI
 gains a second job installing from the lockfile (`uv sync --locked --extra dev`). One consequence: `requires-python`
 moves from `>=3.10` to `>=3.11` — `numpy==2.4.6` never supported 3.10, so the old floor was a claim no install could
 meet; CI has tested 3.11 and 3.12 throughout. The README's "≥ 3.10" is corrected with the release README.
