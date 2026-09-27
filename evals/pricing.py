@@ -33,6 +33,8 @@ PRICES_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "gpt-4o-2024-08-06": {"input": 2.50, "output": 10.00},
     # Phase 7 D5: the second judge (P3), read on PRICES_AS_OF.
     "gpt-4.1-2025-04-14": {"input": 2.00, "output": 8.00},
+    # PHASE8 R2a: Mem0's write LLM (outside the ledger; priced for its manifest line).
+    "gpt-4o-mini-2024-07-18": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
 }
 #: The Batch API halves both input and output.
 BATCH_DISCOUNT = 0.5

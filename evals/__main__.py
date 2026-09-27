@@ -38,7 +38,7 @@ OLLAMA_HOST = "http://localhost:11434"
 SYSTEMS = ("no_memory", "full_history", "oracle", "naive_rag", "mnimi")
 #: Third-party systems run through the same harness (PHASE8 D9). Each needs
 #: --competitor-config; none is imported unless named.
-COMPETITOR_SYSTEMS = ("agentmemory",)
+COMPETITOR_SYSTEMS = ("agentmemory", "mem0")
 
 
 MNIMI_DEFAULT_EXTRACTOR = "qwen3"
@@ -126,6 +126,10 @@ def build_system(
     if name in COMPETITOR_SYSTEMS:
         if competitor_config is None:
             raise SystemExit(f"--system {name} needs --competitor-config <file> (PHASE8 D9)")
+        if name == "mem0":
+            from .systems.mem0_oss import Mem0System
+
+            return Mem0System(competitor_config, render_format=render_format)
         from .systems.agentmemory_v4 import AgentMemorySystem
 
         return AgentMemorySystem(competitor_config, render_format=render_format)
@@ -330,6 +334,8 @@ def _resume_extras(args) -> str:
         extras.append(f"--config {args.config_path}")
     if getattr(args, "competitor_config", None):
         extras.append(f"--competitor-config {args.competitor_config}")
+    if getattr(args, "workers", 1) > 1:
+        extras.append(f"--workers {args.workers}")
     if args.verify_drift:
         extras.append(f"--verify-drift {args.verify_drift}")
     return "".join(f"{flag} " for flag in extras)
@@ -570,6 +576,14 @@ def _main(argv: list[str] | None = None) -> int:
         "(schema /8) and a memory_meta row; naive_rag never extracts.",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="build the contexts across this many processes (PHASE8 Task 14). Third-party "
+        "systems with --batch only: every question's store is reset and fed on its own, so "
+        "the contexts are the ones one process builds; the in-house arms keep their path.",
+    )
+    parser.add_argument(
         "--competitor-config",
         default=None,
         help="a committed JSON file whose 'competitor' block configures a third-party system "
@@ -706,6 +720,14 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
     args = parser.parse_args(argv)
     args.config_path = config_path
+    if args.workers > 1 and not args.batch:
+        print("ERROR: --workers needs --batch (the contexts are built before any reader call).",
+              file=sys.stderr)
+        return 2
+    if args.workers > 1 and args.system not in COMPETITOR_SYSTEMS:
+        print(f"ERROR: --workers is for third-party systems ({', '.join(COMPETITOR_SYSTEMS)}); "
+              "the in-house arms keep their single-process path byte for byte.", file=sys.stderr)
+        return 2
 
     # Load .env (repo root) before any environ.get() below reads a key from it.
     # python-dotenv ships with the [eval] extra; without it (CI installs the
@@ -1141,6 +1163,7 @@ def _main(argv: list[str] | None = None) -> int:
                 if cache_stats is not None else 0,
             },
             outputs={"predictions": "predictions.jsonl", "pins": "pins.json"},
+            competitor_llm_usd=_competitor_llm_usd(resolved.get("competitor_llm")),
             extractor_rounds_sent=(
                 (cache_stats or {}).get("hits", 0) + (cache_stats or {}).get("misses", 0)
                 if cache_stats is not None else 0
@@ -1715,6 +1738,12 @@ def _predict_batch(
     else:
         reader = OpenAIReader(args.model, num_ctx=args.num_ctx, client=client)
         ingest_stats = PredictStats()
+        factory = None
+        if args.workers > 1:
+            from .workers import SystemFactory
+
+            factory = SystemFactory(args.system, {"render_format": args.render_format,
+                                                  "competitor_config": _competitor_config(args)})
         items = build_batch_items(
             system,
             reader,
@@ -1724,6 +1753,8 @@ def _predict_batch(
             sample_seed=args.sample_seed,
             progress=_ctx_progress,
             stats=ingest_stats,
+            workers=args.workers,
+            factory=factory,
         )
         projection = pricing.project(
             model=args.model, items=items, batch=True,
@@ -1756,6 +1787,10 @@ def _predict_batch(
             # The ingest seconds, kept so a resume (which never re-ingests)
             # can still put them in the manifest.
             "ingest_s": round(ingest_stats.ingest_s, 1),
+            # A third-party system's own LLM usage and the worker count (PHASE8 Task 14),
+            # kept for the same reason.
+            "competitor_llm": ingest_stats.competitor_llm,
+            "ingest_workers": ingest_stats.ingest_workers,
             # The ledger line this submission is booked under, so the line the
             # resume writes can supersede it instead of double counting.
             "ledger_ts": entry["ts"],
@@ -1884,6 +1919,8 @@ def _predict_batch(
         )
     stats = PredictStats()
     stats.ingest_s = float(state.get("ingest_s") or 0.0)
+    stats.competitor_llm = dict(state.get("competitor_llm") or {})
+    stats.ingest_workers = int(state.get("ingest_workers") or 1)
     predictions = predictions_from_batch(items, outputs, stats=stats)
     artifacts.write_predictions(directory, predictions)
     # Batch rate for the batch rows; the fallbacks were synchronous calls.
@@ -2077,6 +2114,23 @@ def _print_judge(judge: dict) -> None:
             file=sys.stderr,
         )
     print("-------------", file=sys.stderr)
+
+
+def _competitor_llm_usd(usage: dict | None) -> float | None:
+    """A third-party system's own LLM spend from its measured usage (R2a: outside the ledger)."""
+    if not usage:
+        return None
+    total = 0.0
+    for model, row in usage.items():
+        try:
+            rates = pricing.price(model)
+        except pricing.UnpricedModelError:
+            return None
+        cached = int(row.get("cached", 0) or 0)
+        uncached = int(row.get("prompt", 0) or 0) - cached
+        total += (uncached * rates["input"] + cached * rates.get("cached_input", rates["input"])
+                  + int(row.get("completion", 0) or 0) * rates["output"]) / 1_000_000
+    return round(total, 6)
 
 
 def _competitor_config(args) -> dict | None:

@@ -577,6 +577,18 @@ class PredictStats:
     # Seconds spent inside ``system.reset`` / ``system.add`` / ``get_context``
     # across the stage: the manifest's ``cost.ingest_s``.
     ingest_s: float = 0.0
+    # A third-party system's own LLM calls at write time (PHASE8 Task 14), per served
+    # model: ``{"calls", "prompt", "completion"}``. Outside the harness ledger (R2a).
+    competitor_llm: dict = field(default_factory=dict)
+    # Worker processes that built the contexts (--workers); 1 is this process.
+    ingest_workers: int = 1
+
+    def record_llm_usage(self, usage: dict | None) -> None:
+        for model, row in (usage or {}).items():
+            total = self.competitor_llm.setdefault(model, {"calls": 0, "prompt": 0,
+                                                          "completion": 0, "cached": 0})
+            for key in ("calls", "prompt", "completion", "cached"):
+                total[key] += int(row.get(key, 0) or 0)
 
     def record(
         self, out: ReaderOutput, usage: tuple | None = None, served_model: str | None = None
@@ -600,6 +612,10 @@ class PredictStats:
             "system_fingerprints": dict(sorted(self.system_fingerprints.items())),
             "served_models": dict(sorted(self.served_models.items())),
             "ingest_s": round(self.ingest_s, 1),
+            # Present only when a third-party system made its own LLM calls, or the
+            # contexts were built across workers: the in-house arms' files are unchanged.
+            **({"competitor_llm": self.competitor_llm} if self.competitor_llm else {}),
+            **({"ingest_workers": self.ingest_workers} if self.ingest_workers > 1 else {}),
             "usage": {
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,
@@ -747,6 +763,8 @@ def predict(
     predictions: list[Prediction] = []
     for i, q in enumerate(questions):
         context, retrieved, ingest_s = ingest_and_context(system, q)
+        if stats is not None:
+            stats.record_llm_usage(_take_llm_usage(system))
         out = reader.answer(
             context, q.question, cache_bust=q.question_id, question_date=q.question_date
         )
@@ -796,6 +814,76 @@ def ingest_and_context(system: MemorySystem, q: Question) -> tuple[str, list[str
 
 
 @dataclass
+class ContextResult:
+    """One question's context from ``ingest_and_context``, plus the system's own LLM usage."""
+
+    question_id: str
+    context: str
+    retrieved_ids: list
+    ingest_s: float
+    llm_usage: dict
+
+
+def _take_llm_usage(system) -> dict:
+    take = getattr(system, "take_llm_usage", None)
+    return dict(take()) if take is not None else {}
+
+
+def _context_result(system, q: Question) -> ContextResult:
+    context, retrieved, ingest_s = ingest_and_context(system, q)
+    return ContextResult(q.question_id, context, retrieved, ingest_s, _take_llm_usage(system))
+
+
+_WORKER_SYSTEM = None
+
+
+def _init_worker(factory) -> None:
+    """A worker process builds its system once, from the parent's arguments."""
+    global _WORKER_SYSTEM
+    _WORKER_SYSTEM = factory()
+
+
+def _worker_context(q: Question) -> ContextResult:
+    return _context_result(_WORKER_SYSTEM, q)
+
+
+def contexts_for(
+    questions: list[Question], *, system=None, factory=None, workers: int = 1, on_result=None,
+) -> list[ContextResult]:
+    """Every question's context, in question order (PHASE8 Task 14).
+
+    With ``workers`` > 1 the questions are spread over that many spawned processes,
+    each holding its own system built by ``factory``. Every question's store is reset
+    and fed on its own, so the contexts are the ones a single process builds.
+    ``on_result(done, total, question, result)`` is called as each completes.
+    """
+    if workers <= 1:
+        system = system if system is not None else factory()
+        results = []
+        for i, q in enumerate(questions):
+            result = _context_result(system, q)
+            results.append(result)
+            if on_result is not None:
+                on_result(i + 1, len(questions), q, result)
+        return results
+    if factory is None:
+        raise ValueError("workers > 1 needs a factory each worker process builds its system with")
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    by_id: dict[str, ContextResult] = {}
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
+                             initializer=_init_worker, initargs=(factory,)) as pool:
+        futures = {pool.submit(_worker_context, q): q for q in questions}
+        for done, future in enumerate(as_completed(futures), start=1):
+            q = futures[future]
+            by_id[q.question_id] = future.result()
+            if on_result is not None:
+                on_result(done, len(questions), q, by_id[q.question_id])
+    return [by_id[q.question_id] for q in questions]
+
+
+@dataclass
 class BatchItem:
     """One question's Batch API request plus the row metadata its Prediction
     needs later, so a resume never re-ingests."""
@@ -821,37 +909,45 @@ def build_batch_items(
     sample_seed: int = DEFAULT_SAMPLE_SEED,
     progress: PredictProgressFn | None = None,
     stats: PredictStats | None = None,
+    workers: int = 1,
+    factory=None,
 ) -> list[BatchItem]:
     """The ingest half of :func:`predict` with no reader call: every question
     is reset, fed, asked for context, and turned into a request body. ``stats``,
-    when given, accumulates the ingest seconds."""
+    when given, accumulates the ingest seconds and a third-party system's own LLM
+    usage. ``workers`` > 1 builds the contexts across processes (``contexts_for``);
+    the items come out in question order either way."""
     questions = load(
         limit=limit, filename=dataset_file, strategy=strategy, seed=sample_seed
     )
-    items: list[BatchItem] = []
-    for i, q in enumerate(questions):
-        context, retrieved, ingest_s = ingest_and_context(system, q)
+    by_id: dict[str, BatchItem] = {}
+
+    def on_result(done: int, total: int, q: Question, result: ContextResult) -> None:
         if stats is not None:
-            stats.ingest_s += ingest_s
+            stats.ingest_s += result.ingest_s
+            stats.record_llm_usage(result.llm_usage)
         body, truncated, dropped = reader.request_body(
-            context, q.question, cache_bust=q.question_id, question_date=q.question_date
+            result.context, q.question, cache_bust=q.question_id, question_date=q.question_date
         )
-        items.append(
-            BatchItem(
-                custom_id=q.question_id,
-                body=body,
-                category=q.category,
-                is_abstention=q.is_abstention,
-                question=q.question,
-                answer=q.answer,
-                truncated=truncated,
-                tokens_dropped=dropped,
-                retrieved_ids=retrieved,
-            )
+        by_id[q.question_id] = BatchItem(
+            custom_id=q.question_id,
+            body=body,
+            category=q.category,
+            is_abstention=q.is_abstention,
+            question=q.question,
+            answer=q.answer,
+            truncated=truncated,
+            tokens_dropped=dropped,
+            retrieved_ids=result.retrieved_ids,
         )
         if progress is not None:
-            progress(i + 1, len(questions), q, truncated)
-    return items
+            progress(done, total, q, truncated)
+
+    contexts_for(questions, system=system, factory=factory, workers=workers,
+                 on_result=on_result)
+    if stats is not None:
+        stats.ingest_workers = max(1, workers)
+    return [by_id[q.question_id] for q in questions]
 
 
 def predictions_from_batch(

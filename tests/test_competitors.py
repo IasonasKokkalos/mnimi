@@ -258,3 +258,181 @@ def test_the_manifest_describes_a_competitor_arm_without_missing_fields():
     assert config["chunk_unit"] == "the system's own memories"
     assert config["dedup"] == {"on": "the system's own write policy"}
     assert config["competitor_context_budget_tokens"] == 5364
+
+# -- Mem0 OSS (PHASE8 Task 14) --------------------------------------------------------------
+
+
+class _FakeMem0Client:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeMem0:
+    instances: list = []
+
+    def __init__(self, config):
+        self.config, self.adds, self.searches, self.closed = config, [], [], False
+        self.vector_store = types.SimpleNamespace(client=_FakeMem0Client())
+        _FakeMem0.instances.append(self)
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(config)
+
+    def add(self, messages, *, user_id=None, metadata=None, infer=True, **extra):
+        assert not extra, f"unexpected add() keywords {sorted(extra)}"
+        self.adds.append({"messages": messages, "user_id": user_id, "metadata": metadata,
+                          "infer": infer})
+
+    def search(self, query, *, top_k=20, filters=None, threshold=0.1, **extra):
+        assert not extra, f"unexpected search() keywords {sorted(extra)}"
+        self.searches.append({"query": query, "top_k": top_k, "filters": filters,
+                              "threshold": threshold})
+        rows = []
+        for a, add in enumerate(self.adds):
+            for m, msg in enumerate(add["messages"]):
+                rows.append({"id": f"mem{a}-{m}", "memory": msg["content"], "score": 0.9,
+                             "metadata": add["metadata"]})
+        return {"results": rows[:top_k]}
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def fake_mem0(monkeypatch, tmp_path):
+    mod = types.ModuleType("mem0")
+    mod.Memory = _FakeMem0
+    mod.__version__ = "2.2.1-fake"
+    monkeypatch.setitem(sys.modules, "mem0", mod)
+    monkeypatch.delenv("MEM0_TELEMETRY", raising=False)
+    _FakeMem0.instances.clear()
+    return mod
+
+
+def _mem0_config(**overrides):
+    block = {"package": "mem0ai==fake",
+             "llm": {"provider": "fake", "config": {"model": "gpt-4o-mini-2024-07-18",
+                                                    "temperature": 0}},
+             "embedder": {"provider": "fake", "repo": "BAAI/bge-small-en-v1.5",
+                          "revision": "5c38", "embedding_dims": 384},
+             "vector_store": {"provider": "qdrant",
+                              "config": {"collection_name": "eval", "embedding_model_dims": 384}},
+             "version": "v1.1", "add": {"infer": True}, "search": {"threshold": 0.1},
+             "context": {"budget_tokens": 1_000_000, "candidates": 1000, "tokenizer": "chars/4"}}
+    block.update(overrides)
+    return block
+
+
+def test_mem0_adapter_hands_the_session_date_over_as_metadata_only(fake_mem0):
+    import os
+
+    from evals.systems.mem0_oss import Mem0System
+
+    system = Mem0System(_mem0_config())
+    assert os.environ["MEM0_TELEMETRY"] == "False", "telemetry off before mem0 is imported"
+    system.reset()
+    system.add([{"role": "user", "content": "I live in Boston.", "ts": TS_A},
+                {"role": "assistant", "content": "Noted.", "ts": TS_A}])
+    memory = _FakeMem0.instances[-1]
+    (add,) = memory.adds
+    assert add["messages"] == [{"role": "user", "content": "I live in Boston."},
+                               {"role": "assistant", "content": "Noted."}], "no harness invention"
+    assert add["metadata"] == {"session_date": TS_A} and add["infer"] is True
+    assert add["user_id"] == "eval"
+    config = memory.config
+    assert config["llm"] == {"provider": "fake", "config": {"model": "gpt-4o-mini-2024-07-18",
+                                                            "temperature": 0}}
+    assert config["vector_store"]["config"]["path"].endswith("qdrant")
+    assert config["history_db_path"].endswith("history.db") and config["version"] == "v1.1"
+
+
+def test_mem0_adapter_fills_the_budget_from_its_own_search_order(fake_mem0):
+    from evals.systems.mem0_oss import Mem0System
+
+    system = Mem0System(_mem0_config())
+    system.reset()
+    system.add([{"role": "user", "content": "I adopted a cat.", "ts": TS_B}])
+    system.add([{"role": "user", "content": "I live in Boston.", "ts": TS_A}])
+    ctx = system.get_context("where do I live")
+    (search,) = _FakeMem0.instances[-1].searches
+    assert search == {"query": "where do I live", "top_k": 1000, "filters": {"user_id": "eval"},
+                      "threshold": 0.1}
+    assert system.retrieved_ids() == ["mem0-0", "mem1-0"], "search order"
+    assert ctx.index(f"[Session date: {TS_A}]") < ctx.index(f"[Session date: {TS_B}]")
+    assert "memory: I live in Boston." in ctx and "memory: I adopted a cat." in ctx
+
+
+def test_mem0_reset_closes_the_store_and_its_vector_client(fake_mem0):
+    from evals.systems.mem0_oss import Mem0System
+
+    system = Mem0System(_mem0_config())
+    system.reset()
+    first = _FakeMem0.instances[-1]
+    system.reset()
+    assert first.closed and first.vector_store.client.closed
+    assert _FakeMem0.instances[-1] is not first
+    assert first.config["vector_store"]["config"]["path"] != \
+        _FakeMem0.instances[-1].config["vector_store"]["config"]["path"], "a fresh store"
+
+
+def test_mem0_pins_name_its_llm_and_embedder(fake_mem0):
+    from evals.systems.mem0_oss import Mem0System
+
+    pins = Mem0System(_mem0_config()).retrieval_pins()
+    assert pins["competitor_name"] == "mem0" and pins["competitor_version"] == "mem0ai==fake"
+    assert pins["competitor_llm"] == "fake:gpt-4o-mini-2024-07-18"
+    assert pins["competitor_embedder"] == "BAAI/bge-small-en-v1.5@5c38"
+    assert pins["competitor_context_budget_tokens"] == 1_000_000
+
+
+def test_mem0_usage_is_recorded_and_taken_per_question(fake_mem0):
+    from evals.systems.mem0_oss import Mem0System
+
+    system = Mem0System(_mem0_config())
+    system._record_usage("gpt-4o-mini-2024-07-18", 100, 10, cached=64)
+    system._record_usage("gpt-4o-mini-2024-07-18", 50, 5)
+    assert system.take_llm_usage() == {
+        "gpt-4o-mini-2024-07-18": {"calls": 2, "prompt": 150, "completion": 15, "cached": 64}}
+    assert system.take_llm_usage() == {}
+
+
+# -- parallel contexts (--workers) ------------------------------------------------------------
+
+
+def _questions(n):
+    from evals.dataset import Question, Session
+
+    return [Question(question_id=f"q{i}", question_type="multi-session", question=f"what {i}?",
+                     answer="a", question_date=TS_B,
+                     sessions=[Session(session_id=f"s{j}", date=TS_A,
+                                       turns=[{"role": "user", "content": "x"}])
+                               for j in range(i % 3 + 1)],
+                     answer_session_ids=[])
+            for i in range(n)]
+
+
+def test_contexts_in_parallel_equal_the_sequential_ones():
+    from evals import runner
+
+    from _workers_fake import make_counting_system
+
+    questions = _questions(7)
+    sequential = runner.contexts_for(questions, system=make_counting_system())
+    parallel = runner.contexts_for(questions, factory=make_counting_system, workers=3)
+    assert [(c.context, c.retrieved_ids, c.llm_usage) for c in parallel] == \
+        [(c.context, c.retrieved_ids, c.llm_usage) for c in sequential]
+    assert [c.context for c in sequential][:3] == ["what 0?|1", "what 1?|2", "what 2?|3"]
+
+
+def test_predict_stats_sums_the_llm_usage_it_is_given():
+    from evals import runner
+
+    stats = runner.PredictStats()
+    stats.record_llm_usage({"m": {"calls": 1, "prompt": 5, "completion": 1, "cached": 2}})
+    stats.record_llm_usage({"m": {"calls": 2, "prompt": 10, "completion": 2}})
+    assert stats.as_resolved("openai", "gpt-4o-2024-08-06")["competitor_llm"] == {
+        "m": {"calls": 3, "prompt": 15, "completion": 3, "cached": 2}}

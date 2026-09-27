@@ -1,0 +1,41 @@
+{
+  "competitor": {
+    "package": "mem0ai==2.2.1",
+    "llm": {
+      "provider": "openai",
+      "config": {
+        "model": "gpt-4o-mini-2024-07-18",
+        "temperature": 0
+      }
+    },
+    "embedder": {
+      "provider": "huggingface",
+      "repo": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "embedding_dims": 384,
+      "device": "cpu"
+    },
+    "vector_store": {
+      "provider": "qdrant",
+      "config": {
+        "collection_name": "eval",
+        "embedding_model_dims": 384
+      }
+    },
+    "version": "v1.1",
+    "add": {
+      "infer": true
+    },
+    "search": {
+      "threshold": 0.1
+    },
+    "context": {
+      "budget_tokens": 5364,
+      "candidates": 1000,
+      "tokenizer": "tiktoken:o200k_base",
+      "source": "the shipped mnimi arm's mean rendered context: mnimi__500q_gpt4o_p6time mean reader_prompt_tokens 5,498 minus no_memory__500q_gpt4o's 133 (scaffold and question); the maintainer's decision of 2026-09-27"
+    },
+    "telemetry": "MEM0_TELEMETRY=False, set by the adapter before import; no behaviour change",
+    "source": "Mem0 OSS 2.2.1 as shipped: one add() per session with the session date as metadata (the OSS build refuses timestamp=), infer=True; search() with its default threshold, filtered to the one user; the write LLM gpt-4o-mini at temperature 0 (the maintainer's R2a); BAAI/bge-small-en-v1.5 at mnimi's pinned revision through sentence-transformers; the context budget of 2026-09-27"
+  }
+}

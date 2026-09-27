@@ -745,3 +745,17 @@ def test_the_judge_stage_keeps_the_predict_stages_provenance(wired, tmp_path, ca
     monkeypatch.setattr(artifacts, "harness_git_tag", lambda: "judge-tag")
     assert _run(run_dir, "--stage", "judge") == 0, capsys.readouterr().err
     assert manifest.read_optional(run_dir)["code"]["tag"] == "predict-tag"
+
+def test_workers_are_refused_for_an_in_house_arm_and_without_batch(wired, tmp_path, capsys):
+    run_dir = tmp_path / "runs" / "r"
+    assert _run(run_dir, "--stage", "predict", "--workers", "2", "--batch") == 2
+    assert "--workers" in capsys.readouterr().err
+    assert _run(run_dir, "--stage", "predict", "--workers", "2") == 2
+    assert "--batch" in capsys.readouterr().err
+
+def test_a_third_party_llm_is_priced_with_its_cached_prompt_tokens():
+    usage = {"gpt-4o-mini-2024-07-18": {"calls": 2, "prompt": 1_000_000, "completion": 100_000,
+                                        "cached": 500_000}}
+    # 500k uncached x 0.15 + 500k cached x 0.075 + 100k output x 0.60, per million
+    assert evals_main._competitor_llm_usd(usage) == pytest.approx(0.075 + 0.0375 + 0.06)
+    assert evals_main._competitor_llm_usd({}) is None

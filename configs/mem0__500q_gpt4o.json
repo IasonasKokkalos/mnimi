@@ -1,0 +1,26 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "mem0",
+    "--competitor-config",
+    "configs/mem0_competitor.json",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "openai",
+    "--batch",
+    "--workers",
+    "10",
+    "--purpose",
+    "Phase 8 Task 14: Mem0 OSS 2.2.1 through the harness at n=500 (D9, the context budget)",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "8f6192b",
+    "--run-dir",
+    "runs/mem0__500q_gpt4o"
+  ]
+}

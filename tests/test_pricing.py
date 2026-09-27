@@ -306,3 +306,7 @@ def test_judge_tolerates_a_completion_without_usage():
 def test_the_second_judge_is_priced_and_projects():
     assert pricing.price("gpt-4.1-2025-04-14") == {"input": 2.00, "output": 8.00}
     assert pricing.estimate_usd("gpt-4.1-2025-04-14", 1_000_000, 0) == pytest.approx(2.00)
+
+def test_mem0s_write_llm_is_priced():
+    assert pricing.price("gpt-4o-mini-2024-07-18") == {"input": 0.15, "output": 0.60,
+                                                       "cached_input": 0.075}
