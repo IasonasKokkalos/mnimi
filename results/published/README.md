@@ -627,7 +627,7 @@ Paired by `python -m evals.stats … --family F1`; b = Mem0's wins, c = the othe
 | --- | --- | ---: | ---: | ---: |
 | shipped mnimi vs Mem0 | gpt-4o | 28 | 121 | 5.6 × 10⁻¹⁵ |
 | shipped mnimi vs Mem0 | gpt-4.1 | 28 | 123 | 2.1 × 10⁻¹⁵ |
-| naive_rag vs Mem0 | gpt-4o | 67 | 104 | 0.0058 |
+| naive_rag vs Mem0 | gpt-4o | 67 | 104 | 0.0057 |
 | naive_rag vs Mem0 | gpt-4.1 | 67 | 113 | 7.5 × 10⁻⁴ |
 
 By category, gpt-4o judge:

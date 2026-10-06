@@ -459,16 +459,21 @@ def tost(b: int, c: int, n: int, margin: float) -> dict:
 
 def save_pair(
     record: dict, out_dir: str | Path = "analyses", suffix: str = "",
-    family: str | None = None, p_holm: float | None = None,
+    family: str | None = None, p_holm: float | None = None, name: str | None = None,
 ) -> Path:
-    """Write one pair record; ``family`` and ``p_holm`` (PHASE8 D8) are stored when given."""
+    """Write one pair record; ``family`` and ``p_holm`` (PHASE8 D8) are stored when given.
+
+    The file is ``<first>__vs__<second><suffix>.json``, or ``<name><suffix>.json`` when a
+    ``name`` is given (a per-category pair is named by its category).
+    """
     if family is not None:
         record = {**record, "family": family}
     if p_holm is not None:
         record = {**record, "p_holm": p_holm}
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{record['first']['run_id']}__vs__{record['second']['run_id']}{suffix}.json"
+    stem = name or f"{record['first']['run_id']}__vs__{record['second']['run_id']}"
+    path = out_dir / f"{stem}{suffix}.json"
     path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
@@ -590,13 +595,16 @@ def main(argv: list[str] | None = None) -> int:
 
     Every pair the report tests is also written under ``analyses/`` (the
     run-documentation rule) unless ``--no-save`` is given; with exactly two
-    run dirs the pair is saved whatever the systems are.
+    run dirs the pair is saved whatever the systems are. ``--by-category``
+    (two run dirs) saves one pair per question category instead, each as
+    ``<out>/<category>.json`` (PHASE8 Task 16: F2, the primary per category).
     """
     argv = list(sys.argv[1:] if argv is None else argv)
     save = True
     out_dir = "analyses"
     judge_model: str | None = None
     family: str | None = None
+    by_category = False
     dirs: list[str] = []
     it = iter(argv)
     for arg in it:
@@ -608,11 +616,17 @@ def main(argv: list[str] | None = None) -> int:
             judge_model = next(it, None)
         elif arg == "--family":
             family = next(it, None)
+        elif arg == "--by-category":
+            by_category = True
         else:
             dirs.append(arg)
     if not dirs:
         print("usage: python -m evals.stats <run_dir> [<run_dir> ...] [--no-save] [--out DIR] "
-              "[--judge <model>] [--family <id>]", file=sys.stderr)
+              "[--judge <model>] [--family <id>] [--by-category]", file=sys.stderr)
+        return 2
+    if by_category and len(dirs) != 2:
+        print(f"ERROR: --by-category pairs exactly two run dirs; {len(dirs)} given",
+              file=sys.stderr)
         return 2
     source = None
     if judge_model is not None:
@@ -641,6 +655,33 @@ def main(argv: list[str] | None = None) -> int:
         where[name] = directory
     report = analyse(arms, identities=identities)
     print(_format(report))
+    suffix = f"__judge-{judge_model}" if judge_model else ""
+    if save and by_category:
+        # One pair per category over the same two runs, b = the second run's wins;
+        # a family is Holm-corrected across the categories this invocation saves.
+        first, second = list(arms)
+        category_of = {row["question_id"]: row["category"]
+                       for row in payloads[where[first]]["results"]}
+        by_cat: dict[str, dict] = {}
+        for category in sorted(set(category_of.values())):
+            ids = {q for q, c in category_of.items() if c == category}
+            record = pair_record(
+                where[first], where[second],
+                {q: v for q, v in arms[first].items() if q in ids},
+                {q: v for q, v in arms[second].items() if q in ids}, source=source,
+            )
+            by_cat[category] = {**record, "category": category}
+        corrected = (
+            holm({c: r["p_exact_mcnemar"] for c, r in by_cat.items()})
+            if family is not None else {}
+        )
+        for category, record in by_cat.items():
+            path = save_pair(record, out_dir, suffix=suffix, family=family,
+                             p_holm=corrected.get(category), name=category)
+            extra = f" p_holm={corrected[category]:.3g}" if family is not None else ""
+            print(f"saved {path}: b={record['b_second_wins']} c={record['c_first_wins']} "
+                  f"p={record['p_exact_mcnemar']:.3g}{extra}", file=sys.stderr)
+        return 0
     if save:
         pairs: list[tuple[str, str]] = []
         if len(dirs) == 2:
@@ -669,7 +710,6 @@ def main(argv: list[str] | None = None) -> int:
             holm({f"{a}|{b}": r["p_exact_mcnemar"] for (a, b), r in records.items()})
             if family is not None else {}
         )
-        suffix = f"__judge-{judge_model}" if judge_model else ""
         for (first, second), record in records.items():
             path = save_pair(record, out_dir, suffix=suffix, family=family,
                              p_holm=corrected.get(f"{first}|{second}"))

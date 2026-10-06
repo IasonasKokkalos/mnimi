@@ -358,3 +358,47 @@ def test_a_family_of_pairs_is_holm_corrected_and_saved(tmp_path):
     saved = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("*.json"))]
     assert saved and all(s["family"] == "F9" for s in saved)
     assert all(s["p_holm"] >= s["p_exact_mcnemar"] for s in saved)
+
+
+def _arm_by_category(directory, system, verdicts, categories):
+    directory.mkdir(parents=True)
+    (directory / "results.json").write_text(json.dumps({
+        "pins": {"system": system}, "pins_hash": "p", "judge": {},
+        "results": [{"question_id": q, "correct": c, "category": categories[q]}
+                    for q, c in verdicts.items()],
+    }), encoding="utf-8")
+
+
+def test_save_pair_takes_a_file_name(tmp_path):
+    record = {"first": {"run_id": "a"}, "second": {"run_id": "b"}, "p_exact_mcnemar": 0.01}
+    path = stats.save_pair(record, tmp_path, name="multi-session")
+    assert path == tmp_path / "multi-session.json"
+
+
+def test_by_category_saves_one_holm_corrected_pair_per_category(tmp_path):
+    categories = {"q1": "x", "q2": "x", "q3": "y", "q4": "y", "q5": "y"}
+    a, b = tmp_path / "naive_rag__x", tmp_path / "mnimi__x"
+    _arm_by_category(a, "naive_rag",
+                     {"q1": False, "q2": False, "q3": True, "q4": False, "q5": True}, categories)
+    _arm_by_category(b, "mnimi",
+                     {"q1": True, "q2": True, "q3": False, "q4": False, "q5": True}, categories)
+    out = tmp_path / "f2"
+    assert stats.main([str(a), str(b), "--by-category", "--family", "F2", "--out", str(out)]) == 0
+    assert sorted(p.name for p in out.glob("*.json")) == ["x.json", "y.json"]
+    x = json.loads((out / "x.json").read_text(encoding="utf-8"))
+    y = json.loads((out / "y.json").read_text(encoding="utf-8"))
+    # b = the second run's wins, counted inside the category only
+    assert (x["category"], x["n_pairs"], x["b_second_wins"], x["c_first_wins"]) == ("x", 2, 2, 0)
+    assert (y["category"], y["n_pairs"], y["b_second_wins"], y["c_first_wins"]) == ("y", 3, 0, 1)
+    assert (x["first"]["run_id"], x["second"]["run_id"]) == ("naive_rag__x", "mnimi__x")
+    assert (x["first"]["correct"], x["second"]["correct"]) == (0, 2)
+    assert x["family"] == y["family"] == "F2"
+    assert x["p_exact_mcnemar"] == 0.5 and x["p_holm"] == 1.0  # Holm over the two categories
+
+
+def test_by_category_needs_exactly_two_run_dirs(tmp_path, capsys):
+    a = tmp_path / "naive_rag__x"
+    _arm_by_category(a, "naive_rag", {"q1": True}, {"q1": "x"})
+    assert stats.main([str(a), "--by-category", "--out", str(tmp_path / "f2")]) == 2
+    assert "exactly two" in capsys.readouterr().err
+    assert not (tmp_path / "f2").exists()

@@ -1,0 +1,48 @@
+{
+  "analysis_schema": "mnimi-paired-analysis/1",
+  "b_second_wins": 4,
+  "c_first_wins": 2,
+  "category": "single-session-user",
+  "discordant": 6,
+  "family": "F2",
+  "first": {
+    "artifact_schema": "mnimi-eval-artifact/10",
+    "correct": 64,
+    "harness_git_sha": "f07c24d1739afea4727783906621e526b91fdee2",
+    "n": 70,
+    "pins_hash": "049438e5c09cb9c00bf4a612c2118201d3c610c3bd1fef655b5c0542eb6be9a1",
+    "run_id": "naive_rag__500q_gpt4o"
+  },
+  "first_wins_ids": [
+    "51a45a95",
+    "6ade9755"
+  ],
+  "harness_notes": {
+    "artifact_schema": {
+      "first": "mnimi-eval-artifact/10",
+      "second": "mnimi-eval-artifact/11"
+    },
+    "harness_git_sha": {
+      "first": "f07c24d1739afea4727783906621e526b91fdee2",
+      "second": "f0a7de3493b8636be09f2b239fefb162ac1ef5aa"
+    }
+  },
+  "n_pairs": 70,
+  "p_exact_mcnemar": 0.6875000000000003,
+  "p_holm": 1.0,
+  "second": {
+    "artifact_schema": "mnimi-eval-artifact/11",
+    "correct": 66,
+    "harness_git_sha": "f0a7de3493b8636be09f2b239fefb162ac1ef5aa",
+    "n": 70,
+    "pins_hash": "c7ebab0b143cc1747e77341bbfadbb57d097c1ebb8df8d66785a27a26bd16d94",
+    "run_id": "mnimi__500q_gpt4o_p6time"
+  },
+  "second_wins_ids": [
+    "6f9b354f",
+    "726462e0",
+    "a82c026e",
+    "e47becba"
+  ],
+  "source": "per-question verdicts (predictions.jsonl first verdict, else results.json rows)"
+}
