@@ -402,3 +402,30 @@ def test_by_category_needs_exactly_two_run_dirs(tmp_path, capsys):
     assert stats.main([str(a), "--by-category", "--out", str(tmp_path / "f2")]) == 2
     assert "exactly two" in capsys.readouterr().err
     assert not (tmp_path / "f2").exists()
+
+
+def test_by_category_refuses_what_would_mislead(tmp_path, capsys):
+    categories = {"q1": "x", "q2": "y"}
+    a, b, c, d = (tmp_path / n for n in ("naive_rag__x", "mnimi__x", "mnimi__y", "mnimi__z"))
+    out = str(tmp_path / "o")
+    _arm_by_category(a, "naive_rag", {"q1": True, "q2": False}, categories)
+    _arm_by_category(b, "mnimi", {"q1": True, "q2": True}, categories)
+    # no --out: the default would mix per-category files with the pairs of record
+    assert stats.main([str(a), str(b), "--by-category"]) == 2
+    assert "--out" in capsys.readouterr().err
+    # --no-save: there would be nothing to show
+    assert stats.main([str(a), str(b), "--by-category", "--no-save", "--out", out]) == 2
+    assert "--no-save" in capsys.readouterr().err
+    # the two runs must agree on every question's category
+    _arm_by_category(c, "mnimi", {"q1": True, "q2": True}, {"q1": "x", "q2": "x"})
+    assert stats.main([str(a), str(c), "--by-category", "--out", out]) == 2
+    assert "category" in capsys.readouterr().err
+    # and every row must carry one
+    d.mkdir()
+    (d / "results.json").write_text(json.dumps({
+        "pins": {"system": "mnimi"}, "pins_hash": "p", "judge": {},
+        "results": [{"question_id": "q1", "correct": True}, {"question_id": "q2", "correct": True}],
+    }), encoding="utf-8")
+    assert stats.main([str(d), str(a), "--by-category", "--out", out]) == 2
+    assert "category" in capsys.readouterr().err
+    assert not (tmp_path / "o").exists()

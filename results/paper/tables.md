@@ -39,6 +39,7 @@ Exported by `python -m evals.paper_tables` from `results/published/` and `analys
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6time | Phase 6 L1 | 15 | 8 | 23 | 0.21 | 13 | 11 | 0.84 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6turns | Phase 6 L3 | 22 | 20 | 42 | 0.88 | 27 | 22 | 0.57 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6combo | Phase 6 L1+L3 | 18 | 14 | 32 | 0.6 | 25 | 17 | 0.28 | yes |
+| naive_rag__500q_gpt4o → mnimi__500q_gpt4o_p6time | the paper system vs the bar | 77 | 21 | 98 | 1.1e-08 | 76 | 27 | 1.4e-06 | yes |
 | mnimi__500q_gpt4o_p6time → mem0__500q_gpt4o | competitor | 28 | 121 | 149 | 5.6e-15 | 28 | 123 | 2.1e-15 | yes |
 | mnimi__500q_gpt4o_p6time → omega__500q_gpt4o | competitor | 19 | 83 | 102 | 1e-10 | 24 | 85 | 3.5e-09 | yes |
 | naive_rag__500q_gpt4o → mem0__500q_gpt4o | competitor vs the bar | 67 | 104 | 171 | 0.0057 | 67 | 113 | 0.00075 | yes |
@@ -116,11 +117,11 @@ yy = both yes, yn = the first judge yes and the second no, ny = the reverse, nn 
 | abstention | 30 | 26 | 1 | 1 | 2 | 0 |
 | overall | 492 | 409 | 44 | 25 | 14 | 8 |
 
-abstention is the 30 unanswerable rows, which also count in their own category.
+The unanswerable (abstention) rows are counted in the abstention row and not in their category's row, so the rows above overall partition the benchmark and a category's n here is smaller than in T2.
 
 ## T6b — the primary per category (F2): naive_rag__500q_gpt4o → mnimi__500q_gpt4o_p6time
 
-| category | n | b | c | discordant | p | p (Holm, six tests) |
+| category | n | b | c | discordant | p | p (Holm, 6 tests) |
 | --- | --- | --- | --- | --- | --- | --- |
 | single-session-user | 70 | 4 | 2 | 6 | 0.69 | 1 |
 | single-session-assistant | 56 | 1 | 0 | 1 | 1 | 1 |
@@ -137,7 +138,7 @@ abstention is the 30 unanswerable rows, which also count in their own category.
 | omega__500q_gpt4o | omega-memory==1.5.17 | none | the system's own memories | BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a | created_at, access times and decay read the wall clock; created_at backdated to the session date (evals/systems/omega_retrieval.py) | 365/500 | [68.9, 76.7] | 19 / 83 / 1e-10 | 45 / 53 / 0.48 |
 | agentmemory v4 @ 3aa3b83 | — | — | — | — | deferred: its smoke measured 20-28 min per history (DECISIONS 2026-09-27); no n=500 arm | — | — | — | — |
 
-b = the third-party arm's wins. Paired readings, never a rank.
+b = the third-party arm's wins. Paired readings, never a rank. unit is the manifest's chunk_unit, the units the system itself stores; in the OMEGA arm those are naive_rag's rounds (its role in T1).
 
 ## T8 — provenance: one row per run the tables read
 

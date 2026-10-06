@@ -602,6 +602,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     save = True
     out_dir = "analyses"
+    out_given = False
     judge_model: str | None = None
     family: str | None = None
     by_category = False
@@ -612,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             save = False
         elif arg == "--out":
             out_dir = next(it, out_dir)
+            out_given = True
         elif arg == "--judge":
             judge_model = next(it, None)
         elif arg == "--family":
@@ -627,6 +629,14 @@ def main(argv: list[str] | None = None) -> int:
     if by_category and len(dirs) != 2:
         print(f"ERROR: --by-category pairs exactly two run dirs; {len(dirs)} given",
               file=sys.stderr)
+        return 2
+    if by_category and not save:
+        print("ERROR: --by-category only saves; it has nothing to do under --no-save",
+              file=sys.stderr)
+        return 2
+    if by_category and not out_given:
+        print("ERROR: --by-category needs --out <dir>: its <category>.json files must not "
+              "land among the pairs of record", file=sys.stderr)
         return 2
     source = None
     if judge_model is not None:
@@ -660,8 +670,13 @@ def main(argv: list[str] | None = None) -> int:
         # One pair per category over the same two runs, b = the second run's wins;
         # a family is Holm-corrected across the categories this invocation saves.
         first, second = list(arms)
-        category_of = {row["question_id"]: row["category"]
-                       for row in payloads[where[first]]["results"]}
+        maps = [{row["question_id"]: row.get("category") for row in payloads[where[a]]["results"]}
+                for a in (first, second)]
+        category_of = maps[0]
+        if None in category_of.values() or maps[0] != maps[1]:
+            print("ERROR: --by-category needs a category on every row, the same in both runs",
+                  file=sys.stderr)
+            return 2
         by_cat: dict[str, dict] = {}
         for category in sorted(set(category_of.values())):
             ids = {q for q, c in category_of.items() if c == category}

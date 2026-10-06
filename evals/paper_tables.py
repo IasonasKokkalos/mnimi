@@ -20,6 +20,8 @@ import argparse
 import json
 from pathlib import Path
 
+from .stats import holm
+
 SECOND_JUDGE = "gpt-4.1-2025-04-14"
 PAPER_SYSTEM = "mnimi__500q_gpt4o_p6time"
 BAR = "naive_rag__500q_gpt4o"
@@ -46,6 +48,7 @@ PAIRS_OF_RECORD = (  # (first, second, kind); b = the second arm's wins, as anal
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6time", "Phase 6 L1"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6turns", "Phase 6 L3"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6combo", "Phase 6 L1+L3"),
+    ("naive_rag__500q_gpt4o", "mnimi__500q_gpt4o_p6time", "the paper system vs the bar"),
     ("mnimi__500q_gpt4o_p6time", "mem0__500q_gpt4o", "competitor"),
     ("mnimi__500q_gpt4o_p6time", "omega__500q_gpt4o", "competitor"),
     ("naive_rag__500q_gpt4o", "mem0__500q_gpt4o", "competitor vs the bar"),
@@ -133,10 +136,11 @@ def load(published: Path, analyses: Path) -> dict:
         if record is not None:
             f2[category] = record
     families: dict[str, list[dict]] = {}
-    for path in sorted(analyses.glob("*.json")) + sorted((analyses / "f2").glob("*.json")):
+    paths = [*analyses.glob("*.json"), *(analyses / "f2").glob("*.json")]
+    for path in sorted(paths, key=lambda p: p.relative_to(analyses).as_posix()):
         record = json.loads(path.read_text(encoding="utf-8"))
-        if "family" not in record:
-            continue
+        if "family" not in record or "b_second_wins" not in record:
+            continue  # not a pair record, or a pair that names no family
         judge = path.stem.split("__judge-", 1)[1] if "__judge-" in path.stem else None
         families.setdefault(record["family"], []).append({
             "file": path.relative_to(analyses).as_posix(),
@@ -144,8 +148,16 @@ def load(published: Path, analyses: Path) -> dict:
             "category": record.get("category"), "judge": judge,
             "b_second_wins": record["b_second_wins"], "c_first_wins": record["c_first_wins"],
             "n_pairs": record["n_pairs"], "p_exact_mcnemar": record["p_exact_mcnemar"],
-            "p_holm": record.get("p_holm"),
+            "p_holm_saved": record.get("p_holm"),
         })
+    # A pair saved by its own invocation carries a one-test Holm p, so the family's correction
+    # is taken here, across every saved pair of one family under one judge.
+    for entries in families.values():
+        for judge in {e["judge"] for e in entries}:
+            group = [e for e in entries if e["judge"] == judge]
+            adjusted = holm({e["file"]: e["p_exact_mcnemar"] for e in group})
+            for e in group:
+                e["tests"], e["p_holm"] = len(group), adjusted[e["file"]]
     return {
         "arms": arms,
         "pairs": pairs,
@@ -163,7 +175,11 @@ def load(published: Path, analyses: Path) -> dict:
 
 
 def families_record(data: dict) -> dict:
-    """``results/paper/families.json``: every saved pair that names a family, with its Holm p."""
+    """``results/paper/families.json``: every saved pair that names a family.
+
+    ``p_holm`` is Holm's correction across the ``tests`` pairs of that family under that
+    judge; ``p_holm_saved`` is what the pair's own record holds.
+    """
     return {"schema": FAMILIES_SCHEMA,
             "families": {name: data["families"][name] for name in sorted(data["families"])}}
 
@@ -205,7 +221,7 @@ def _t1(data: dict) -> dict:
     for run_id, _label, role in ARMS_OF_RECORD:
         arm = data["arms"][run_id]
         s = arm["summary"]
-        if s is None:
+        if s is None or "accuracy" not in s["overall"]:
             rows.append([run_id, role, DASH, DASH, DASH, DASH])
             continue
         o = s["overall"]
@@ -340,17 +356,21 @@ def _t6(data: dict) -> list[dict]:
             f2.append([category, str(r["n_pairs"]), str(r["b_second_wins"]),
                        str(r["c_first_wins"]), str(r["discordant"]),
                        _p(r["p_exact_mcnemar"]), _p(r.get("p_holm"))])
+    sides = {(r["first"]["run_id"], r["second"]["run_id"]) for r in data["f2"].values()}
+    pair = " → ".join(sides.pop()) if len(sides) == 1 else DASH
     system = (buckets or {}).get("system", PAPER_SYSTEM)
     oracle = (buckets or {}).get("oracle", "the oracle")
     return [
         {"title": f"T6a — the accounting (C1): {system} against {oracle}, judge-stable rows",
          "header": ["category", "n stable", "both right", "oracle right, system wrong",
                     "both wrong", "system right, oracle wrong", "judge-unstable"],
-         "note": "abstention is the 30 unanswerable rows, which also count in their own "
-                 "category.",
+         "note": "The unanswerable (abstention) rows are counted in the abstention row and "
+                 "not in their category's row, so the rows above overall partition the "
+                 "benchmark and a category's n here is smaller than in T2.",
          "rows": rows or [[DASH] * 7]},
-        {"title": f"T6b — the primary per category (F2): {BAR} → {PAPER_SYSTEM}",
-         "header": ["category", "n", "b", "c", "discordant", "p", "p (Holm, six tests)"],
+        {"title": f"T6b — the primary per category (F2): {pair}",
+         "header": ["category", "n", "b", "c", "discordant", "p",
+                    f"p (Holm, {len(data['f2'])} tests)"],
          "rows": f2 or [[DASH] * 7]},
     ]
 
@@ -376,7 +396,9 @@ def _t7(data: dict) -> dict:
             "header": ["arm", "version", "write-side LLM", "unit", "embedder", "wall clock",
                        "correct / n", "Wilson 95 %", f"b / c / p vs {PAPER_SYSTEM}",
                        f"b / c / p vs {BAR}"],
-            "note": "b = the third-party arm's wins. Paired readings, never a rank.",
+            "note": "b = the third-party arm's wins. Paired readings, never a rank. unit is the "
+                    "manifest's chunk_unit, the units the system itself stores; in the OMEGA arm "
+                    "those are naive_rag's rounds (its role in T1).",
             "rows": rows}
 
 
@@ -428,15 +450,17 @@ def render_markdown(data: dict) -> str:
     return "\n".join(out)
 
 
-_LATEX = (("\\", r"\textbackslash{}"), ("_", r"\_"), ("%", r"\%"), ("&", r"\&"), ("#", r"\#"),
-          ("→", r"$\rightarrow$"), ("κ", r"$\kappa$"), ("₂", r"$_2$"), ("−", "$-$"),
-          ("—", "---"))
+_LATEX = {
+    "\\": r"\textbackslash{}", "_": r"\_", "%": r"\%", "&": r"\&", "#": r"\#", "$": r"\$",
+    "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+    "<": r"\textless{}", ">": r"\textgreater{}",
+    "→": r"$\rightarrow$", "κ": r"$\kappa$", "₂": r"$_2$", "−": "$-$", "—": "---",
+}
 
 
 def _tex(cell: str) -> str:
-    for raw, escaped in _LATEX:
-        cell = cell.replace(raw, escaped)
-    return cell
+    """One pass over the characters, so no replacement is itself escaped."""
+    return "".join(_LATEX.get(ch, ch) for ch in cell)
 
 
 def render_latex(data: dict) -> str:
