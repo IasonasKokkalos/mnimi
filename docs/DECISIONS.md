@@ -4057,3 +4057,188 @@ The paper reports these as readings through this harness, never as replications 
 - no `query_hint`;
 - expansion off;
 - the wall clock read for `created_at`, access times and decay, with the backdating in place.
+
+## Phase 8 closes: the paper's harness, reconciled (2026-10-06, v2.39.0)
+
+**What was pre-registered, and what happened.** Phase 7 (`82bcd35`) and Phase 8 (`8f6192b`) changed no byte of the
+library: `src/mnimi/` is v2.14.0's (digest `172457a3…c259`, pinned by `tests/test_paper_freeze.py`). Phase 7 measured
+P1 and P2 and stopped after its Task 5 by the maintainer's decision; Phase 8 carried its Tasks 6–11 and the paper
+plan's harness actions (A2–A9, A13–A16) to this commit, added C2 and C1's accounting, and ran two third-party systems
+at n=500. Every measurement below is on the gpt-4o family, all 500 questions, with `provisional: []` and a complete
+manifest on every run; the paper system is `mnimi__500q_gpt4o_p6time` (L1 alone, 429/500).
+
+**What each measurement can claim.**
+
+- **P1 — Tier 1 (cold audits, eight arms).** "Auditable: every row of the eight n=500 arms re-grades from the
+  committed predictions in a fresh clone with a cold verdict cache; 17 of the 4,000 arm-rows changed verdict
+  (0.43 %), 15 distinct fresh re-grades over 3,565 calls (0.42 %, Wilson [0.26, 0.69]); every score recovered within
+  3 rows." It proves scoring, not generation. `analyses/audits/*__tier1.json`.
+- **P2 — Tier 2 (the drift pair of the shipped configuration).** "Score reproducible within 12/500 flips (b=6, c=6);
+  text not reproducible (277/500 changed)", prompt tokens identical on all 500 rows.
+  `mnimi__500q_gpt4o_p6time` (`f0a7de3`) against `mnimi__500q_gpt4o_p6time_drift_2026-09-26` (`685e16b`).
+- **P3 — a second judge (`gpt-4.1-2025-04-14`; the nine n=500 arms re-graded, and later the two third-party arms).** All seven pairs of record keep the sign of
+  b − c; the primary is significant under both judges (naive_rag → mnimi 75 / 26, p = 1.1 × 10⁻⁶; under gpt-4.1
+  75 / 28, p = 4.0 × 10⁻⁶). The four third-party pairs keep their sign too. Scores under the second judge sit 0–12
+  rows below the first judge's on the nine arms (14 on Mem0, 9 on OMEGA). The wording is "under a second judge (gpt-4.1-2025-04-14)", never "validated";
+  nothing adopted was re-decided and the 85 criterion stays read under the pre-registered judge.
+- **Inter-judge agreement.** Pooled over the eight arms 3,925 / 4,000 = 98.1 % [97.7, 98.5], Cohen's κ 0.952; per arm
+  97.0–100 %, κ 0.878–1.000. The second judge is the stricter one (57 rows yes/no against 18 no/yes).
+- **P4 — the human labels (60 rows, blind, the maintainer's).** On the 50 rows where the judges disagree the human
+  sides with gpt-4o on 32 (64.0 % [50.1, 75.9]) and with gpt-4.1 on 18 (36.0 % [24.1, 49.9]); on the 10 controls it
+  agrees with both on all 10. The rows are (question, response) pairs: 60 rows over 43 distinct questions (the 50
+  over 33), so the interval, which treats rows as independent, is somewhat narrow; per distinct question the split is
+  19 / 13 / 1. One labeller. The claim is "the human sided with the pre-registered judge on 32 of the 50 contested
+  rows", not that either judge is validated.
+- **C2 — the judge's test-retest (three cache-off replays by gpt-4o on four arms).** 13 of 2,000 rows are
+  judge-unstable (0.65 %): no_memory 0, naive_rag 4, the paper system 6, oracle 3 of 500; no score moves by more than
+  3 rows; the flips are one-sided (22 to wrong, 5 to right over 6,000 gradings).
+- **C1 — the accounting.** Over the 492 judge-stable rows of the paper system and the oracle: both right 409,
+  **oracle right / system wrong 44**, both wrong 25, system right / oracle wrong 14. Of the system's 69 stable misses
+  44 (63.8 %) are retrieval-bound; multi-session holds 25 of them and temporal-reasoning 14. A row's bucket is a
+  property of this artifact pair under the pre-registered judge's first verdicts.
+- **F2 — the primary per category** (naive_rag → the paper system, six exact McNemar tests, Holm across the six;
+  `analyses/f2/`): temporal-reasoning b=32, c=5, p = 7.4 × 10⁻⁶ (Holm 4.5 × 10⁻⁵); multi-session 25 / 10, p = 0.017
+  (Holm 0.083); single-session-preference 8 / 1, p = 0.039 (Holm 0.16); knowledge-update 7 / 3; single-session-user
+  4 / 2; single-session-assistant 1 / 0. Only temporal-reasoning survives the correction.
+- **The third-party systems, through this harness under these pins** (the same reader, prompt, judge, 500 questions
+  and a 5,364-token context budget): **Mem0 OSS 2.2.1 reads 336/500** (67.2 % [63.0, 71.2]; 322 under gpt-4.1), b=28,
+  c=121 against the paper system (p = 5.6 × 10⁻¹⁵) and 67 / 104 against naive_rag (p = 0.0057); **OMEGA 1.5.17's
+  retrieval over naive_rag's rounds reads 365/500** (73.0 % [68.9, 76.7]; 356 under gpt-4.1), b=19, c=83 against the
+  paper system (p = 1.0 × 10⁻¹⁰) and 45 / 53 against naive_rag (p = 0.48, level). Paired readings, never a rank and
+  never a replication of either system's published numbers. agentmemory v4 has no arm (deferred, below).
+- **P5 — the tables.** `python -m evals.paper_tables` exports T1–T8 from committed files only
+  (`results/paper/{tables.md,tables.tex,families.json}`); a test compares the committed export with a fresh one and
+  pins rows against their source files.
+
+**The Tier sentences, as the paper uses them.** Tier 1: "auditable" (P1). Tier 2, gpt-4o family, the shipped
+configuration at n=500: "score reproducible within 12/500 flips (b=6, c=6); text not reproducible (277/500 changed)".
+The local family's Tier 2 (100/100 byte-identical on Ollama 0.32.13 at n=100) stays as measured on 2026-09-10 and is
+not a statement about this family.
+
+**The predictions (Phase 7 D11, PHASE8 D12), read. A failed prediction changes no rule.**
+
+| prediction | reading | verdict |
+| --- | --- | --- |
+| P1: every audit within ±5 rows; pooled flips ≤ 3 % | largest gap 3; 0.43 % | held |
+| P2: ≥ 60 % of the texts change | 277/500 = 55.4 % | **not held** |
+| P2: prompt tokens change on 0 rows; the score moves ≤ 8 rows; b + c ≤ 40 | 0; 0; 12 | held |
+| P3: the primary holds with p₂ < 10⁻³; ≥ 2 of the 3 Phase 6 pairs keep their sign | 4.0 × 10⁻⁶; 3 of 3 | held |
+| P3: per-arm agreement ≥ 94 %; pooled κ ≥ 0.80 | lowest 97.0 %; 0.952 | held |
+| P4: the controls labelled as both judges said on ≥ 9 of 10 | 10 of 10 | held |
+| C2: ≤ 3 % judge-unstable; no score moves > 8 rows; no_memory ≤ 5 unstable | 0.65 %; 3; 0 | held |
+| C1: retrieval-bound ≥ 60 % of the stable misses; multi-session the largest | 63.8 %; 25 | held |
+| agentmemory v4: 350–430, mnimi ahead, < 460 | no arm | **not read** |
+| Mem0: ≤ 400; mnimi ahead with p < 0.05 | 336; 5.6 × 10⁻¹⁵ | held |
+| Mem0: knowledge-update its weakest category relative to mnimi | 70 against 71 of 78, its *closest*; the gaps are temporal-reasoning (70 against 113) and single-session-assistant (19 against 56) | **not held** |
+| A15: a cache-served store never loads the model; no CUDA build needed on the rented box | the first half by test and probe; the second not read here | held in part |
+
+**Every deviation from the two pre-registrations, in one place.**
+
+1. **Phase 7 stopped after Task 5** (the maintainer, 2026-09-26); its Tasks 6–11 ran as Phase 8's Tasks 2, 4, 5, 6,
+   16, 17 with amendments. There is no "Phase 7 closes" entry: this is it.
+2. **The version map moved.** One minor per commit, a patch per review fix (v2.18.1, v2.31.1); Task 7's module took
+   v2.26.0 and its replays v2.32.0; the review's fix pass is v2.33.0; the third-party tasks span v2.34.0–v2.36.1; the
+   labels are v2.37.0 (the plan said v2.25.0), the tables v2.38.0, this close v2.39.0 (the plan said v2.36.0).
+3. **P1's 17 is the pre-registered arm-row count; 15 are independent.** The cold clone's verdict cache keys on the
+   question and the response text, so a response byte-identical to one graded earlier in the audit loop replayed that
+   session's fresh verdict (2 + 107 + 2 + 208 + 58 + 58 hits). Two of the 17 flips are such replays. The clone's
+   fresh install resolved `openai` 3.19.2, not the run environment's 2.44.0; the request shape is the harness's.
+4. **The drift arm's predict process exited 127** in llama-cpp's CUDA teardown after it had written every artifact
+   (the laptop slept during the store build); the judge stage was started by hand with the script's exact command at
+   the same commit. The recorded `ingest_s` and `predict_wall_s` include the sleep.
+5. **An audit is always fresh** (R1a): `--audit-out` implies `--judge-cache off` and new audit records are schema /2.
+   The eight committed /1 records were not rewritten; a second audit in one clone no longer reads a false DIVERGES.
+6. **The cap went from 83.85 to 113.85** (R4, a $30 top-up; the ledger was never reset).
+7. **Task 7 was split**: the accounting module first, the twelve paid replays after Tasks 8–12, so they ran at a
+   clean commit with `evals/` quiet.
+8. **`requires-python` is ≥ 3.11**, not ≥ 3.10: `numpy==2.4.6` never supported 3.10, so the lockfile could not
+   resolve under the old floor.
+9. **`environment.lockfile_hash` is over the LF-normalised lock with the project's own version line dropped** (the
+   branch review): the raw file's hash moved with every version bump. The two lockfile smokes recorded the raw hash.
+10. **A15 is proven in part.** A cache-served store constructs no model (a test and a probe). On this machine the
+    installed wheel is the CUDA build and cannot import without the CUDA runtime, so "no CUDA build needed" is a
+    property of the rented box's wheel and is read by its own smoke, not here.
+11. **The branch reviews.** Phase 7's (Tasks 1–4) fixed two failure paths; Phase 8's (Tasks 1–12, `6f546b7..fd58a50`)
+    found one Critical and four Important defects, all fixed by a failing test first — among them that every
+    committed config read as uncommitted on a CRLF checkout, so a run of record would have been refused. No committed
+    number was affected. The third-party adapters (Tasks 13–15) had no separate whole-branch review. A third review,
+    of Tasks 6 and 16, checked the exported cells against their source files and found two Important defects in the
+    export, both fixed by a failing test first (v2.38.1): T6a's note said the abstention rows also count in their
+    category (they do not: the seven rows partition the 500, so a category's n there is smaller than in T2), and
+    `families.json` carried each pair's own one-test Holm p (it now corrects across a family's saved pairs under one
+    judge and keeps the saved value beside it).
+12. **agentmemory v4 is deferred** (the maintainer, 2026-09-27). It is installed from GitHub at `3aa3b83` (PyPI's
+    `agentmemory` is another package); its smoke measured 20–28 minutes per history, 94 % of it in the library's
+    pure-Python HNSW distance. The adapter, tests and configs are committed; the paper reports the measured cost.
+13. **Third-party systems get a context budget, not k=10** (the maintainer, 2026-09-27, before any third-party
+    number): the longest prefix of the system's own recall order that renders within 5,364 tokens, the shipped mnimi
+    arm's mean context. It supersedes PHASE8 D9's top-k and the paper plan's `limit=10`.
+14. **The third-party systems live in their own environments** (the resolver moved `tokenizers` in the run
+    environment, which would move every mnimi vector), and each adapter follows its authors' own LongMemEval settings
+    only where they do not depend on question type.
+15. **Mem0 ran at n=500 above the pre-registered timing bar** (3.4 minutes per history against 2.5): the bar was
+    written for one process, and ten workers built the contexts in 2.8 hours. Its write LLM cost **$30.41 outside
+    the ledger** (R2a), against ≈ $12–15 estimated at the ruling. The plan's "Mem0 OSS v3" is `mem0ai==2.2.1` as
+    installed. spaCy and fastembed were added so its documented hybrid retrieval runs.
+16. **Mem0's open-source build grounds relative dates on the machine date** (4,990 of 81,299 memory lines carry a
+    2026 date): disclosed, not patched. The date-aware variant through `add(prompt=…)` was filed and **not run**.
+17. **The OMEGA arm departs from the plan's text in six places** (the stored unit is naive_rag's embed text; the
+    budget; its authors' type-independent ingest with `skip_inference` and backdated `created_at`; LLM query
+    expansion off; models pinned by revision and sha256; `candidates=100`), each in its committed config. It says
+    nothing about OMEGA's write path.
+18. **The labels were written in a workbook, not in the sheet.** The session carried only the `human` column into
+    the committed CSV after checking every other column equal to `51492fd`, before the key was read. While the
+    labelling was under way the maintainer asked the session two questions (why questions repeat; where an
+    observation could be noted); it answered from the sheet's question and response columns, named the sibling rows
+    and advised grading each row on its own. No label was discussed. Both are in the AI-use log.
+19. **The tables.** The five Phase 5 arms carry no `summary.json`, so the exporter reads `results.json`'s summary for
+    them. `evals.stats` gained `--by-category` for F2. F2 pairs naive_rag with the paper system (`p6time`) while T3's
+    primary row and F1's saved record are the pre-registered Phase 5 pair (naive_rag → `mnimi__500q_gpt4o`, 75 / 26).
+    F2's cells sum to the paper system's own overall pair against naive_rag, **b=77, c=21, p = 1.1 × 10⁻⁸** (76 / 27,
+    p = 1.4 × 10⁻⁶ under gpt-4.1), which the plan did not list: it is saved under `analyses/` with no family and sits
+    in T3 as "the paper system vs the bar", so the per-category table has its whole-benchmark row. It is a reading of
+    the shipped configuration, not the pre-registered primary. T7's wall-clock cell and the deferred row are module
+    constants naming their sources. T8 also lists the drift arm. The table numbers are the exporter's, not the paper
+    plan's §9.2 list.
+    **F1 as tagged is wider than the paper plan's F1.** Tasks 14–15 saved the four third-party pairs with
+    `--family F1`, beside the primary; the paper plan's F1 is the primary per reader. `families.json` reports Holm
+    over what is tagged (five pairs under gpt-4o: the primary's p goes from 1.1 × 10⁻⁶ to 3.4 × 10⁻⁶, naive_rag
+    against Mem0 from 0.0057 to 0.011; no reading crosses 0.05). Which family the third-party pairs belong to is
+    settled when the paper's statistics section is written.
+20. **A correction.** "Gate 8-ii read" prints p = 0.0058 for naive_rag against Mem0. The committed value is
+    0.005746; 0.0058 was a double rounding. The README cell reads 0.0057 since v2.38.0; the dated entry stands.
+21. **Reader and judge are one snapshot**, as in every gpt-4o arm; P3, the agreement and P4 are the measurements of
+    that disclosure's size.
+
+**What the phase settled.** (i) The instrument is small beside the effects the paper reports: 0.65 % of rows are
+judge-unstable, a second run of one configuration moves 12 rows, two judges disagree on 1.9 % of rows, and every
+pair of record keeps its sign under the second judge. (ii) The judge's errors are not symmetric: re-grades flip
+toward *wrong* (22 against 5 in C2, 13 of 15 in P1), and the second judge is stricter. (iii) Most of the paper
+system's misses are retrieval-bound (44 of 69 stable misses), concentrated in multi-session and temporal-reasoning.
+(iv) Under one reader, prompt, judge and context budget, an LLM-routed fact store and a hybrid retriever over
+verbatim rounds both read at or below the K=V baseline, and the paper system leads both under both judges.
+
+**The freeze.** The paper cites this commit, tagged `paper-v1` (the maintainer's call; `evals/freeze.py:
+FREEZE_NAME = "paper-v1"`). Its `src/mnimi/` is byte-identical to v2.14.0's: `git diff --quiet v2.14.0 -- src/mnimi`.
+No published first-verdict artifact was rewritten: `predictions.jsonl`, `results.json`, `summary.json` and `pins.json`
+of the eight arms are unchanged since v2.14.0, the drift arm's since `6f546b7`, Mem0's since `4615aa3` and OMEGA's
+since `c75988e`; the published directories gained only `judge_replay_N.json` files and `judge.replays` entries.
+Each arm is reproduced at its own commit (T8), not at the tag. A library fix after the tag is `paper-v1.1` with every
+paper arm rerun; no table mixes two tags.
+
+**The budget after.** `python -m evals.pricing`: $70.1474 of $113.85, $43.70 left. Phase 7 spent $7.18 (the audits
+$3.10, the drift arm $4.09); Phase 8 spent $16.88 on the ledger (the second judge $2.57, C2 $5.02, Mem0 $4.80, OMEGA
+$4.45, the smokes and Mem0's timing run $0.05) plus Mem0's write LLM, $30.41, outside it. Tasks 6, 16 and 17 spent $0.
+
+**What follows (filed, not scheduled).** The Mem0 date-aware variant (≈ $35, the maintainer's call); agentmemory
+when the machine is free; F3 (bucket shares across reader tiers) and the local and rented-GPU reader arms, after the
+tag; the both-wrong audit under a written rubric (the paper plan's G4); LoCoMo. NEXT-STEPS §3's levers stay out of
+the paper.
+
+**Where everything lives.** `results/published/{mem0,omega}__500q_gpt4o/` and the `judge_replay_N.json` files beside
+every n=500 arm; `analyses/` (the pairs under both judges, `audits/`, `judge_agreement/`, `judge_retest/`, `f2/`);
+`results/paper/`; `configs/`; `runs/INDEX.md`; `mnimi docs/PHASE7-RESULTS.md` and `PHASE8-RESULTS.md` (every number
+with its command and sha), `PHASE8-REPORT.md` (the paste-able state); commits `82bcd35` and `8f6192b` the
+pre-registrations · `23f5e2a` P1 · `6f546b7` P2 · `ff1b4ee` P3 · `51492fd` the agreement · `fd58a50` C2 and C1 ·
+`5f074ba` the review's fixes · `4615aa3` Mem0 · `c75988e` OMEGA · `5a4d743` P4 · `58c4c1b` the tables · the v2.38.1
+fix pass · this close.

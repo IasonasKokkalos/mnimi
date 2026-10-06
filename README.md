@@ -249,6 +249,37 @@ unsigned amount. Rulings in `docs/DECISIONS.md` ("Phase 6 pre-registration" thro
 closes", "The shipped default is L1 alone"). The library defaults since v2.13.0 are L1's: `time_weight=0.05`
 over `round+facts`; `turns` is one flag away.
 
+**Phases 7–8 — the paper's harness (2026-09-25 → 10-06; gpt-4o family, all 500 questions; no library
+change).** The library is frozen at v2.14.0's bytes (a pinned digest, `tests/test_paper_freeze.py`), and the tag
+`paper-v1` is what the paper cites. These two phases measured the instrument around the n=500 numbers and ran two
+third-party systems through the same harness. The paper system is the shipped configuration,
+`mnimi__500q_gpt4o_p6time` (429/500).
+
+| measurement | reading | what it can claim |
+| --- | --- | --- |
+| Tier 1: eight cold audits from a fresh clone | 17 of 4,000 arm-rows changed verdict (0.43 %); every score recovered within 3 rows | "auditable" |
+| Tier 2: a second run of the shipped configuration | 277/500 texts changed, prompt tokens changed on 0/500, 429 both times, b=6, c=6 | "score reproducible within 12/500 flips; text not reproducible" |
+| a second judge, `gpt-4.1-2025-04-14`, over every n=500 arm | all seven pairs of record keep the sign of b − c; the primary reads 75 / 28, p = 4.0 × 10⁻⁶ | "holds under a second judge"; the primary "significant under both judges" |
+| the two judges against each other | 3,925 of 4,000 rows agree (98.1 %), Cohen's κ 0.952 | the size of the judge-choice term |
+| 60 blind human labels: 50 rows where the judges disagree, 10 controls | the human sides with gpt-4o on 32 of the 50 (Wilson [50.1, 75.9] %) and with gpt-4.1 on 18; controls 10/10 | which judge a human sides with on contested rows — one labeller, 60 rows over 43 distinct questions |
+| judge test-retest: three cache-off re-grades of four arms | 13 of 2,000 rows are judge-unstable (0.65 %); no score moves by more than 3 rows | the judge's own noise, removed before the accounting |
+| the accounting: the paper system against the oracle on the 492 judge-stable rows | 44 of its 69 misses are retrieval-bound (the oracle answers them with the same reader), 25 are shared; multi-session holds 25 of the 44 | where the misses come from |
+
+| third-party system, through this harness | score | b / c against the paper system | b / c against `naive_rag` |
+| --- | ---: | :---: | :---: |
+| Mem0 OSS 2.2.1 (its write LLM: gpt-4o-mini) | 336 (67.2 %), Wilson [63.0, 71.2] | 28 / 121, p = 5.6 × 10⁻¹⁵ | 67 / 104, p = 0.0057 |
+| OMEGA 1.5.17's retrieval over `naive_rag`'s rounds | 365 (73.0 %), Wilson [68.9, 76.7] | 19 / 83, p = 1.0 × 10⁻¹⁰ | 45 / 53, p = 0.48 |
+
+b is the third-party arm's wins. Every system gets the same reader, prompt, judge, 500 questions and a 5,364-token
+context budget. For scale, the paper system against `naive_rag` on the same rows reads b=77, c=21 (p = 1.1 × 10⁻⁸;
+76 / 27 under the second judge), and per category only temporal-reasoning (32 / 5) survives Holm's correction. These are paired readings through this harness under these pins: not replications of either system's
+published numbers, and not a ranking. Mem0's open-source build grounds relative dates on the machine date (disclosed,
+not patched); the OMEGA arm replaces OMEGA's write path with `naive_rag`'s units; a third system, agentmemory v4, is
+deferred (20–28 minutes of ingest per history on this machine). The disclosures are in
+[`results/published/README.md`](results/published/README.md) § Phase 8 and the rulings in `docs/DECISIONS.md`
+("Phase 7 pre-registration" through "Phase 8 closes"). Every table the paper prints is exported by
+`python -m evals.paper_tables` into [`results/paper/`](results/paper/).
+
 Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
 `full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
 `results/published/` because a published artifact is immutable. They are marked
@@ -381,6 +412,56 @@ Bit-identity across different GPUs, drivers or CUDA versions is **not**
 claimed: each can change kernel selection and therefore float reduction order.
 Deviating from a request pin self-marks the artifact provisional; deviating
 from a daemon pin, the build included, is refused outright.
+
+### Reproducing the paper (`paper-v1`)
+
+The paper cites the tag `paper-v1`. Its `src/mnimi/` is v2.14.0's, byte for byte (`git diff --quiet v2.14.0 paper-v1
+-- src/mnimi`). Each published arm names the commit it ran at (`results/paper/tables.md`, T8) and is reproduced
+there, not at the tag. For the gpt-4o family the two tiers read: Tier 1 **auditable**; Tier 2 **score reproducible
+within 12/500 flips (b=6, c=6); text not reproducible (277/500 changed)**, measured on the shipped configuration.
+
+```bash
+# The tables: no GPU, no key, no dataset. Rewrites results/paper/ from results/published/ and analyses/.
+python -m evals.paper_tables
+
+# Tier 1: audit one arm from its committed predictions. --audit-out turns the verdict cache off,
+# so every row is a fresh judge call ($0.3–0.45 an arm); the record says MATCHES, WITHIN RE-GRADE or DIVERGES.
+python -m evals --stage judge \
+    --predictions results/published/mnimi__500q_gpt4o_p6time/predictions.jsonl \
+    --audit-out /tmp/mnimi__500q_gpt4o_p6time__tier1.json
+
+# The pairs of record under the pre-registered judge and under the second judge, and the primary per category.
+python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o --no-save
+python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o \
+    --judge gpt-4.1-2025-04-14 --no-save
+python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o_p6time \
+    --by-category --family F2 --out /tmp/f2
+
+# Judge test-retest and the accounting, from the committed replay files (an existing output is never overwritten).
+P=results/published
+python -m evals.accounting retest $P/no_memory__500q_gpt4o $P/naive_rag__500q_gpt4o \
+    $P/mnimi__500q_gpt4o_p6time $P/oracle__500q_gpt4o --judge gpt-4o-2024-08-06 --out /tmp/retest
+python -m evals.accounting buckets --system $P/mnimi__500q_gpt4o_p6time --oracle $P/oracle__500q_gpt4o \
+    --retest /tmp/retest/retest.json --out /tmp/retest
+
+# Tier 2: a second predict of the shipped configuration, then the drift report against the published arm.
+# A run of record (--limit >= 100) names a committed argument list and refuses a dirty tree or a library that
+# differs from the freeze; flags after --config override the file. About $4.1 of API.
+python -m evals --config configs/<run_id>.json
+python -m evals --stage judge --run-dir runs/<run_id> --purpose "..." --claim none
+python -m evals.drift results/published/mnimi__500q_gpt4o_p6time runs/<run_id>
+
+# The third-party arms, each from its own environment (results/published/README.md § Phase 8):
+python -m evals --config configs/mem0__500q_gpt4o.json     # Mem0 OSS 2.2.1; its write LLM bills your key, about $30
+python -m evals --config configs/omega__500q_gpt4o.json    # OMEGA 1.5.17's retrieval over naive_rag's rounds
+```
+
+The shipped configuration's flags are `--system mnimi --limit 500 --reader-transport openai --batch --extractor qwen3
+--active-only on --ranking score --consolidate off --render-unit round+facts --time-weight 0.05`. Every mnimi store
+is built from the extraction cache, which replays the pinned extractor's output for every round of the
+benchmark with no model load (`misses: 0`): `e15153f838b8…sqlite`, 95,846 rows, 140,038,144 bytes, sha256
+`ce4a1ab33d661c2c1128974c5d4ea2f69bd238b49085691c600b07a82db4e39e`, attached to the `paper-v1` release on GitHub —
+put it under `.cache/extract/`. Without it the corpus pass is about 80 GPU-hours on the development machine.
 
 ### Tier 3 — containerized reference environment
 

@@ -185,7 +185,7 @@ score.
 
 ---
 
-## v1 as built (v2.12.0, 2026-09-24; library: the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, and Phase 6's time-aware term and resolver v2 — all five locked methods exist; SPEC-complete modulo two disclosed render deviations, `context_token_budget` and `raw`; the 85 criterion read at n=500 three times and not met: the published arm 84.4 %, the Phase 6 headline L1 + L3 85.2 % (426/500, b=18, c=14 against 422, p = 0.60), and the shipped configuration L1 alone 85.8 % (429/500, b=15, c=8, Wilson lower bound 82.5 — the maintainer's choice of 2026-09-25); the primary against naive_rag significant since Phase 5 at p = 1.1 × 10⁻⁶)
+## v1 as built (v2.39.0, 2026-10-06 — the library is unchanged since v2.14.0 and frozen for the paper at the tag `paper-v1`; Phases 7–8 changed the harness only; library: the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, and Phase 6's time-aware term and resolver v2 — all five locked methods exist; SPEC-complete modulo two disclosed render deviations, `context_token_budget` and `raw`; the 85 criterion read at n=500 three times and not met: the published arm 84.4 %, the Phase 6 headline L1 + L3 85.2 % (426/500, b=18, c=14 against 422, p = 0.60), and the shipped configuration L1 alone 85.8 % (429/500, b=15, c=8, Wilson lower bound 82.5 — the maintainer's choice of 2026-09-25); the primary against naive_rag significant since Phase 5 at p = 1.1 × 10⁻⁶)
 
 Everything else in this document is the **target** contract. This section is
 what the library actually does today, read off the code at v1.3.0. Where the

@@ -524,9 +524,25 @@ PYTHONPATH="src;." python -m evals --system mnimi --limit 500 --stage predict --
 PYTHONPATH="src;." python -m evals --stage judge --run-dir runs/mnimi__500q_gpt4o_p6combo --purpose "..." --claim none --rule-commit ecd8178
 PYTHONPATH="src;." python -m evals.stats results/published/mnimi__500q_gpt4o results/published/mnimi__500q_gpt4o_p6combo   # the pair of record; schema and commit are REPORTED, not refused (v2.9.0)
 PYTHONPATH="src;." python -m evals.publish runs/mnimi__500q_gpt4o_p6combo
+# Phases 7–8 (2026-09-25 → 10-06): the paper's harness. No library change; the paper cites the tag paper-v1.
+python -m evals.paper_tables                                 # T1–T8 → results/paper/ from committed files only; never edit them by hand
+python -m evals --stage judge --predictions results/published/<arm>/predictions.jsonl --audit-out <file>   # a Tier 1 audit record; implies --judge-cache off
+python -m evals --stage judge --run-dir runs/<run_id> --judge-model gpt-4.1-2025-04-14 --purpose "..." --claim none --rule-commit <sha>   # a replay: judge_replay_N.json, never merged
+python -m evals --stage judge --run-dir runs/<run_id> --judge-cache off --purpose "..." --claim none --rule-commit <sha>                   # a fresh same-judge re-grade (C2)
+python -m evals.publish --replay runs/<run_id> runs/<run_id>/judge_replay_N.json
+python -m evals.stats results/published/a results/published/b --judge gpt-4.1-2025-04-14     # the pair under the second judge, in its own file
+python -m evals.stats results/published/a results/published/b --family F1                    # Holm across the invocation's pairs, saved with each
+python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o_p6time --by-category --family F2 --out analyses/f2
+python -m evals.agreement report <run dirs> --judge gpt-4.1-2025-04-14 --out <dir>          # also: sheet (the blind label sheet), score
+python -m evals.accounting retest <run dirs> --judge gpt-4o-2024-08-06 --out <dir>          # also: buckets --system <dir> --oracle <dir> --retest <file>
+python -m evals --config configs/<run_id>.json               # a run of record: a committed argument list; refuses an unfrozen library or a dirty tree (--allow-unfrozen = provisional)
+python -m evals <flags> --stage predict --pins-only --run-dir runs/<scratch>                # $0: writes pins.json and stops
+python -m evals --config configs/mem0__500q_gpt4o.json       # a third-party arm (--competitor-config inside), from its own environment under mnimi-envs/
+python -c "from evals import freeze; print(freeze.check() or 'frozen and clean')"
+~/.local/bin/uv lock                                         # after every version bump, or CI's locked job fails
 ```
 
-## Current state vs SPEC (as of v2.12.0, 2026-09-24; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, Phase 6's time-aware term and resolver v2 — SPEC-complete modulo two disclosed render deviations; the shipped configuration is L1 alone, the maintainer's choice of 2026-09-25: 429/500 = 85.8 %, b=15 c=8 against the published 422; the phase's pre-registered headline L1 + L3 read 426, b=18 c=14; the 85 criterion not met on either; the primary against naive_rag significant since Phase 5)
+## Current state vs SPEC (as of v2.39.0, 2026-10-06 — the library is frozen for the paper at v2.14.0's bytes, tag `paper-v1`, and Phases 7–8 changed the harness only; library = the extraction era, Phase 3's screens and supersede, Phase 4's decay, ranking and read side, Phase 5's `export()` and concurrency, Phase 6's time-aware term and resolver v2 — SPEC-complete modulo two disclosed render deviations; the shipped configuration is L1 alone, the maintainer's choice of 2026-09-25: 429/500 = 85.8 %, b=15 c=8 against the published 422; the phase's pre-registered headline L1 + L3 read 426, b=18 c=14; the 85 criterion not met on either; the primary against naive_rag significant since Phase 5)
 
 SPEC describes the target; much of it is still not built. Don't assume a spec'd
 field exists — **read SPEC §"v1 as built" first**, then the code. It is
@@ -674,6 +690,28 @@ ACTUAL" says why.
   FAIL, 6-iii PASS (by the allowed shortcut — the probe has no `--render-unit` flag), 6-iv three
   arms 429 / 424 / 426 against 422, all adopted by the rule, the criterion not met.
 
+- **Phases 7–8 — the paper's harness (2026-09-25 → 10-06; `mnimi docs/PHASE7.md` and `PHASE8.md`, results in
+  `PHASE7-RESULTS.md` / `PHASE8-RESULTS.md`, report in `PHASE8-REPORT.md`; closed at v2.39.0, tag `paper-v1`).**
+  **No library change**: `src/mnimi/` is v2.14.0's bytes, pinned by `evals/freeze.py` (`LIBRARY_FREEZE_SHA256`
+  `172457a3…c259`, `FREEZE_NAME = "paper-v1"`) and `tests/test_paper_freeze.py`; a `--limit ≥ 100` predict refuses an
+  unfrozen library, a dirty tree or an uncommitted `--config` unless `--allow-unfrozen` (which marks it provisional).
+  Built in `evals/`: the Tier 1 audit record (`--audit-out`, always cache-off, `mnimi-tier1-audit/2`), `--pins-only`,
+  `--judge-cache {on,off}`, judge replays recorded as `judge_replay_N.json` + `judge.replays` and never merged
+  (`evals.publish --replay`), `evals.stats --judge / --family / --by-category`, `agreement.py`, `accounting.py`,
+  `config_file.py` + `configs/`, manifest /2, `uv.lock` and the `locked` CI job (`uv lock` after every version bump),
+  `lazy_extractor.py`, the third-party contract (`systems/competitor.py`, pins /12, `--competitor-config`,
+  `--workers`, a 5,364-token context budget) with the Mem0, OMEGA and deferred agentmemory adapters, and
+  `paper_tables.py` → `results/paper/` (T1–T8, never edited by hand). `API_BUDGET_USD = 113.85`; $70.15 spent.
+  **Readings, gpt-4o family at n=500, the paper system = `mnimi__500q_gpt4o_p6time`:** Tier 1 — 17 of 4,000
+  arm-rows changed verdict on cold audits; Tier 2 — 277/500 texts changed, 429 vs 429, b=6 c=6; the second judge
+  (`gpt-4.1-2025-04-14`) — all seven pairs of record hold, the primary 75 / 28, p = 4.0 × 10⁻⁶; the two judges agree
+  on 98.1 % of rows, κ 0.952; 60 blind human labels — the human sides with gpt-4o on 32 of the 50 contested rows,
+  controls 10/10; judge test-retest — 13 of 2,000 rows unstable; the accounting — 44 of the paper system's 69
+  stable misses are retrieval-bound, 25 of them multi-session; the paper system against naive_rag b=77 c=21,
+  per category only temporal-reasoning survives Holm (32 / 5); **Mem0 OSS 2.2.1 336/500** (b=28 c=121 against the
+  paper system) and **OMEGA 1.5.17's retrieval over naive_rag's rounds 365/500** (b=19 c=83; level with naive_rag,
+  45 / 53), both "through this harness under these pins", never a rank. Tests 485 → 590.
+
 **Still absent:**
 
 - `context_token_budget` and `raw` in the rendered block — **decided, not pending** (PHASE5
@@ -718,3 +756,8 @@ ACTUAL" says why.
   cannot be regenerated.
 - Do not tune the reader prompt per question type, for any system.
 - Do not commit downloaded eval data or `*.db` files (see `.gitignore`).
+- Do not edit `src/mnimi/` while the paper freeze stands (`evals/freeze.py`,
+  `tests/test_paper_freeze.py`; tag `paper-v1`). Library work belongs to the release
+  branch; lifting the freeze is a DECISIONS entry and a new digest, never an edit that
+  makes the test pass, and a library fix the paper needs is `paper-v1.1` with every
+  paper arm rerun.

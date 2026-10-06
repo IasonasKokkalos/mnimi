@@ -745,6 +745,69 @@ Language: "the n=500 reading of OMEGA 1.5.17's retrieval over naive_rag's rounds
 says nothing about OMEGA's write path, which the arm replaced with naive_rag's units, and it is not a replication of
 OMEGA's published LongMemEval number, which its own harness produces.
 
+### Phase 8: the human labels on the rows where the judges disagree (2026-10-06)
+
+`analyses/judge_agreement/label_sheet.csv` is the blind sheet of Phase 7 D8: 60 distinct (question, response) pairs
+drawn with `random.Random(0)` from the eight in-house n=500 arms — 50 on which `gpt-4o-2024-08-06` and
+`gpt-4.1-2025-04-14` disagree and 10 controls on which they agree. Each row shows the LongMemEval judge instruction
+for its question type, the question, the gold answer and the response, and no verdict. The maintainer labelled every
+row yes or no, unaided, before `label_key.json` was read; `python -m evals.agreement score analyses/judge_agreement`
+wrote `label_score.json` (commit `5a4d743`).
+
+| rows | n | the human agrees with gpt-4o-2024-08-06 | the human agrees with gpt-4.1-2025-04-14 |
+| --- | ---: | :---: | :---: |
+| the judges disagree | 50 | **32 (64.0 %), Wilson [50.1, 75.9]** | 18 (36.0 %), Wilson [24.1, 49.9] |
+| the judges agree (controls) | 10 | 10, Wilson [72.2, 100] | 10, Wilson [72.2, 100] |
+
+The pre-registered prediction (the controls labelled as both judges said on at least 9 of 10) held. What the table
+can claim: on the contested rows, a human following the benchmark's own instruction sided with the pre-registered
+judge about twice as often as with the second judge, and never against both where they agree. What it cannot: the
+labels are one person's; the rows are (question, response) pairs, 60 rows over 43 distinct questions (the 50 over
+33), so the interval, which treats rows as independent, is somewhat narrow. The labels were written in a workbook
+copy of the sheet and carried into the CSV by column, after every other column had been checked equal to the
+committed sheet (DECISIONS "Phase 8 closes", item 18). Language: "the human sided with the pre-registered judge on
+32 of the 50 contested rows", never "the judge is validated".
+
+### Phase 8: the paper's tables, the primary per category, and the freeze (2026-10-06)
+
+[`results/paper/`](../paper/) holds `tables.md`, `tables.tex` and `families.json`, exported by
+`python -m evals.paper_tables` from this directory and `analyses/` (commit `58c4c1b`): T1 accuracy, T2 per category,
+T3 the pairs of record under both judges, T4 the instrument (the cold audits, the drift pair, the two judges,
+test-retest, the labels), T5 the cited row, T6 the accounting and the primary per category, T7 the third-party
+systems, T8 provenance. No cell is typed by hand: `tests/test_paper_tables.py` compares the committed export with a
+fresh one and pins rows against their source files. Comparing the export with this file by hand located one
+transcription error here: naive_rag against Mem0 under gpt-4o is p = 0.0057 (0.005746), printed as 0.0058 until
+v2.38.0.
+
+The primary per category, family F2 — `naive_rag__500q_gpt4o` → the paper system `mnimi__500q_gpt4o_p6time`, six
+exact McNemar tests from rows, Holm across the six (`python -m evals.stats … --by-category --family F2`, saved under
+`analyses/f2/`; b = the paper system's wins):
+
+| category | n | b | c | p | p (Holm) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| single-session-user | 70 | 4 | 2 | 0.69 | 1 |
+| single-session-assistant | 56 | 1 | 0 | 1 | 1 |
+| single-session-preference | 30 | 8 | 1 | 0.039 | 0.16 |
+| multi-session | 133 | 25 | 10 | 0.017 | 0.083 |
+| knowledge-update | 78 | 7 | 3 | 0.34 | 1 |
+| **temporal-reasoning** | 133 | **32** | **5** | **7.4 × 10⁻⁶** | **4.5 × 10⁻⁵** |
+
+Only temporal-reasoning survives the correction. The six cells sum to the paper system's own whole-benchmark pair
+against naive_rag, saved as `analyses/naive_rag__500q_gpt4o__vs__mnimi__500q_gpt4o_p6time.json` and shown in T3 as
+"the paper system vs the bar": **b=77, c=21, p = 1.1 × 10⁻⁸** (76 / 27, p = 1.4 × 10⁻⁶ under gpt-4.1). It is a
+reading of the shipped configuration; the pre-registered primary stays naive_rag → `mnimi__500q_gpt4o` (75 / 26).
+
+`families.json` lists every saved pair that names a family, with Holm's correction taken across the family's pairs
+under one judge (`tests` says how many) and the value the pair's own record holds beside it. F1 as tagged holds
+five pairs under gpt-4o, the primary and the four third-party pairs; corrected across the five, the primary reads
+3.4 × 10⁻⁶ and naive_rag against Mem0 0.011.
+
+**The freeze.** The paper cites the tag `paper-v1` (Phase 8's closing commit, v2.39.0). At that commit
+`src/mnimi/` is byte-identical to v2.14.0's, and `predictions.jsonl`, `results.json`, `summary.json` and `pins.json`
+of every n=500 arm are unchanged since the commit that published them: a published directory has gained only
+`judge_replay_N.json` files and the `judge.replays` entries of its `manifest.json`. Each arm is reproduced at its own
+commit (T8), not at the tag.
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A
