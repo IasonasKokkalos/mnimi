@@ -3,7 +3,6 @@
   "b_second_wins": 28,
   "c_first_wins": 121,
   "discordant": 149,
-  "family": "F1",
   "first": {
     "artifact_schema": "mnimi-eval-artifact/11",
     "correct": 429,
@@ -147,7 +146,6 @@
   },
   "n_pairs": 500,
   "p_exact_mcnemar": 5.593190123542104e-15,
-  "p_holm": 5.593190123542104e-15,
   "second": {
     "artifact_schema": "mnimi-eval-artifact/12",
     "correct": 336,

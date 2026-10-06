@@ -4242,3 +4242,31 @@ with its command and sha), `PHASE8-REPORT.md` (the paste-able state); commits `8
 pre-registrations · `23f5e2a` P1 · `6f546b7` P2 · `ff1b4ee` P3 · `51492fd` the agreement · `fd58a50` C2 and C1 ·
 `5f074ba` the review's fixes · `4615aa3` Mem0 · `c75988e` OMEGA · `5a4d743` P4 · `58c4c1b` the tables · the v2.38.1
 fix pass · this close.
+
+## The paper's primary is the paper system, and F1 is the primary per reader (2026-10-06, v2.39.1)
+
+Two rulings of the maintainer on 2026-10-06, after the tag `paper-v1` (which stays on `21239e2`; no library byte and no
+published artifact changes here, only family tags on saved pairs and the exporter's labels).
+
+**The paper's primary comparison is the paper system's**: naive_rag → `mnimi__500q_gpt4o_p6time`, **b=77, c=21,
+p = 1.1 × 10⁻⁸** (76 / 27, p = 1.4 × 10⁻⁶ under `gpt-4.1-2025-04-14`). The pair pre-registered as the programme's
+primary, naive_rag → `mnimi__500q_gpt4o` (b=75, c=26, p = 1.1 × 10⁻⁶), is unchanged and is reported beside it under
+that name. The choice between them was made after both had been read, and the paper must say so. Both are significant under
+both judges, and the paper system differs from the Phase 5 arm by the time-aware term and resolver v2 (Phase 6's L1,
+b=15, c=8 against it).
+
+**Family F1 is the primary per reader, nothing else** (the paper plan's G2). So:
+- the paper system's pair is saved with `family: F1` under both judges (one test per judge on this reader, so Holm is
+  the identity until the other readers' arms exist);
+- the Phase 5 pair carries no family: it was pre-specified uncorrected and is reported as the pre-registered primary;
+- the four third-party pairs (Mem0 and OMEGA, each against the paper system and against naive_rag) carry no family
+  under either judge. Tasks 14–15 had saved them with `--family F1`. They are descriptive readings, reported with
+  their raw exact p and never as a corrected claim.
+
+What moved: eleven records under `analyses/` gained or lost the two lines `family` and `p_holm` — no b, c, n or p
+changed (`git diff` shows nothing else); `results/paper/families.json` now lists F1 with two records and F2 with six;
+T3 puts the paper's primary first and labels the Phase 5 pair "pre-registered primary (Phase 5 arm)". This supersedes
+item 19's last paragraph in "Phase 8 closes" (Holm over the five pairs then tagged F1). The tables at the tag
+`paper-v1` carry the earlier labels; the paper's tables are exported from this commit or later.
+
+**Also ruled the same day:** the Mem0 date-aware variant is not run; the arm is reported with its dating disclosure.

@@ -143,7 +143,8 @@ def test_latex_is_a_booktabs_tabular_with_the_special_characters_escaped(tmp_pat
 def test_the_committed_tables_match_their_sources():
     published, analyses = ROOT / "results" / "published", ROOT / "analyses"
     md = paper_tables.render_markdown(paper_tables.load(published, analyses))
-    assert "| naive_rag__500q_gpt4o → mnimi__500q_gpt4o | primary | 75 | 26 | 101 | 1.1e-06 |" in md
+    assert ("| naive_rag__500q_gpt4o → mnimi__500q_gpt4o | pre-registered primary (Phase 5 arm) | "
+            "75 | 26 | 101 | 1.1e-06 |") in md
     for run_id, _label, role in paper_tables.ARMS_OF_RECORD:
         s = _published_summary(published / run_id)
         assert f"| {run_id} | {role} | {s['correct']}/{s['n']} |" in md
@@ -168,8 +169,20 @@ def test_the_per_category_pairs_sum_to_the_paper_systems_pair_of_record():
     assert sum(c["c_first_wins"] for c in cells) == pair["c_first_wins"]
     assert sum(c["n_pairs"] for c in cells) == pair["n_pairs"] == 500
     md = paper_tables.render_markdown(paper_tables.load(ROOT / "results" / "published", analyses))
-    assert (f"| {paper_tables.BAR} → {paper_tables.PAPER_SYSTEM} | the paper system vs the bar | "
+    assert (f"| {paper_tables.BAR} → {paper_tables.PAPER_SYSTEM} | the paper's primary | "
             f"{pair['b_second_wins']} | {pair['c_first_wins']} | {pair['discordant']} |") in md
+
+
+def test_family_f1_is_the_papers_primary_and_nothing_else():
+    """F1 is the primary per reader (the maintainer, 2026-10-06): one pair under each judge."""
+    data = paper_tables.load(ROOT / "results" / "published", ROOT / "analyses")
+    families = paper_tables.families_record(data)["families"]
+    assert {(e["first"], e["second"], e["tests"]) for e in families["F1"]} == {
+        (paper_tables.BAR, paper_tables.PAPER_SYSTEM, 1)}
+    assert {e["judge"] for e in families["F1"]} == {None, paper_tables.SECOND_JUDGE}
+    listed = {e[side] for entries in families.values() for e in entries
+              for side in ("first", "second")}
+    assert not listed & set(paper_tables.THIRD_PARTY)  # descriptive pairs name no family
 
 
 def test_the_accounting_rows_partition_the_benchmark():

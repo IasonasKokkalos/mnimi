@@ -32,14 +32,14 @@ Exported by `python -m evals.paper_tables` from `results/published/` and `analys
 
 | comparison | kind | b | c | discordant | p | b₂ | c₂ | p₂ | holds |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| naive_rag__500q_gpt4o → mnimi__500q_gpt4o | primary | 75 | 26 | 101 | 1.1e-06 | 75 | 28 | 4e-06 | yes |
+| naive_rag__500q_gpt4o → mnimi__500q_gpt4o_p6time | the paper's primary | 77 | 21 | 98 | 1.1e-08 | 76 | 27 | 1.4e-06 | yes |
+| naive_rag__500q_gpt4o → mnimi__500q_gpt4o | pre-registered primary (Phase 5 arm) | 75 | 26 | 101 | 1.1e-06 | 75 | 28 | 4e-06 | yes |
 | no_memory__500q_gpt4o → mnimi__500q_gpt4o | secondary | 393 | 2 | 395 | 1.9e-114 | 386 | 2 | 2.4e-112 | yes |
 | oracle__500q_gpt4o → mnimi__500q_gpt4o | secondary | 17 | 54 | 71 | 1.3e-05 | 20 | 56 | 4.4e-05 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_decay | decay ablation | 19 | 50 | 69 | 0.00024 | 23 | 47 | 0.0056 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6time | Phase 6 L1 | 15 | 8 | 23 | 0.21 | 13 | 11 | 0.84 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6turns | Phase 6 L3 | 22 | 20 | 42 | 0.88 | 27 | 22 | 0.57 | yes |
 | mnimi__500q_gpt4o → mnimi__500q_gpt4o_p6combo | Phase 6 L1+L3 | 18 | 14 | 32 | 0.6 | 25 | 17 | 0.28 | yes |
-| naive_rag__500q_gpt4o → mnimi__500q_gpt4o_p6time | the paper system vs the bar | 77 | 21 | 98 | 1.1e-08 | 76 | 27 | 1.4e-06 | yes |
 | mnimi__500q_gpt4o_p6time → mem0__500q_gpt4o | competitor | 28 | 121 | 149 | 5.6e-15 | 28 | 123 | 2.1e-15 | yes |
 | mnimi__500q_gpt4o_p6time → omega__500q_gpt4o | competitor | 19 | 83 | 102 | 1e-10 | 24 | 85 | 3.5e-09 | yes |
 | naive_rag__500q_gpt4o → mem0__500q_gpt4o | competitor vs the bar | 67 | 104 | 171 | 0.0057 | 67 | 113 | 0.00075 | yes |

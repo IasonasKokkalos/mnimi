@@ -531,7 +531,7 @@ python -m evals --stage judge --run-dir runs/<run_id> --judge-model gpt-4.1-2025
 python -m evals --stage judge --run-dir runs/<run_id> --judge-cache off --purpose "..." --claim none --rule-commit <sha>                   # a fresh same-judge re-grade (C2)
 python -m evals.publish --replay runs/<run_id> runs/<run_id>/judge_replay_N.json
 python -m evals.stats results/published/a results/published/b --judge gpt-4.1-2025-04-14     # the pair under the second judge, in its own file
-python -m evals.stats results/published/a results/published/b --family F1                    # Holm across the invocation's pairs, saved with each
+python -m evals.stats results/published/a results/published/b --family F1                    # Holm across the invocation's pairs, saved with each; F1 = the paper's primary per reader ONLY (naive_rag → the paper system) — third-party pairs name no family
 python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o_p6time --by-category --family F2 --out analyses/f2
 python -m evals.agreement report <run dirs> --judge gpt-4.1-2025-04-14 --out <dir>          # also: sheet (the blind label sheet), score
 python -m evals.accounting retest <run dirs> --judge gpt-4o-2024-08-06 --out <dir>          # also: buckets --system <dir> --oracle <dir> --retest <file>

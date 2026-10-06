@@ -41,14 +41,14 @@ ARMS_OF_RECORD = (  # (run_id, label for T2's columns, role for T1)
     ("omega__500q_gpt4o", "OMEGA retrieval", "third-party retrieval over verbatim rounds"),
 )
 PAIRS_OF_RECORD = (  # (first, second, kind); b = the second arm's wins, as analyses/ stores it
-    ("naive_rag__500q_gpt4o", "mnimi__500q_gpt4o", "primary"),
+    ("naive_rag__500q_gpt4o", "mnimi__500q_gpt4o_p6time", "the paper's primary"),
+    ("naive_rag__500q_gpt4o", "mnimi__500q_gpt4o", "pre-registered primary (Phase 5 arm)"),
     ("no_memory__500q_gpt4o", "mnimi__500q_gpt4o", "secondary"),
     ("oracle__500q_gpt4o", "mnimi__500q_gpt4o", "secondary"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_decay", "decay ablation"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6time", "Phase 6 L1"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6turns", "Phase 6 L3"),
     ("mnimi__500q_gpt4o", "mnimi__500q_gpt4o_p6combo", "Phase 6 L1+L3"),
-    ("naive_rag__500q_gpt4o", "mnimi__500q_gpt4o_p6time", "the paper system vs the bar"),
     ("mnimi__500q_gpt4o_p6time", "mem0__500q_gpt4o", "competitor"),
     ("mnimi__500q_gpt4o_p6time", "omega__500q_gpt4o", "competitor"),
     ("naive_rag__500q_gpt4o", "mem0__500q_gpt4o", "competitor vs the bar"),

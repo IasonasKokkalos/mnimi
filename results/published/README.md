@@ -621,7 +621,8 @@ sub-batches, manifest `complete`, `provisional: []`, promoted by `evals.publish`
 | `naive_rag__500q_gpt4o` | 373 (74.6 %) | [70.6, 78.2] | 368 (73.6 %) |
 | `mnimi__500q_gpt4o_p6time` (the shipped configuration) | 429 (85.8 %) | [82.5, 88.6] | 417 (83.4 %) |
 
-Paired by `python -m evals.stats … --family F1`; b = Mem0's wins, c = the other arm's:
+Paired by `python -m evals.stats`; b = Mem0's wins, c = the other arm's (descriptive pairs: they name no
+family since v2.39.1):
 
 | pair | judge | b | c | p (exact McNemar) |
 | --- | --- | ---: | ---: | ---: |
@@ -699,7 +700,8 @@ The run: `4aaeb39` clean, 2026-09-27 17:03 → 21:02 UTC, two context workers, 3
 | `naive_rag__500q_gpt4o` (the same units, cosine top-10) | 373 (74.6 %) | [70.6, 78.2] | 368 (73.6 %) |
 | `mnimi__500q_gpt4o_p6time` (the shipped configuration) | 429 (85.8 %) | [82.5, 88.6] | 417 (83.4 %) |
 
-Paired by `python -m evals.stats … --family F1`; b = OMEGA's wins, c = the other arm's:
+Paired by `python -m evals.stats`; b = OMEGA's wins, c = the other arm's (descriptive pairs: they name no
+family since v2.39.1):
 
 | pair | judge | b | c | p (exact McNemar) |
 | --- | --- | ---: | ---: | ---: |
@@ -793,14 +795,17 @@ exact McNemar tests from rows, Holm across the six (`python -m evals.stats … -
 | **temporal-reasoning** | 133 | **32** | **5** | **7.4 × 10⁻⁶** | **4.5 × 10⁻⁵** |
 
 Only temporal-reasoning survives the correction. The six cells sum to the paper system's own whole-benchmark pair
-against naive_rag, saved as `analyses/naive_rag__500q_gpt4o__vs__mnimi__500q_gpt4o_p6time.json` and shown in T3 as
-"the paper system vs the bar": **b=77, c=21, p = 1.1 × 10⁻⁸** (76 / 27, p = 1.4 × 10⁻⁶ under gpt-4.1). It is a
-reading of the shipped configuration; the pre-registered primary stays naive_rag → `mnimi__500q_gpt4o` (75 / 26).
+against naive_rag, saved as `analyses/naive_rag__500q_gpt4o__vs__mnimi__500q_gpt4o_p6time.json`: **b=77, c=21,
+p = 1.1 × 10⁻⁸** (76 / 27, p = 1.4 × 10⁻⁶ under gpt-4.1). **This is the paper's primary** (the maintainer,
+2026-10-06; DECISIONS "The paper's primary is the paper system, and F1 is the primary per reader") and T3's first
+row since v2.39.1. The pair pre-registered as the programme's primary, naive_rag → `mnimi__500q_gpt4o` (75 / 26),
+is reported beside it under that name; the choice was made after both were read.
 
 `families.json` lists every saved pair that names a family, with Holm's correction taken across the family's pairs
-under one judge (`tests` says how many) and the value the pair's own record holds beside it. F1 as tagged holds
-five pairs under gpt-4o, the primary and the four third-party pairs; corrected across the five, the primary reads
-3.4 × 10⁻⁶ and naive_rag against Mem0 0.011.
+under one judge (`tests` says how many) and the value the pair's own record holds beside it. Since v2.39.1 **F1 is
+the primary per reader and nothing else**: the paper's primary under each judge, one test per judge until the other
+readers' arms exist. The four third-party pairs and the Phase 5 pair name no family (at the tag `paper-v1` the
+third-party pairs were still tagged F1).
 
 **The freeze.** The paper cites the tag `paper-v1` (Phase 8's closing commit, v2.39.0). At that commit
 `src/mnimi/` is byte-identical to v2.14.0's, and `predictions.jsonl`, `results.json`, `summary.json` and `pins.json`

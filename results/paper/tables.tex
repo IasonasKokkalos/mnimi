@@ -38,14 +38,14 @@ temporal-reasoning & 133 & 7/133 & 86/133 & 111/133 & 96/133 & 113/133 & 106/133
 \toprule
 comparison & kind & b & c & discordant & p & b$_2$ & c$_2$ & p$_2$ & holds \\
 \midrule
-naive\_rag\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o & primary & 75 & 26 & 101 & 1.1e-06 & 75 & 28 & 4e-06 & yes \\
+naive\_rag\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_p6time & the paper's primary & 77 & 21 & 98 & 1.1e-08 & 76 & 27 & 1.4e-06 & yes \\
+naive\_rag\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o & pre-registered primary (Phase 5 arm) & 75 & 26 & 101 & 1.1e-06 & 75 & 28 & 4e-06 & yes \\
 no\_memory\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o & secondary & 393 & 2 & 395 & 1.9e-114 & 386 & 2 & 2.4e-112 & yes \\
 oracle\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o & secondary & 17 & 54 & 71 & 1.3e-05 & 20 & 56 & 4.4e-05 & yes \\
 mnimi\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_decay & decay ablation & 19 & 50 & 69 & 0.00024 & 23 & 47 & 0.0056 & yes \\
 mnimi\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_p6time & Phase 6 L1 & 15 & 8 & 23 & 0.21 & 13 & 11 & 0.84 & yes \\
 mnimi\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_p6turns & Phase 6 L3 & 22 & 20 & 42 & 0.88 & 27 & 22 & 0.57 & yes \\
 mnimi\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_p6combo & Phase 6 L1+L3 & 18 & 14 & 32 & 0.6 & 25 & 17 & 0.28 & yes \\
-naive\_rag\_\_500q\_gpt4o $\rightarrow$ mnimi\_\_500q\_gpt4o\_p6time & the paper system vs the bar & 77 & 21 & 98 & 1.1e-08 & 76 & 27 & 1.4e-06 & yes \\
 mnimi\_\_500q\_gpt4o\_p6time $\rightarrow$ mem0\_\_500q\_gpt4o & competitor & 28 & 121 & 149 & 5.6e-15 & 28 & 123 & 2.1e-15 & yes \\
 mnimi\_\_500q\_gpt4o\_p6time $\rightarrow$ omega\_\_500q\_gpt4o & competitor & 19 & 83 & 102 & 1e-10 & 24 & 85 & 3.5e-09 & yes \\
 naive\_rag\_\_500q\_gpt4o $\rightarrow$ mem0\_\_500q\_gpt4o & competitor vs the bar & 67 & 104 & 171 & 0.0057 & 67 & 113 & 0.00075 & yes \\
