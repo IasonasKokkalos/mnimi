@@ -1,0 +1,36 @@
+{
+  "analysis_schema": "mnimi-judge-labels/1",
+  "by_kind": {
+    "control": {
+      "first": {
+        "agrees_with_human": 10,
+        "rate": 1.0,
+        "rate_high": 1.0,
+        "rate_low": 0.7224672001371109
+      },
+      "n": 10,
+      "second": {
+        "agrees_with_human": 10,
+        "rate": 1.0,
+        "rate_high": 1.0,
+        "rate_low": 0.7224672001371109
+      }
+    },
+    "disagree": {
+      "first": {
+        "agrees_with_human": 32,
+        "rate": 0.64,
+        "rate_high": 0.7586125034815325,
+        "rate_low": 0.501410168761127
+      },
+      "n": 50,
+      "second": {
+        "agrees_with_human": 18,
+        "rate": 0.36,
+        "rate_high": 0.498589831238873,
+        "rate_low": 0.2413874965184674
+      }
+    }
+  },
+  "n": 60
+}
