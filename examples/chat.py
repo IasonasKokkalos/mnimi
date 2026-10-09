@@ -115,22 +115,32 @@ def turn(memory: Memory, user_id: str, backend: Backend, text: str, ts: str) -> 
 
 
 def _first_line(record) -> str:
+    """What a hit is: a fact record's fact, else the round's first turn."""
+    if record.kind == "fact" and record.fact:
+        return record.fact
     turns = record.turns or [{"content": record.content}]
     return turns[0].get("content", "")
 
 
 def _facts_of_round(context: str, user_text: str) -> list[str]:
-    """The ``facts:`` bullets the renderer printed just before the round's user turn."""
+    """The ``facts:`` bullets the renderer printed just before the round's user turn.
+
+    Only lines inside a ``facts:`` block count: a reply's own markdown list continues
+    an ``assistant:`` line without a prefix and must not read as facts.
+    """
     facts: list[str] = []
+    in_facts = False
     for line in context.split("\n"):
         if line == "facts:":
-            facts = []
-        elif line.startswith("- "):
+            facts, in_facts = [], True
+        elif in_facts and line.startswith("- "):
             facts.append(line[2:])
         elif line == f"user: {user_text}":
             return facts
-        elif line.startswith("user: ") or line.startswith("assistant: "):
-            facts = []
+        else:
+            if line.startswith(("user: ", "assistant: ")):
+                facts = []
+            in_facts = False
     return []
 
 

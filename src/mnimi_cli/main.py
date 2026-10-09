@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pathlib
 import sqlite3
 import sys
 from collections.abc import Sequence
@@ -77,7 +78,9 @@ class MetaExtractor:
 
 def read_meta(db_path: str) -> dict[str, str]:
     """The ``memory_meta`` rows of an existing store, read with plain sqlite3."""
-    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    # as_uri() percent-escapes the path: a bare `#` or `%` in it is URI syntax and
+    # would drop `?mode=ro`, opening (and creating) some other file read-write.
+    db = sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         tables = {
             row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -169,12 +172,14 @@ def export_markdown(user_id: str, records: list[MemoryRecord], now: str | None) 
     return "\n".join(lines)
 
 
-def export_command(db: str, user_id: str, fmt: str) -> str:
+def export_command(db: str, user_id: str, fmt: str) -> tuple[str, int]:
+    """The dump and the number of records it holds (0 names a typo'd user on stderr)."""
     memory = open_store(db)
-    if fmt == "text":
-        return memory.export(user_id)
     records = memory.store.all_records(user_id)
-    return export_markdown(user_id, records, now_logical(memory.store.created_ats(user_id)))
+    if fmt == "text":
+        return memory.export(user_id), len(records)
+    now = now_logical(memory.store.created_ats(user_id))
+    return export_markdown(user_id, records, now), len(records)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -207,14 +212,14 @@ def _write_stdout(text: str) -> None:
     """Write the dump as UTF-8 whatever the console's codec.
 
     A Windows pipe hands Python a cp1252 ``stdout``, which cannot encode the dump's
-    ``→`` and would crash the command; a redirected ``mnimi export`` must still land
-    the same bytes ``-o`` would write.
+    ``→`` and would crash the command, and text mode would turn every ``\\n`` into
+    ``\\r\\n``; a redirected ``mnimi export`` must land the bytes ``-o`` writes.
     """
     stream = sys.stdout
     reconfigure = getattr(stream, "reconfigure", None)
     if reconfigure is not None:
         try:
-            reconfigure(encoding="utf-8")
+            reconfigure(encoding="utf-8", newline="\n")
         except (ValueError, OSError, TypeError):  # pragma: no cover - a stream that refuses
             pass
     stream.write(text)
@@ -227,10 +232,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"mnimi export: no such store: {args.db}", file=sys.stderr)
             return 2
         try:
-            text = export_command(args.db, args.user_id, args.format)
-        except MemoryMetaError as exc:
+            text, count = export_command(args.db, args.user_id, args.format)
+        except (MemoryMetaError, sqlite3.DatabaseError) as exc:
             print(f"mnimi export: cannot open {args.db}: {exc}", file=sys.stderr)
             return 3
+        if count == 0:
+            print(f"mnimi export: no records for user {args.user_id!r} in {args.db}",
+                  file=sys.stderr)
         if args.output:
             with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(text)

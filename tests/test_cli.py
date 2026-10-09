@@ -135,6 +135,63 @@ def test_md_bolds_a_fact_valid_time(tmp_path):
     assert f"- The user moved to Boston. (**{facts[0].valid_time}**)" in md
 
 
+def test_a_path_with_uri_characters_opens_read_only_and_creates_nothing(tmp_path, capsys):
+    """`#` and `%` are URI syntax: an unescaped `file:` URI would drop `?mode=ro` and
+    open (create!) a different path. The store must open and nothing else appear."""
+    folder = tmp_path / "a#b 100%"
+    folder.mkdir()
+    _scripted_store(folder / "s.db")
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+
+    assert main(["export", str(folder / "s.db"), "u", "--format", "text"]) == 0
+
+    assert "The user lives in Seattle." in capsys.readouterr().out
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before, "no stray file"
+
+
+def test_a_file_that_is_not_sqlite_exits_non_zero_with_a_message(tmp_path, capsys):
+    (tmp_path / "notes.txt").write_text("not a database", encoding="utf-8")
+
+    code = main(["export", str(tmp_path / "notes.txt"), "u"])
+
+    assert code != 0
+    assert "notes.txt" in capsys.readouterr().err
+
+
+def test_an_unknown_user_is_named_on_stderr(tmp_path, capsys):
+    _scripted_store(tmp_path / "k.db")
+
+    assert main(["export", str(tmp_path / "k.db"), "nobody", "-o", str(tmp_path / "k.md")]) == 0
+
+    assert "nobody" in capsys.readouterr().err, "an empty dump for a typo is not silent"
+
+
+def test_a_store_from_another_configuration_is_refused(tmp_path, capsys, monkeypatch):
+    from mnimi_cli import main as cli
+
+    _scripted_store(tmp_path / "g.db")
+    stored = cli.read_meta(str(tmp_path / "g.db"))
+    monkeypatch.setattr(cli, "read_meta",
+                        lambda path: {**stored, "embedder_revision": "another"})
+
+    code = main(["export", str(tmp_path / "g.db"), "u"])
+
+    assert code == 3
+    assert "memory_meta mismatch" in capsys.readouterr().err
+
+
+def test_the_stub_embedder_is_what_opens_the_store(tmp_path):
+    from mnimi_cli.main import MetaEmbedder, open_store
+
+    _scripted_store(tmp_path / "m.db")
+
+    memory = open_store(str(tmp_path / "m.db"))
+
+    assert isinstance(memory.embedder, MetaEmbedder)
+    with pytest.raises(RuntimeError, match="never embeds"):
+        memory.embedder.embed(["anything"])
+
+
 def test_missing_db_exits_non_zero_with_a_message(tmp_path, capsys):
     code = main(["export", str(tmp_path / "absent.db"), "u"])
 
@@ -155,7 +212,9 @@ def test_stdout_survives_a_cp1252_console(tmp_path, monkeypatch):
     assert main(["export", str(tmp_path / "c.db"), "u"]) == 0
 
     sys.stdout.flush()
-    assert "→ supersedes #" in raw.getvalue().decode("utf-8")
+    out = raw.getvalue()
+    assert "→ supersedes #" in out.decode("utf-8")
+    assert b"\r\n" not in out, "stdout lands the bytes -o would write: LF, not the platform's"
 
 
 def test_o_writes_the_file_and_prints_nothing(tmp_path, capsys):

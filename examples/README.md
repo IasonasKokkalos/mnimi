@@ -51,7 +51,7 @@ go to `mnimi docs/LAUNCH.md` §6.1.
 | --- | --- | --- | --- | --- |
 | 1 | three facts on day 1; on day 3 ask for one indirectly | recall + reading: the right round in the context, the right answer | | |
 | 2 | contradict one of them on day 4 | a `superseded …` INFO line; `/export` shows the old fact struck through | | |
-| 3 | a relative date ("dentist next Thursday"); later ask "when is my dentist" | `valid_time` resolved from the session `ts`; the time-aware term ranks the round | | |
+| 3 | a relative date ("dentist next Thursday"); later ask "when is my dentist" | `valid_time` resolved from the session `ts` (needs `--extractor cpu` or `gpu`: `valid_time` lives on fact records); the time-aware term ranks the round | | |
 | 4 | an aside buried in a long assistant reply; ask about it later | the known miss (NEXT-STEPS §3 option 1): expect it missed, and say so in the launch post | | |
 | 5 | restart on the same DB; then launch with the other `--embedder` | the guard accepts the first and refuses the second (`MemoryMetaError`) | | |
 | 6 | `/consolidate` twice in a row | the second pass changes nothing (idempotent; no new `decayed …` lines) | | |

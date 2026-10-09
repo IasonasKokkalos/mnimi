@@ -89,6 +89,51 @@ def test_recall_and_facts_commands_print_without_an_extractor(chat, tmp_path, ca
     assert "no facts" in out, "without an extractor the round stored no fact records"
 
 
+def test_facts_ignores_bullets_inside_a_reply(chat, tmp_path, capsys):
+    """A reply's own markdown list is not the round's facts: only a `facts:` block is."""
+    db = tmp_path / "b.db"
+    memory = chat.build_memory(str(db), embedder="hashing", extractor="none")
+    ts = chat.session_ts(datetime.date(2026, 10, 9))
+    chat.turn(memory, "me", lambda s, u: "Here are options:\n- tea\n- coffee", "Drinks?", ts)
+    chat.turn(memory, "me", lambda s, u: "ok", "Thanks.", ts)
+
+    assert chat.handle_command("/facts", memory, "me", str(db), "Thanks.", ts) is True
+
+    out = capsys.readouterr().out
+    assert "no facts" in out and "- tea" not in out
+
+
+def test_recall_prints_the_fact_text_for_a_fact_hit(tmp_path, capsys):
+    """Under an extractor a round's representative can be a fact record (memory.py);
+    the user must see which fact was recalled, not the round's first turn."""
+    import importlib.util
+
+    from mnimi import Memory, MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+    from mnimi.extract.fake import ScriptedExtractor
+    from mnimi.extract.protocol import ExtractedFact
+
+    spec = importlib.util.spec_from_file_location("mnimi_example_chat2", _CHAT)
+    chat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(chat)
+    script = {"I live in Boston.": [ExtractedFact(
+        content="The user lives in Boston.", raw="user: I live in Boston.", when=None,
+        subject="user", predicate="lives in", object="Boston", salience=1.0)]}
+    db = tmp_path / "f.db"
+    memory = Memory(str(db), HashingEmbedder(), MemoryConfig(dedup_cosine_threshold=0.5),
+                    extractor=ScriptedExtractor(script))
+    ts = chat.session_ts(datetime.date(2026, 10, 9))
+    chat.turn(memory, "me", lambda s, u: "ok", "I live in Boston.", ts)
+    facts = [h for h in memory.recall("The user lives in Boston.", "me")
+             if h.record.kind == "fact"]
+    assert facts, "the hit is the fact record"
+
+    assert chat.handle_command("/recall The user lives in Boston.", memory, "me", str(db),
+                               "x", ts) is True
+
+    assert "fact  [2026-10-09T00:00:00] The user lives in Boston." in capsys.readouterr().out
+
+
 def test_example_imports_no_backend_at_module_level():
     source = _CHAT.read_text(encoding="utf-8")
     head = source.split("def ", 1)[0]
