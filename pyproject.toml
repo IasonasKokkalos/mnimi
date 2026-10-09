@@ -91,8 +91,13 @@ Issues = "https://github.com/IasonasKokkalos/mnimi/issues"
 # The arXiv id lands on preprint day (MERGED-PLAN T10); until then a placeholder.
 Paper = "https://arxiv.org/abs/TBA"
 
+[project.scripts]
+# The command line is the sibling package `mnimi_cli` (MERGED-PLAN T2): the same
+# wheel, a consumer of the public API, never a change to the frozen library.
+mnimi = "mnimi_cli.main:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/mnimi"]
+packages = ["src/mnimi", "src/mnimi_cli"]
 
 [tool.uv]
 # The run environment's versions of the eval stack (PHASE8 D7, PLAN A7): every
