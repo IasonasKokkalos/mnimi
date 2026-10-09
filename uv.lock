@@ -415,7 +415,7 @@ wheels = [
 
 [[package]]
 name = "mnimi"
-version = "2.39.1"
+version = "3.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -449,14 +449,14 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'eval'", specifier = ">=0.25" },
     { name = "huggingface-hub", marker = "extra == 'extract'", specifier = ">=0.25" },
     { name = "llama-cpp-python", marker = "extra == 'extract'", specifier = "==0.3.35" },
-    { name = "numpy", specifier = "==2.4.6" },
+    { name = "numpy", specifier = ">=2.4,<3" },
     { name = "ollama", marker = "extra == 'eval'", specifier = ">=0.4" },
     { name = "onnxruntime", marker = "extra == 'embed'", specifier = "==1.28.0" },
     { name = "openai", marker = "extra == 'eval'", specifier = ">=1.50" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "python-dotenv", marker = "extra == 'eval'", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "sqlite-vec", specifier = "==0.1.9" },
+    { name = "sqlite-vec", specifier = ">=0.1.9,<0.2" },
     { name = "tokenizers", marker = "extra == 'embed'", specifier = "==0.23.1" },
 ]
 provides-extras = ["embed", "eval", "extract", "dev"]

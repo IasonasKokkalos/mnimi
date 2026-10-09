@@ -4,16 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnimi"
-version = "2.39.1"
+version = "3.0.0"
 description = "Embeddable, local-first agent memory. One SQLite file, zero infra."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "mnimi authors" }]
+authors = [{ name = "Iasonas Kokkalos", email = "i.kokkalos@student.tue.nl" }]
 keywords = ["agent", "memory", "llm", "sqlite", "sqlite-vec", "vector-search", "rag"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -24,17 +24,18 @@ classifiers = [
 # Core dependencies are deliberately minimal. Every entry here is a liability;
 # the library must import and run with ONLY these two. See docs/DECISIONS.md.
 #
-# Both are pinned EXACTLY because both sit on the embed path: numpy does the
-# unit-normalization arithmetic on every vector, and sqlite-vec computes every
-# L2 distance behind search and the dedup probe. Same reasoning as onnxruntime
-# below — a numeric change moves a cosine, which moves what the 0.95 dedup
-# screen accepts, and that threshold's selection evidence cannot be regenerated.
-# Versions are the RUN environment's (system-Python user site: numpy 2.4.6 in
-# place since 2026-05-29, sqlite-vec 0.1.9 since 2026-07-21), not the dev
-# venv's — the venv never held the eval stack and produced no run.
+# These are the LIBRARY's ranges (release/v3, 2026-10-09). The exact versions
+# every recorded run used live in `uv.lock` — numpy 2.4.6 (in place on the run
+# machine since 2026-05-29) and sqlite-vec 0.1.9 (since 2026-07-21) — and
+# `uv sync --locked` reproduces that environment. Both sit on the embed path
+# (numpy does the unit-normalization arithmetic on every vector; sqlite-vec
+# computes every L2 distance behind search and the dedup probe), so a reader
+# reproducing a number installs from the lockfile, not from these ranges.
+# The `[embed]` and `[extract]` extras below stay pinned EXACTLY: those pins
+# are what a recorded store's `memory_meta` names.
 dependencies = [
-    "sqlite-vec==0.1.9",
-    "numpy==2.4.6",
+    "sqlite-vec>=0.1.9,<0.2",
+    "numpy>=2.4,<3",
 ]
 
 [project.optional-dependencies]
@@ -84,7 +85,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mnimi/mnimi"
+Homepage = "https://github.com/IasonasKokkalos/mnimi"
+Repository = "https://github.com/IasonasKokkalos/mnimi"
+Issues = "https://github.com/IasonasKokkalos/mnimi/issues"
+# The arXiv id lands on preprint day (MERGED-PLAN T10); until then a placeholder.
+Paper = "https://arxiv.org/abs/TBA"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnimi"]
