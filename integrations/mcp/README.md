@@ -35,12 +35,16 @@ profile (`MNIMI_EXTRACTOR=gpu`) needs a CUDA build of the same version instead
 ## Register it with Claude Code
 
 ```
-claude mcp add mnimi -e MNIMI_DB=~/mnimi/agent.db -- mnimi-mcp
+claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/mnimi/agent.db -- mnimi-mcp
 ```
 
-(`mnimi-mcp` must resolve on the PATH Claude Code starts the server with; give the venv's
-full path to the script otherwise.) Then `claude mcp list` shows the server connected and
-`/mcp` inside a session lists the five tools. On the first tool call the server opens the DB,
+Give `MNIMI_DB` an absolute path: outside bash a `~` reaches the server literally (the server
+does expand `~` and `$VAR` itself, and makes a relative path absolute against *its* working
+directory, which under Claude Code is the project folder, not your home). `--scope user` makes
+the memory follow you across projects; the default scope is one project. `mnimi-mcp` must
+resolve on the PATH Claude Code starts the server with; give the venv's full path to the script
+otherwise. Then `claude mcp list` shows the server connected and `/mcp` inside a session lists the
+five tools. On the first tool call the server opens the DB,
 loads the embedder (one 130 MB download, pinned by revision) and, under `MNIMI_EXTRACTOR=cpu`
 or `gpu`, the extractor (one 1.8 GB download, pinned by revision). Listing the tools loads
 nothing.
@@ -55,26 +59,30 @@ nothing.
 | `MNIMI_EMBEDDER` | `bge` · `hashing` | `bge` | `bge` = `BAAI/bge-small-en-v1.5` (the real one); `hashing` = numpy only, for tests |
 
 A store remembers these pins in `memory_meta`. Opening it later under other pins (another
-embedder, the GPU profile on a CPU store) is refused with `MemoryMetaError`: re-point
-`MNIMI_DB` at a fresh file or use the pins the store was built with.
+embedder, the GPU profile on a CPU store) is refused with `MemoryMetaError`, and the tool call
+returns that message as its error text (so the model, and you, read it): re-point `MNIMI_DB` at
+a fresh file or use the pins the store was built with. A model that cannot load
+(`MNIMI_EXTRACTOR=gpu` on a CPU build) and a bad setting come back the same way.
 
 ## Tools
 
 | tool | arguments | returns |
 | --- | --- | --- |
-| `remember` | `messages: [{role: user\|assistant, content}]` | `{round, fact, ts}`: the records stored by kind and the session timestamp they were stamped with |
-| `recall` | `query`, `k` (default 10) | `[{score, salience, kind, text, session_date}]`, best first |
+| `remember` | `messages: [{role: user\|assistant, content}]` (at least one) | `{round, fact, superseded, ts}`: the records this call added by kind (a duplicate round adds 0), the earlier facts it superseded, and the session timestamp they were stamped with |
+| `recall` | `query`, `k` (default 10) | `[{score, salience, kind, text, session_date}]`, best first; the returned memories count as accessed today, which protects them from the next decay pass |
 | `context` | `query` | the context block the library hands a reader: session-date headers, `user:`/`assistant:` lines, the facts |
 | `export` | — | the whole memory as Markdown (the same text `mnimi export --format md` writes) |
-| `consolidate` | — | `{conflict, decay, now_logical}`: both passes' counters; idempotent |
+| `consolidate` | — | `{conflict, decay, now_logical}`: what this call changed (the conflict pass's counters; the decay pass's `passes`, `decayed`, `at_floor`) and the logical now; a second call changes nothing |
 
 Resource: `memory://export` (`text/markdown`), the same Markdown as the `export` tool.
 
 **The clock lives here, not in the library.** Every message `remember` stores is stamped
 `ts` = the server's calendar day at the call (`YYYY-MM-DDT00:00:00`): a day is a session, the
-shape the benchmark has. A `ts` the model puts in a message is ignored. The library reads only
-the `ts` it is handed and never a clock, so `recall`'s recency, decay and the time-aware term
-all run on that logical time.
+shape the benchmark has. A `ts` the model puts in a message is ignored. The same day reaches
+`recall` and `context` as the library's documented query prefix (`[Current date: <ts>]`, parsed
+for the question's own time window and stripped before embedding), so the shipped
+configuration's time-aware term fires on "last week" or "three days ago". The library reads
+only what it is handed and never a clock.
 
 **stdout belongs to the transport.** Everything the server and the library log goes to
 stderr, including `mnimi.memory`'s INFO lines (`superseded …`, `routed to conflict …`,
@@ -94,9 +102,11 @@ stderr, including `mnimi.memory`'s INFO lines (`superseded …`, `routed to conf
 ## Development
 
 ```
-pip install -e integrations/mcp          # the mcp package is not in the root [dev] extra
+pip install -e integrations/mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 pytest integrations/mcp/tests            # also run by the root pytest; skipped when mcp is absent
 ```
+
+(The `mcp` package is not in the root `[dev]` extra; the index is the CPU wheel's, as above.)
 
 The tests drive the server through the SDK's in-memory client (`Client(server.mcp)`) under
 `MNIMI_EMBEDDER=hashing MNIMI_EXTRACTOR=none` over a temporary DB. The server imports

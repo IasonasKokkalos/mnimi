@@ -128,7 +128,7 @@ testpaths = ["tests", "integrations/mcp/tests"]
 markers = [
     "bge: needs the [embed] extra and a ~130MB model download; skipped in CI",
     "extract: needs the [extract] extra, a 1.8GB model download and a GPU; skipped in CI",
-    "mcp: needs the mcp package (pip install -e integrations/mcp); skipped in CI",
+    "mcp: needs the mcp package (pip install -e integrations/mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu); skipped in CI",
 ]
 # Put the repo root on sys.path so tests can import the top-level `evals` package
 # (the library lives under src/ and is installed editable; evals is run in place).

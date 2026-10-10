@@ -6,7 +6,11 @@ application decides stays here and out of the library:
 
 * **The clock.** Every message ``remember`` stores is stamped ``ts`` = the server's calendar
   day at the call (``YYYY-MM-DDT00:00:00``; a day is a session, the benchmark's shape). A
-  ``ts`` the model supplies is ignored. The library reads only the ``ts`` it is handed.
+  ``ts`` the model supplies is ignored. The same day is handed to ``recall`` and ``context`` as
+  the documented query prefix ``[Current date: <ts>]``, which the library parses for the
+  question's own time window and strips before embedding: that is what makes the shipped
+  configuration's time-aware term fire (``mnimi.temporal``). The library reads only the ``ts``
+  it is handed.
 * **One ``Memory`` per process**, built lazily on the first tool call from the environment
   (``MNIMI_DB`` required; ``MNIMI_USER_ID`` default ``me``; ``MNIMI_EXTRACTOR`` ``cpu|gpu|none``
   default ``cpu``; ``MNIMI_EMBEDDER`` ``bge|hashing`` default ``bge``), so listing the tools
@@ -14,6 +18,9 @@ application decides stays here and out of the library:
 * **stdout belongs to the stdio transport.** All logging goes to stderr, including the
   library's ``mnimi.memory`` INFO lines (``superseded ...``, ``routed to conflict ...``,
   ``decayed ...``), which are the point of watching it work.
+* **Failures reach the client as text.** A store built under other pins, a model that cannot
+  load, a bad setting: the message is raised as the SDK's ``ToolError`` / ``ResourceError`` so
+  the model (and the person behind it) reads it, instead of a bare "Error executing tool".
 
 The embedder and extractor construction mirrors ``examples/chat.py``'s ``build_memory`` (the
 example is not an importable package, so the twenty lines are copied here with this note; the
@@ -31,12 +38,16 @@ import threading
 from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
 from mnimi import Memory, MemoryConfig
 from mnimi.decay import now_logical
 from mnimi.extract.llama import DECODE  # the pinned decode; importing it loads no model
+from mnimi.temporal import dated_query
 from mnimi_cli.main import export_markdown
+
+from . import __version__
 
 log = logging.getLogger("mnimi_mcp")
 
@@ -51,10 +62,11 @@ mcp = MCPServer(
     instructions=(
         "Long-term memory for this user in one local SQLite file. Call `remember` with the "
         "turns worth keeping (both roles); `context` before answering a question that may "
-        "depend on earlier sessions; `recall` to inspect what would be retrieved; `export` to "
-        "read everything as Markdown; `consolidate` to run the conflict and decay passes."
+        "depend on earlier sessions; `recall` to inspect what would be retrieved (it also "
+        "marks those memories as accessed); `export` to read everything as Markdown; "
+        "`consolidate` to run the conflict and decay passes."
     ),
-    version="0.1.0",
+    version=__version__,
     log_level="WARNING",
 )
 
@@ -71,16 +83,26 @@ class Settings:
 
 
 def settings() -> Settings:
-    """Read the four environment variables; a missing DB or an unknown value exits."""
-    db = os.environ.get("MNIMI_DB", "").strip()
-    if not db:
-        sys.exit("mnimi-mcp: MNIMI_DB is required (the path of the SQLite store)")
+    """Read the four environment variables.
+
+    Raises ``ValueError`` on a missing DB or an unknown value: ``main()`` turns that into an
+    exit before the transport starts, ``memory()`` into a ``ToolError`` the client can read.
+    ``MNIMI_DB`` gets ``~`` and ``$VAR`` expanded and is made absolute, because a shell other
+    than bash hands ``-e MNIMI_DB=~/x.db`` through literally and the host's working directory is
+    not the user's.
+    """
+    raw = os.environ.get("MNIMI_DB", "").strip()
+    if not raw:
+        raise ValueError("mnimi-mcp: MNIMI_DB is required (the path of the SQLite store)")
+    db = os.path.abspath(os.path.expanduser(os.path.expandvars(raw)))
     extractor = os.environ.get("MNIMI_EXTRACTOR", "cpu").strip().lower()
     if extractor not in EXTRACTORS:
-        sys.exit(f"mnimi-mcp: MNIMI_EXTRACTOR must be one of {EXTRACTORS}, got {extractor!r}")
+        raise ValueError(
+            f"mnimi-mcp: MNIMI_EXTRACTOR must be one of {EXTRACTORS}, got {extractor!r}"
+        )
     embedder = os.environ.get("MNIMI_EMBEDDER", "bge").strip().lower()
     if embedder not in EMBEDDERS:
-        sys.exit(f"mnimi-mcp: MNIMI_EMBEDDER must be one of {EMBEDDERS}, got {embedder!r}")
+        raise ValueError(f"mnimi-mcp: MNIMI_EMBEDDER must be one of {EMBEDDERS}, got {embedder!r}")
     return Settings(
         db, os.environ.get("MNIMI_USER_ID", "me").strip() or "me", extractor, embedder
     )
@@ -117,12 +139,12 @@ def _build_extractor(name: str, db: str):
     from mnimi.extract.llama import QwenLlamaExtractor
 
     decode = dict(DECODE) if name == "gpu" else dict(CPU_DECODE)
-    cache = os.path.join(os.path.dirname(os.path.abspath(db)), f"extract-cache-{name}.sqlite")
+    cache = os.path.join(os.path.dirname(db), f"extract-cache-{name}.sqlite")
     return CachedExtractor(QwenLlamaExtractor(decode=decode), cache)
 
 
 def build_memory(s: Settings) -> Memory:
-    os.makedirs(os.path.dirname(os.path.abspath(s.db)) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(s.db), exist_ok=True)
     return Memory(
         s.db, _build_embedder(s.embedder), MemoryConfig(),
         extractor=_build_extractor(s.extractor, s.db),
@@ -135,16 +157,26 @@ _settings: Settings | None = None
 
 
 def memory() -> Memory:
-    """The process's one ``Memory``; built on the first call, under the lock."""
+    """The process's one ``Memory``; built on the first call, under the lock.
+
+    A failed build is reported as a ``ToolError`` carrying the cause's text (the
+    ``MemoryMetaError`` of a store built under other pins, the ``RuntimeError`` of a model
+    that cannot load, the ``ValueError`` of a bad setting) and leaves nothing half-open.
+    """
     global _memory, _settings
     with _lock:
         if _memory is None:
-            _settings = settings()
-            log.info(
-                "opening %s for user %r (embedder %s, extractor %s)",
-                _settings.db, _settings.user_id, _settings.embedder, _settings.extractor,
-            )
-            _memory = build_memory(_settings)
+            try:
+                s = settings()
+                log.info(
+                    "opening %s for user %r (embedder %s, extractor %s)",
+                    s.db, s.user_id, s.embedder, s.extractor,
+                )
+                _memory = build_memory(s)
+                _settings = s
+            except (ValueError, RuntimeError, ImportError, OSError) as exc:
+                log.error("cannot open the memory store: %s", exc)
+                raise ToolError(f"mnimi-mcp cannot open the memory store: {exc}") from exc
         return _memory
 
 
@@ -183,11 +215,16 @@ def _hit_text(record) -> str:
     return "\n".join(f"{t.get('role', '')}: {t.get('content', '')}" for t in turns)
 
 
+def _delta(after: dict, before: dict) -> dict:
+    return {key: after[key] - before.get(key, 0) for key in after}
+
+
 @mcp.tool()
 def remember(
     messages: Annotated[
         list[Message],
         Field(
+            min_length=1,
             description=(
                 "The turns to store, in order, role user or assistant. They are stamped with "
                 "today's date by the server; do not try to date them."
@@ -195,19 +232,21 @@ def remember(
         ),
     ],
 ) -> dict[str, Any]:
-    """Store chat turns in long-term memory. Returns the records stored by kind and the
-    session timestamp they were stamped with."""
-    if not messages:
-        raise ValueError("remember needs at least one message")
+    """Store chat turns in long-term memory. Returns the records this call added by kind
+    (`round`, `fact`; a duplicate round adds 0), how many earlier facts it superseded, and the
+    session timestamp the turns were stamped with."""
     ts = session_ts()
     with _lock:
         mem, uid = memory(), user_id()
         before = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
+        superseded_before = mem.conflict_stats["superseded"]
         mem.add([{"role": m.role, "content": m.content, "ts": ts} for m in messages], uid)
         after = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
+        superseded = mem.conflict_stats["superseded"] - superseded_before
     return {
         "round": after["round"] - before["round"],
         "fact": after["fact"] - before["fact"],
+        "superseded": superseded,
         "ts": ts,
     }
 
@@ -217,13 +256,16 @@ def recall(
     query: str,
     k: Annotated[int, Field(ge=1, le=100, description="how many rounds to return")] = 10,
 ) -> list[dict[str, Any]]:
-    """Retrieve the k memories most relevant to a query, best first, with their scores."""
+    """Retrieve the k memories most relevant to a query, best first, with their scores. Not
+    a pure read: the returned memories count as accessed today, which protects them from
+    the next decay pass."""
+    dated = dated_query(session_ts(), query)
     with _lock:
         mem, uid = memory(), user_id()
         config = mem.config
         mem.config = dataclasses.replace(config, top_k=k)
         try:
-            hits = mem.recall(query, uid)
+            hits = mem.recall(dated, uid)
         finally:
             mem.config = config
     return [
@@ -242,8 +284,9 @@ def recall(
 def context(query: str) -> str:
     """The retrieved memories for a query, rendered oldest-first as the context block the
     library hands a reader (session-date headers, user:/assistant: lines, facts)."""
+    dated = dated_query(session_ts(), query)
     with _lock:
-        return memory().get_context(query, user_id())
+        return memory().get_context(dated, user_id())
 
 
 def _export_markdown() -> str:
@@ -266,19 +309,24 @@ def export() -> str:
     description="The whole memory as Markdown (the `export` tool's output).",
 )
 def export_resource() -> str:
-    return _export_markdown()
+    try:
+        return _export_markdown()
+    except ToolError as exc:
+        raise ResourceError(str(exc)) from exc
 
 
 @mcp.tool()
 def consolidate() -> dict[str, Any]:
     """Run the conflict pass (supersede contradicted facts) and the decay pass over the
-    user's memory. Idempotent. Returns both passes' counters and the logical now."""
+    user's memory. Idempotent. Returns what THIS call changed: the conflict pass's counters,
+    the decay pass's (`passes`, `decayed`, `at_floor`), and the logical now."""
     with _lock:
         mem, uid = memory(), user_id()
+        conflict_before, decay_before = dict(mem.conflict_stats), dict(mem.decay_stats)
         mem.consolidate(uid)
         return {
-            "conflict": dict(mem.conflict_stats),
-            "decay": dict(mem.decay_stats),
+            "conflict": _delta(mem.conflict_stats, conflict_before),
+            "decay": _delta(mem.decay_stats, decay_before),
             "now_logical": now_logical(mem.store.created_ats(uid)),
         }
 
@@ -301,7 +349,10 @@ def configure_logging() -> None:
 
 def main() -> None:
     configure_logging()
-    settings()  # fail fast on a missing MNIMI_DB, before the transport starts
+    try:
+        settings()  # fail fast on a missing MNIMI_DB, before the transport starts
+    except ValueError as exc:
+        sys.exit(str(exc))
     mcp.run(transport="stdio")
 
 

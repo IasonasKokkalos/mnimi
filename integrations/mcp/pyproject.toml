@@ -4,11 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnimi-mcp"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A stdio MCP server over mnimi: remember, recall, context, export, consolidate; one SQLite file, no server process beyond this one."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Iasonas Kokkalos", email = "iasonaskokkalos@gmail.com" }]
 keywords = ["mcp", "agent-memory", "mnimi", "claude-code", "sqlite"]
 classifiers = [
@@ -35,6 +36,9 @@ Issues = "https://github.com/IasonasKokkalos/mnimi/issues"
 
 [project.scripts]
 mnimi-mcp = "mnimi_mcp.server:main"
+
+[tool.hatch.version]
+path = "src/mnimi_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnimi_mcp"]
