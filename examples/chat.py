@@ -23,6 +23,7 @@ import sys
 from collections.abc import Callable
 
 from mnimi import Memory, MemoryConfig
+from mnimi.extract.llama import DECODE  # the pinned decode; importing it loads no model
 
 SYSTEM_PROMPT = "You are an assistant with memory. Relevant memories:\n{context}"
 
@@ -30,6 +31,17 @@ DEFAULT_MODEL = {"ollama": "qwen2.5:7b-instruct", "openai": "gpt-4o-mini"}
 
 #: What a backend is to this loop: ``(system_prompt, user_text) -> reply``.
 Backend = Callable[[str, str], str]
+
+#: The CPU extractor recipe (MERGED-PLAN T5, LAUNCH M7): the paper's decode pins with the GPU
+#: offload turned off, passed to the public ``QwenLlamaExtractor(decode=)`` keyword. Measured
+#: 2026-10-10 on the CPU wheel of llama-cpp-python 0.3.35 (Ryzen 7 PRO 8845HS): the grammar
+#: runs and ``flash_attn=True`` holds (``llama_context: flash_attn = enabled``), so this one key
+#: is the whole difference. It yields its own ``extractor_decode_hash``, so a CPU store is its
+#: own configuration: the ``memory_meta`` guard refuses it under the GPU pins and vice versa.
+CPU_DECODE = {**DECODE, "n_gpu_layers": 0}
+
+#: ``cpu`` is the default since T5 measured it; ``none`` is the v1 write path (rounds only).
+DEFAULT_EXTRACTOR = "cpu"
 
 
 def session_ts(today: datetime.date | None = None) -> str:
@@ -55,16 +67,11 @@ def build_extractor(name: str, db: str):
     """``none`` (the v1 write path: rounds only), ``cpu`` (the recipe), ``gpu`` (the pin)."""
     if name == "none":
         return None
-    try:
-        from mnimi.extract.llama import DECODE, QwenLlamaExtractor
-    except ImportError as exc:
-        sys.exit(f'--extractor {name} needs the [extract] extra: pip install "mnimi[extract]" '
-                 f"({exc})")
     from mnimi.extract.cache import CachedExtractor
+    from mnimi.extract.llama import QwenLlamaExtractor
 
-    # The CPU profile passes the public decode= keyword and nothing else: it yields its
-    # own extractor_decode_hash, so a CPU store is its own configuration (LAUNCH M7).
-    decode = dict(DECODE) if name == "gpu" else {**DECODE, "n_gpu_layers": 0}
+    # The CPU profile passes the public decode= keyword and nothing else (CPU_DECODE above).
+    decode = dict(DECODE) if name == "gpu" else dict(CPU_DECODE)
     cache = os.path.join(os.path.dirname(os.path.abspath(db)), f"extract-cache-{name}.sqlite")
     try:
         return CachedExtractor(QwenLlamaExtractor(decode=decode), cache)
@@ -187,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend", choices=("ollama", "openai"), default="ollama")
     parser.add_argument("--model", help="the backend's model (default per backend)")
     parser.add_argument("--embedder", choices=("bge", "hashing"), default="bge")
-    parser.add_argument("--extractor", choices=("cpu", "gpu", "none"), default="none")
+    parser.add_argument("--extractor", choices=("cpu", "gpu", "none"),
+                        default=DEFAULT_EXTRACTOR)
     args = parser.parse_args(argv)
 
     # The library's INFO lines are the point of watching it work: `superseded ...`,
