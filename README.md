@@ -2,6 +2,52 @@
 
 Embeddable, local-first agent memory. One SQLite file, zero infra.
 
+## Current state (2026-10-10) — read this first
+
+Everything below this block is the pre-release README and carries the project's history. It is
+being rewritten whole for `v3.0.0` (planned 2026-10-17). The n=100 table further down belongs to
+the **local-reader family** (a 1.5B Qwen reader over Ollama): a different reader, never paired
+against the numbers here.
+
+The number of record is the gpt-4o family on all 500 questions of LongMemEval-S, with one reader
+prompt for every question type:
+
+| System | Correct / 500 | Wilson 95 % | Role | run_id |
+| --- | ---: | :---: | --- | --- |
+| no_memory | 31 (6.2 %) | [4.4, 8.7] | the floor | `no_memory__500q_gpt4o` |
+| naive_rag | 373 (74.6 %) | [70.6, 78.2] | rounds stored verbatim, cosine top-10: the baseline to beat | `naive_rag__500q_gpt4o` |
+| **mnimi** | **429 (85.8 %)** | [82.5, 88.6] | the shipped configuration | `mnimi__500q_gpt4o_p6time` |
+| oracle | 459 (91.8 %) | [89.1, 93.9] | the evidence-availability bound: the reader is handed the evidence sessions | `oracle__500q_gpt4o` |
+
+`full_history` is **cited, never run** on this family: 64.0 % (LongMemEval, Wu et al. 2024,
+Fig. 3b, GPT-4o with Chain-of-Note).
+
+**Provenance:** reader and judge `gpt-4o-2024-08-06` over the OpenAI API, temperature 0; reader
+prompt `mnimi-con-v1`, judge prompt `longmemeval-paper-v3`; harness commits `f07c24d` (no_memory,
+naive_rag, oracle) and `f0a7de3` (mnimi), clean trees, `provisional: []` on all four. The numbers
+are copied from [`results/paper/tables.md`](results/paper/tables.md) (T1, T3, T5, T8), which is
+exported from the committed predictions and never edited by hand.
+
+How to read it:
+
+- **Paired, not ranked.** mnimi against naive_rag on the same 500 questions: b=77, c=21, exact
+  McNemar p = 1.1 × 10⁻⁸ (76 / 27 under a second judge, `gpt-4.1-2025-04-14`).
+- **The reader and the judge are one model snapshot** (LongMemEval's own pairing), disclosed. A
+  second judge re-graded every arm, and every pair of record keeps its sign.
+- **Auditable is not reproducible.** Every row re-grades from the committed predictions with one
+  command ([Tier 1](#tier-1--auditable-verify-any-published-number-yourself)). A fresh run of the
+  same configuration reproduces the score within 12/500 flips (b=6, c=6); the answer text is not
+  reproducible (277/500 changed).
+- **Third-party systems.** Mem0 OSS 2.2.1 and OMEGA 1.5.17's retrieval were run through the same
+  harness under the same pins. Their rows, adapters and disclosures are in
+  [`results/published/README.md`](results/published/README.md): paired readings, never a rank, and
+  not a replication of either system's published numbers.
+
+The library is frozen at tag `paper-v1` (`src/mnimi/`). The full record of every run is
+[`results/published/README.md`](results/published/README.md).
+
+---
+
 The number that matters is the benchmark number. Everything in this repo is
 judged by whether it moves the table below.
 
