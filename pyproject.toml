@@ -116,17 +116,20 @@ constraint-dependencies = [
 line-length = 100
 target-version = "py310"
 # evals/ is a separate harness; lint it too but keep src as the source of truth.
-src = ["src", "evals", "tests"]
+src = ["src", "evals", "tests", "integrations/mcp/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# integrations/mcp/tests is the MCP server's suite (MERGED-PLAN T8): run by this root
+# pytest, skipped whole when the `mcp` package is absent (it is not in [dev]).
+testpaths = ["tests", "integrations/mcp/tests"]
 markers = [
     "bge: needs the [embed] extra and a ~130MB model download; skipped in CI",
     "extract: needs the [extract] extra, a 1.8GB model download and a GPU; skipped in CI",
+    "mcp: needs the mcp package (pip install -e integrations/mcp); skipped in CI",
 ]
 # Put the repo root on sys.path so tests can import the top-level `evals` package
 # (the library lives under src/ and is installed editable; evals is run in place).
-pythonpath = ["."]
+pythonpath = [".", "integrations/mcp/src"]

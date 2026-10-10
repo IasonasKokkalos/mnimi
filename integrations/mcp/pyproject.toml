@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnimi-mcp"
+version = "0.1.0"
+description = "A stdio MCP server over mnimi: remember, recall, context, export, consolidate; one SQLite file, no server process beyond this one."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Iasonas Kokkalos", email = "iasonaskokkalos@gmail.com" }]
+keywords = ["mcp", "agent-memory", "mnimi", "claude-code", "sqlite"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+# The core library keeps its two deps; this package is where the model stack and the MCP SDK
+# meet. `mnimi[extract]` pins llama-cpp-python==0.3.35 exactly, which PyPI ships only as an
+# sdist: install the project's CPU wheel first (README) or pass its index on this install line.
+# `mcp` is ranged from the version the server was written and tested against (2.3.0,
+# 2026-10-02) to the next major.
+dependencies = [
+    "mnimi[embed,extract]>=3.0,<4",
+    "mcp>=2.3,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/IasonasKokkalos/mnimi"
+Repository = "https://github.com/IasonasKokkalos/mnimi"
+Issues = "https://github.com/IasonasKokkalos/mnimi/issues"
+
+[project.scripts]
+mnimi-mcp = "mnimi_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mnimi_mcp"]
