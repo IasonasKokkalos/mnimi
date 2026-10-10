@@ -9,7 +9,7 @@ abstract: "An embeddable, local-first agent-memory library: one SQLite file via 
 authors:
   - family-names: Kokkalos
     given-names: Iasonas
-    email: i.kokkalos@student.tue.nl
+    email: iasonaskokkalos@gmail.com
 version: 3.0.0
 date-released: 2026-10-17
 license: Apache-2.0

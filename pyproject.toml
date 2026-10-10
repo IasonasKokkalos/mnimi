@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "Iasonas Kokkalos", email = "i.kokkalos@student.tue.nl" }]
+authors = [{ name = "Iasonas Kokkalos", email = "iasonaskokkalos@gmail.com" }]
 keywords = ["agent", "memory", "llm", "sqlite", "sqlite-vec", "vector-search", "rag"]
 classifiers = [
     "Development Status :: 3 - Alpha",
