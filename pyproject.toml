@@ -99,6 +99,11 @@ mnimi = "mnimi_cli.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnimi", "src/mnimi_cli"]
 
+# The sdist is what builds the wheel and nothing else. Without this list hatchling sweeps the
+# whole tree in (results/published alone is 52 MB; measured 16 MB compressed at v3.0.0, T7).
+[tool.hatch.build.targets.sdist]
+only-include = ["src/mnimi", "src/mnimi_cli", "README.md", "LICENSE", "CITATION.cff", "pyproject.toml"]
+
 [tool.uv]
 # The run environment's versions of the eval stack (PHASE8 D7, PLAN A7): every
 # recorded run was produced with these (read from the system Python on
