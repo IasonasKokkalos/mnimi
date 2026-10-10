@@ -1,571 +1,431 @@
-# MNIMI
+# mnimi
 
-Embeddable, local-first agent memory. One SQLite file, zero infra.
+[![PyPI](https://img.shields.io/pypi/v/mnimi.svg)](https://pypi.org/project/mnimi/)
+[![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](pyproject.toml)
+[![CI](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+<!-- [![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) — the preprint lands 2026-11-06 -->
 
-## Current state (2026-10-10) — read this first
+mnimi is an embeddable, local-first memory layer for LLM agents: one SQLite file (`sqlite-vec`),
+two dependencies, no server. Raw chat turns go in; a small pinned local model extracts facts at
+write time; deterministic screens handle duplicates, contradictions and supersession; nothing on
+the read path calls a model. All time is logical (the `ts` you hand each message), so the same
+store gives the same answers on any day. Every memory is readable as Markdown. On LongMemEval-S
+(500 questions, gpt-4o as reader) it reads 85.8 %, paired and audited: every published row
+re-grades with one command.
 
-Everything below this block is the pre-release README and carries the project's history. It is
-being rewritten whole for `v3.0.0` (planned 2026-10-17). The n=100 table further down belongs to
-the **local-reader family** (a 1.5B Qwen reader over Ollama): a different reader, never paired
-against the numbers here.
+## The number
 
-The number of record is the gpt-4o family on all 500 questions of LongMemEval-S, with one reader
-prompt for every question type:
+The gpt-4o family on all 500 questions of LongMemEval-S, one reader prompt for every question
+type, retrieval `k=10` and per-round ingestion identical across the rows that retrieve:
 
-| System | Correct / 500 | Wilson 95 % | Role | run_id |
-| --- | ---: | :---: | --- | --- |
-| no_memory | 31 (6.2 %) | [4.4, 8.7] | the floor | `no_memory__500q_gpt4o` |
-| naive_rag | 373 (74.6 %) | [70.6, 78.2] | rounds stored verbatim, cosine top-10: the baseline to beat | `naive_rag__500q_gpt4o` |
-| **mnimi** | **429 (85.8 %)** | [82.5, 88.6] | the shipped configuration | `mnimi__500q_gpt4o_p6time` |
-| oracle | 459 (91.8 %) | [89.1, 93.9] | the evidence-availability bound: the reader is handed the evidence sessions | `oracle__500q_gpt4o` |
+| System | Correct / 500 | Wilson 95 % | mean fed tokens | role | run_id |
+| --- | ---: | :---: | ---: | --- | --- |
+| no_memory | 31 (6.2 %) | [4.4, 8.7] | 133 | the floor: the question alone | `no_memory__500q_gpt4o` |
+| full_history | *cited: 64.0 %* | — | — | *cited (LongMemEval Fig. 3b, GPT-4o + Chain-of-Note), never run here* | — |
+| naive_rag | 373 (74.6 %) | [70.6, 78.2] | 4,685 | rounds stored verbatim, cosine top-10: the bar | `naive_rag__500q_gpt4o` |
+| **mnimi** | **429 (85.8 %)** | **[82.5, 88.6]** | 5,498 | the shipped configuration | `mnimi__500q_gpt4o_p6time` |
+| oracle | 459 (91.8 %) | [89.1, 93.9] | 5,771 | the evidence-availability bound: the reader is handed the evidence sessions | `oracle__500q_gpt4o` |
 
-`full_history` is **cited, never run** on this family: 64.0 % (LongMemEval, Wu et al. 2024,
-Fig. 3b, GPT-4o with Chain-of-Note).
-
-**Provenance:** reader and judge `gpt-4o-2024-08-06` over the OpenAI API, temperature 0; reader
+**Provenance.** Reader and judge `gpt-4o-2024-08-06` over the OpenAI API, temperature 0; reader
 prompt `mnimi-con-v1`, judge prompt `longmemeval-paper-v3`; harness commits `f07c24d` (no_memory,
-naive_rag, oracle) and `f0a7de3` (mnimi), clean trees, `provisional: []` on all four. The numbers
-are copied from [`results/paper/tables.md`](results/paper/tables.md) (T1, T3, T5, T8), which is
-exported from the committed predictions and never edited by hand.
+naive_rag, oracle) and `f0a7de3` (mnimi), clean trees, `provisional: []` on all four. Counts and
+intervals are copied from [`results/paper/tables.md`](results/paper/tables.md) (T1, T5, T8), which
+`python -m evals.paper_tables` exports from the committed predictions; mean fed tokens is the mean
+`reader_prompt_tokens` over each arm's `predictions.jsonl`. mnimi against naive_rag on the same
+500 questions: b=77, c=21, exact McNemar p = 1.1 × 10⁻⁸ (T3). Paired, never ranked.
 
-How to read it:
-
-- **Paired, not ranked.** mnimi against naive_rag on the same 500 questions: b=77, c=21, exact
-  McNemar p = 1.1 × 10⁻⁸ (76 / 27 under a second judge, `gpt-4.1-2025-04-14`).
-- **The reader and the judge are one model snapshot** (LongMemEval's own pairing), disclosed. A
-  second judge re-graded every arm, and every pair of record keeps its sign.
-- **Auditable is not reproducible.** Every row re-grades from the committed predictions with one
-  command ([Tier 1](#tier-1--auditable-verify-any-published-number-yourself)). A fresh run of the
-  same configuration reproduces the score within 12/500 flips (b=6, c=6); the answer text is not
-  reproducible (277/500 changed).
-- **Third-party systems.** Mem0 OSS 2.2.1 and OMEGA 1.5.17's retrieval were run through the same
-  harness under the same pins. Their rows, adapters and disclosures are in
-  [`results/published/README.md`](results/published/README.md): paired readings, never a rank, and
-  not a replication of either system's published numbers.
-
-The library is frozen at tag `paper-v1` (`src/mnimi/`). The full record of every run is
+Two caveats. The reader and the judge are one model snapshot (LongMemEval's own pairing); a second
+judge re-graded every arm and every pair of record keeps its sign. "Auditable" is not
+"reproducible": every row re-grades from its committed predictions (§ Verify the number), while a
+fresh run of the same configuration reproduces the score within 12/500 flips and not the text.
+The full record of every run, the third-party rows and their disclosures, is
 [`results/published/README.md`](results/published/README.md).
 
----
+## The problem
 
-The number that matters is the benchmark number. Everything in this repo is
-judged by whether it moves the table below.
+- An agent forgets everything between sessions, or stuffs its window with history until the
+  evidence it needs is truncated away.
+- Routing every write through an LLM is slow, costs money per turn, and leaves no auditable
+  trail of why a memory was kept, merged or dropped.
+- Hosted memory is someone else's database: your users' conversations leave the machine.
+- You cannot read what your agent remembers, so you cannot check it, correct it or delete it.
 
-## LongMemEval (longmemeval_s, ~500 questions)
+## Quick install
 
-Reader model, reader prompt, retrieval `k`, and ingestion granularity are held
-identical across every row — the only variable is the context each system
-assembles. `no_memory` is the floor (answer with no history); `full_history` is
-a truncated-context baseline (stuff as much history as fits the pinned 32K
-window — it truncates, so it measures what naive context-stuffing buys, not
-what is achievable); `oracle` is the evidence-availability bound (the reader is
-handed exactly the evidence sessions); `naive_rag` (rounds stored verbatim) is
-the bar mnimi has to clear while using a fraction of the tokens. That is the
-entire bet.
+```
+pip install mnimi                                   # the library: rounds stored verbatim, no model
+```
 
-### The published number — five arms, n=100, one sitting
+```
+pip install "llama-cpp-python==0.3.35" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+pip install "mnimi[embed,extract]"                  # the full write path on a CPU, no compiler
+```
 
-| System         | Score         | 95% CI (Wilson) | mean fed tokens | truncated |
-| -------------- | ------------: | --------------: | --------------: | --------: |
-| no_memory      |  4/100 (4%)   |     [1.6, 9.8]  |             166 |     0/100 |
-| full_history   | 17/100 (17%)  |    [10.9, 25.5] |          27,464 |   100/100 |
-| oracle         | 50/100 (50%)  |    [40.4, 59.6] |           5,153 |     0/100 |
-| naive_rag      | 41/100 (41%)  |    [31.9, 50.8] |           4,710 |     0/100 |
-| **mnimi**      | 35/100 (35%)  |    [26.4, 44.7] |           4,708 |     0/100 |
+```
+git clone https://github.com/IasonasKokkalos/mnimi && cd mnimi && pip install -e ".[embed,extract,dev]"
+```
 
-**Provenance:** sitting of 2026-08-16 · reader transport **Ollama 0.32.13** ·
-harness commit `ae5da2b` (clean tree) · reader `qwen2.5:1.5b-instruct-q4_0`
-(digest `635e70c8…`), prompt `mnimi-con-v1` · judge `gpt-4o-2024-08-06` ·
-stratified 100-question slice, seed 0 · NVIDIA RTX 1000 Ada Laptop GPU, driver
-595.95, CUDA 13.2 · `provisional: []` on all five. The artifacts, the full
-provenance table, the paired McNemar tests and every caveat live in
-[`results/published/`](results/published/); the numbers above are copied from
-there, never typed in.
-
-Read it with the caveats attached:
-
-- **mnimi is significantly above the floor** (vs `no_memory`: b=33, c=2,
-  Holm-corrected p≈0) and **below the evidence-availability bound**
-  (vs `oracle`: b=3, c=18, p_holm=0.003).
-- **mnimi vs naive_rag — the pre-specified primary — went against mnimi**
-  (b=0, c=6, p=0.031): all six discordant questions are ones the v1 dedup screen
-  changed the retrieved set on. Six is the smallest discordance at which p<0.05
-  exists, and the pre-registration was written for an earlier reader build, so
-  this is a directionally uniform signal to investigate, not a confirmatory
-  result. v1's write side is a dedup screen and nothing else; the bet attaches
-  to the extraction era.
-- `full_history` truncates every question to the most recent ~27k tokens; it is
-  a truncation policy, not full history.
-- Absolute scores carry judge instrument error (gpt-4o at temperature 0 flipped
-  9 of 140 re-gradings on one borderline row) on top of sampling error. No
-  per-category cell is quoted: at n=100 they hold 16–17 questions each.
-- **The reader build is part of the number.** The same pins on Ollama 0.32.5
-  scored 5 / 12 / 43 / 41 / 43 with byte-identical prompts — every point of
-  movement was the reader binary. The build is now a harness pin (below).
-
-### The gpt-4o-era number — four arms + the cited `full_history` row, n=100, one sitting
-
-The same harness, the same 100 questions, the paper's reader and judge
-snapshot (`gpt-4o-2024-08-06`, 128K window, temperature 0, `seed=0`). Decided
-2026-09-11; pre-registered before the first row; run 2026-09-12.
-
-| System         | Score         | 95% CI (Wilson) | mean fed tokens | truncated |
-| -------------- | ------------: | --------------: | --------------: | --------: |
-| no_memory      |  5/100 (5%)   |     [2.2, 11.2] |             135 |     0/100 |
-| full_history   | *cited* 64.0% (paper Fig. 3b, GPT-4o + Chain-of-Note, ~500 q) | — | — | — |
-| oracle         | 90/100 (90%)  |    [82.6, 94.5] |           4,992 |     0/100 |
-| naive_rag      | 80/100 (80%)  |    [71.1, 86.7] |           4,538 |     0/100 |
-| **mnimi**      | 75/100 (75%)  |    [65.7, 82.5] |           4,537 |     0/100 |
-
-**Provenance:** sitting of 2026-09-12 · reader transport **openai**, snapshot
-`gpt-4o-2024-08-06` served through the Batch API in 7–8 sub-batches per arm ·
-harness commit `dd73736` (clean tree, v1.6.2) · prompt `mnimi-con-v1`, text
-renderer (chosen by the pre-registered presentation pair: JSON scored lower on
-both oracle, 88, and mnimi, 71) · judge `gpt-4o-2024-08-06` · stratified
-100-question slice, seed 0, the same ids as the local sitting ·
-`provisional: []` on every directory · $5.04 of API spend for the whole
-sitting. Artifacts, the full provenance table, the paired tests and the pair
-and drift evidence live in [`results/published/`](results/published/).
-
-Read it with the caveats attached:
-
-- **mnimi vs naive_rag — the pre-registered primary — is a null, as
-  pre-registered** (b=1, c=6, p=0.125), and it leans the same way as the local
-  family (there 0 / 6): the v1 dedup screen costs rows it never earns back.
-  That is the input to the next phase's R3, not a capability claim.
-- **mnimi is significantly above the floor** (vs `no_memory`: b=71, c=1) and
-  **significantly below the evidence-availability bound** (vs `oracle`: b=2,
-  c=17, p_holm=0.0007). Oracle at 90 sits inside the paper's 92.4.
-- **This family is reproducible within measured drift, not byte-identical.**
-  A second mnimi predict run an hour later, same pins: 85/100 answers rewritten
-  at the byte level, prompt tokens identical, score 75 → 75, 3 rows flipped
-  each way. The statement is "score within 6/100 flips"; the text is not
-  reproducible. (`python -m evals.drift` on the two published directories.)
-- **`full_history` is cited, not run**: at 128K it costs ~$15 per n=100 sitting
-  for a row the paper reports on this exact reader, so the harness refuses the
-  arm on this transport and the table carries the paper's number, marked.
-- Absolute scores carry judge instrument error on top of sampling error; no
-  per-category cell is quoted.
-
-**Phase 1 (2026-09-12/13, same family, same 100 questions).** Each retrieval
-knob was probed for recall first (`evals/probes/`, no API), then measured as
-a pre-registered pair of mnimi arms at one commit:
-
-| knob | baseline | variant | b / c | verdict |
-| --- | ---: | ---: | :---: | --- |
-| dedup scope, store → session (R3) | 77 | 79 | 5 / 3 | adopted: 4 dropped evidence rounds recovered |
-| BGE query instruction (R5) | 79 | 81 | 5 / 3 | adopted; naive_rag under it: 82 |
-| chunk long rounds (R4) | — | — | — | rejected at the probe (ANY@10 91 → 89) |
-| `top_k` 10 → 20 (R6) | 82 | 81 | 6 / 7 | k=10 stays; twice the tokens for nothing |
-
-Under the adopted configuration **mnimi reads 81 and 82 in two sittings and
-naive_rag 82; the primary is b=2, c=3** — the v1 write side no longer costs
-anything measurable against verbatim storage, which is all it can claim
-before extraction. Of the 18 remaining misses, 14 are reading misses with
-the evidence inside the top-10 (oracle also fails 6 of them); that is where
-Phase 2 starts. Nothing here is significant at n=100 and nothing is claimed
-to be. Artifacts, provenance and drift readings in
-[`results/published/`](results/published/); the rulings in `docs/DECISIONS.md`.
-
-**Phase 2 — extraction (2026-09-13 → 15, same family, same 100 questions).**
-A local, pinned extractor (Qwen3-1.7B Q8_0 through llama-cpp-python on the
-GPU, grammar-constrained, byte-stable) turns each round into fact records
-stored beside the round; the reader sees a retrieved round under a `facts:`
-header. Pre-registered gates, in order: the corpus pass's retrieval probe
-(ANY@10 93/95 vs 91, ALL@10 83/95 vs 77, no API), the n=20 dev prefix
-(18/20 = the k10 arm's), then one four-arm sitting at one clean commit:
-
-| arm | score | b / c vs baseline | mean fed tokens | verdict |
-| --- | ---: | :---: | ---: | --- |
-| baseline (no extractor, `turns`) | 80 | — | 4,515 | drift vs k10: 97/100 texts changed, 0/100 prompt tokens, 82 → 80 |
-| **extraction, `round+facts`** | **84** | 7 / 3 | 5,298 | **adopted** (library and harness default since v1.9.0) |
-| extraction, `facts` only | 78 | 2 / 8 (vs `round+facts`) | 1,701 | rejected: drops the turns single-session rows need |
-| naive_rag | 79 | 7 / 2 (primary, vs `round+facts`) | 4,534 | mnimi ahead for the first time; p=0.18, not significant |
-
-The pass took 27 h once (cached for every later run); Phase 2 spent $2.98.
-Nothing here is significant at n=100 and nothing is claimed to be; the
-extraction era's primary is settled at n=500 (Phase 5). Artifacts and the
-full provenance in [`results/published/`](results/published/); the rulings
-in `docs/DECISIONS.md` ("Gate 4-i read", "Gate 4-ii read", "Gate 4-iii
-read").
-
-**Phase 3 — conflict and the deterministic screens (2026-09-15 → 16, no API, $0).**
-The write side gained SPEC's dedup steps 3–5 and write-path step 4 with no
-LLM: a frozen, hashed negation lexicon, a value-substitution screen over
-normalized triples, a token-entropy gate, and supersession — a fact that
-conflicts with an earlier one under one of three rules (negation, a
-functional predicate such as residence or employer, a changed number on the
-same residue) leaves exactly one active fact, the loser at salience 0 with
-the winner pointing at it. LongMemEval's history is built non-conflicting,
-so the slice can only guard, not falsify: the retrieval probe read ANY@10
-93/95 and ALL@10 83/95 unchanged, 0 evidence rounds lost, 326 fact pairs
-kept apart that the old screen had merged, evidence ranks identical on
-99/100 questions, and 46 facts superseded across the 100 stores. The
-falsification is a seeded, CI-run demo set of 100 authored pairs
-(`evals/probes/conflict_demo.py`, `python -m evals.probes.conflict_demo
---seed 0`; the exit code is the gate):
-
-| family | pairs | mnimi (screens + supersede) | exact-dedup (the v1.9 write path) | pre-registered |
-| --- | ---: | ---: | ---: | --- |
-| value change (functional 15, count 15) | 30 | **30** | 0 | ≥ 27 |
-| negation (marker 15, antonym 15) | 30 | **30** | 0 | ≥ 27 |
-| dated update (in order 10, reversed 10) | 20 | **20** | 0 | ≥ 18 |
-| controls: paraphrase 10 + unrelated 10 (must not conflict) | 20 | **20** | 20 | 20 |
-
-Identical after `add()` and after `consolidate()`; identical under the real
-BGE embedder. The same rounds through the real 1.7B extractor instead of the
-authored facts (descriptive, never the gate): 42 of 80 pairs came out keyed
-on the authored pair and all 42 resolved correctly, 0 controls were touched,
-and the rest are rounds the model returned `[]` on. **No benchmark score
-moved and none is claimed**: the read path does not read `salience` until
-Phase 4, so a superseded fact still renders. Rulings in `docs/DECISIONS.md`
-("Phase 3 pre-registration" through "Phase 3 closes").
-
-**Phase 4 — decay, ranking and the read side (2026-09-17 → 18, gpt-4o family, same 100 questions).**
-The read path gained SPEC's ranking — `score = (w_sim·relevance + w_rec·recency)·salience` over an
-exact top-k of rounds — the salience-0 exclusion (a superseded fact neither ranks nor renders),
-`recall_min_relevance`, the `last_accessed` write-back, and decay with its half-life and floor
-inside `consolidate()`. Two $0 probe gates ran first: identity under the landing defaults
-(100/100 rows unchanged) and the exclusion priced on the slice (ANY@10 93/95, ALL@10 83/95, 0
-evidence rounds out of the top-10). Then one three-arm sitting at one clean commit:
-
-| arm | score | b / c vs the previous arm | mean fed tokens | verdict |
-| --- | ---: | :---: | ---: | --- |
-| A the v1.10 read path | 86 | — | 5,301 | drift vs the Phase 2 arm: 91/100 texts changed, 9/100 prompt tokens, 84 → 86 |
-| **B SPEC's read path** (`active_only`, `ranking=score`) | **87** | 2 / 1 | 5,302 | **adopted** (library defaults since v1.11.0) |
-| C B plus decay (`consolidate on`) | 81 | 2 / 8 | 5,307 | **not adopted**: decay costs 6 points (X = −6), outside the family's drift band |
-
-SPEC's decay-on/off ablation is the B → C row, and it is a negative result reported as one: decay
-multiplies down exactly the old evidence rounds LongMemEval asks about (the retrieval probe read
-ANY@10 93 → 89 and ALL@10 83 → 75 before the arms ran, and four of the eight rows the reader lost
-are rounds whose evidence left the top-10 there). Decay ships built, tested and off — one flag
-away — and the phase spent $2.56. Nothing here is significant at n=100 and nothing is claimed to
-be; the primary against `naive_rag` is settled at n=500 (Phase 5). Rulings in `docs/DECISIONS.md`
-("Phase 4 pre-registration" through "Phase 4 closes").
-
-**Phase 5 — the verdict on the full benchmark (2026-09-21 → 22, gpt-4o family, all 500 questions).**
-The five arms at one clean commit (`f07c24d`), one day, $17.55, `provisional: []` on all five.
-The n=100 slices nest inside this one, so these are the first full-benchmark numbers, not
-replications of earlier ones.
-
-| arm | score | Wilson 95 % | role |
-| --- | ---: | :---: | --- |
-| `no_memory` | 6.2 % | [4.4, 8.7] | the floor |
-| `full_history` | *64.0 %* | — | cited from the paper (Fig 3b); refused by the harness |
-| `naive_rag` | 74.6 % | [70.6, 78.2] | the strong K=V baseline, identical ingestion |
-| **`mnimi`** | **84.4 %** | **[81.0, 87.3]** | the adopted configuration (v1.11 read path, extraction on, decay off) |
-| `mnimi --consolidate on` | 78.2 % | [74.4, 81.6] | SPEC's decay-on/off ablation: X = −6.2, p = 2 × 10⁻⁴ |
-| `oracle` | 91.8 % | [89.1, 93.9] | the evidence-availability bound |
-
-**mnimi beats the strong K=V baseline by 9.8 points, significantly** — paired exact McNemar
-b=75, c=26, **p = 1.1 × 10⁻⁶** — for the first time in the programme, and where memory has
-to be more than retrieval: temporal-reasoning +25, multi-session +12; the single-session
-cells are saturated for both. The programme's pre-registered 85 criterion (a Wilson lower
-bound ≥ 85.0, i.e. 441/500) is **not met**: 422 read, lower bound 81.0. Of mnimi's 78 misses,
-24 are questions oracle also fails and 54 are questions oracle answers — 27 of those
-multi-session, where the retriever shows the reader part of a multi-hop question's evidence
-(ALL@10 77.7 %). Rulings in `docs/DECISIONS.md` ("Phase 5 pre-registration" through "Phase 5
-closes"); every number is auditable with `python -m evals --stage judge --predictions <file>`
-over `results/published/*__500q_gpt4o*`.
-
-**Phase 6 — the reachable 54 (2026-09-22 → 24, gpt-4o family, all 500 questions).** Three
-levers at the 54 questions oracle answers and the published arm does not, each pre-registered
-before any probe ran, each measured at a $0 retrieval probe first and then, if it passed, as one
-n=500 arm paired against the *published* `mnimi__500q_gpt4o` (422) and adopted iff b ≥ c. The
-three arms cost $12.23; `provisional: []` and a complete manifest on every one.
-
-| lever | probe (gate) | arm | score | b / c vs the published 422 | verdict |
-| --- | --- | --- | ---: | :---: | --- |
-| L1 the time-aware term (`time_weight=0.05`, the question date as a stripped query prefix, resolver v2) | 6-i PASS: identity 448/448 on the unparsed rows, 4 of 29 addressable rows completed | `mnimi__500q_gpt4o_p6time` | **429 (85.8 %)** | 15 / 8 | adopted; **the shipped configuration** (the maintainer's choice, 2026-09-25) |
-| L2 the cross-encoder rerank over the top-50 (`ranking=rerank`, MiniLM-L-6-v2) | 6-ii **FAIL**: ANY@10 455, ALL@10 414 vs 459 / 430; 29 rows lose evidence | — | — | — | built, off |
-| L3 `render_unit=turns` with the extractor on (facts retrieved, not rendered) | 6-iii PASS (retrieval identical by construction) | `mnimi__500q_gpt4o_p6turns` | 424 (84.8 %) | 22 / 20 | adopted by the rule; not the shipped default |
-| L1 + L3 — the phase's pre-registered headline | — | `mnimi__500q_gpt4o_p6combo` | 426 (85.2 %), Wilson [81.8, 88.0] | 18 / 14, p = 0.60 | adopted by the rule; **the 85 criterion NOT met** on it, nor on L1 alone (lower bound 82.5) |
-
-Each arm is "the n=500 reading of configuration X, b=… c=… against the published 422" — none
-significant, all inside the family's ± 6/100 flip band, and the n=100 slices nest so none is a
-replication. The time term's own retrieval effect is separable (5 wins / 2 losses on the rows it
-reordered); the header's is too (10 of the 11 rows the analysis blamed on the `facts:` header are
-right without it, and eight temporal-reasoning rows are lost with it gone: multi-session +6,
-temporal-reasoning −2 on the headline). Of the 54, 26 are right in some arm, 7 in all, **28 in
-none** — 18 of them multi-evidence questions whose second round sits outside the top-10, the
-residue this phase's levers do not reach; the headroom after the phase is 74 wrong with oracle
-right on 49. Reader and judge are one `gpt-4o-2024-08-06` snapshot (the paper's own pairing),
-disclosed: a same-model leniency cancels in every paired row and shifts absolute scores by an
-unsigned amount. Rulings in `docs/DECISIONS.md` ("Phase 6 pre-registration" through "Phase 6
-closes", "The shipped default is L1 alone"). The library defaults since v2.13.0 are L1's: `time_weight=0.05`
-over `round+facts`; `turns` is one flag away.
-
-**Phases 7–8 — the paper's harness (2026-09-25 → 10-06; gpt-4o family, all 500 questions; no library
-change).** The library is frozen at v2.14.0's bytes (a pinned digest, `tests/test_paper_freeze.py`), and the tag
-`paper-v1` is what the paper cites. These two phases measured the instrument around the n=500 numbers and ran two
-third-party systems through the same harness. The paper system is the shipped configuration,
-`mnimi__500q_gpt4o_p6time` (429/500).
-
-| measurement | reading | what it can claim |
+| extra | what it adds | download |
 | --- | --- | --- |
-| Tier 1: eight cold audits from a fresh clone | 17 of 4,000 arm-rows changed verdict (0.43 %); every score recovered within 3 rows | "auditable" |
-| Tier 2: a second run of the shipped configuration | 277/500 texts changed, prompt tokens changed on 0/500, 429 both times, b=6, c=6 | "score reproducible within 12/500 flips; text not reproducible" |
-| a second judge, `gpt-4.1-2025-04-14`, over every n=500 arm | all seven pairs of record keep the sign of b − c; the primary reads 75 / 28, p = 4.0 × 10⁻⁶ | "holds under a second judge"; the primary "significant under both judges" |
-| the two judges against each other | 3,925 of 4,000 rows agree (98.1 %), Cohen's κ 0.952 | the size of the judge-choice term |
-| 60 blind human labels: 50 rows where the judges disagree, 10 controls | the human sides with gpt-4o on 32 of the 50 (Wilson [50.1, 75.9] %) and with gpt-4.1 on 18; controls 10/10 | which judge a human sides with on contested rows — one labeller, 60 rows over 43 distinct questions |
-| judge test-retest: three cache-off re-grades of four arms | 13 of 2,000 rows are judge-unstable (0.65 %); no score moves by more than 3 rows | the judge's own noise, removed before the accounting |
-| the accounting: the paper system against the oracle on the 492 judge-stable rows | 44 of its 69 misses are retrieval-bound (the oracle answers them with the same reader), 25 are shared; multi-session holds 25 of the 44 | where the misses come from |
+| *(none)* | `Memory` over `sqlite-vec` + `numpy`; `HashingEmbedder` (numpy-only placeholder, for tests) | — |
+| `embed` | `BgeSmallEmbedder`: `BAAI/bge-small-en-v1.5` through ONNX Runtime, revision-pinned | ≈ 130 MB model, 13.8 MB onnxruntime wheel |
+| `extract` | `QwenLlamaExtractor`: `Qwen/Qwen3-1.7B-GGUF` Q8_0 through llama-cpp-python 0.3.35, revision-pinned | 1.8 GB model, 7.1 MB CPU wheel |
 
-| third-party system, through this harness | score | b / c against the paper system | b / c against `naive_rag` |
-| --- | ---: | :---: | :---: |
-| Mem0 OSS 2.2.1 (its write LLM: gpt-4o-mini) | 336 (67.2 %), Wilson [63.0, 71.2] | 28 / 121, p = 5.6 × 10⁻¹⁵ | 67 / 104, p = 0.0057 |
-| OMEGA 1.5.17's retrieval over `naive_rag`'s rounds | 365 (73.0 %), Wilson [68.9, 76.7] | 19 / 83, p = 1.0 × 10⁻¹⁰ | 45 / 53, p = 0.48 |
+`[extract]` pins `llama-cpp-python==0.3.35`, which PyPI ships only as a source distribution; the
+project's own index carries prebuilt CPU wheels (Windows x64, manylinux x86_64 / aarch64, macOS
+arm64), so install that first and nothing compiles. A CUDA build of the same version is the GPU
+path (`docs/DECISIONS.md` "Extractor runtime"). Both are the same pinned model under the same
+grammar and prompt; the CPU profile differs in one decode key and is measured at 21.0 s per round
+on an 8-core laptop CPU against 2.7–3.4 s on the development GPU
+([`examples/README.md`](examples/README.md)).
 
-b is the third-party arm's wins. Every system gets the same reader, prompt, judge, 500 questions and a 5,364-token
-context budget. For scale, the paper system against `naive_rag` on the same rows reads b=77, c=21 (p = 1.1 × 10⁻⁸;
-76 / 27 under the second judge), and per category only temporal-reasoning (32 / 5) survives Holm's correction. These are paired readings through this harness under these pins: not replications of either system's
-published numbers, and not a ranking. Mem0's open-source build grounds relative dates on the machine date (disclosed,
-not patched); the OMEGA arm replaces OMEGA's write path with `naive_rag`'s units; a third system, agentmemory v4, is
-deferred (20–28 minutes of ingest per history on this machine). The disclosures are in
-[`results/published/README.md`](results/published/README.md) § Phase 8 and the rulings in `docs/DECISIONS.md`
-("Phase 7 pre-registration" through "Phase 8 closes"). Every table the paper prints is exported by
-`python -m evals.paper_tables` into [`results/paper/`](results/paper/).
+## 60-second quickstart
 
-Two n=20 smoke artifacts from 2026-07-28 (`no_memory__20q`,
-`full_history__20q`, reader prompt `plain-prose-v2`, dirty tree) remain in
-`results/published/` because a published artifact is immutable. They are marked
-provisional by the harness and are quoted nowhere.
+A message is `{"role": "user" | "assistant", "content": str, "ts": "<ISO timestamp>"}`. `ts` is
+the session's timestamp and the only clock the library knows: dedup scope, conflict ordering,
+decay and the time-aware term all run on the `ts` values the store has seen, never on the wall
+clock, so a store built today and replayed next year scores identically. A message without `ts`
+is refused.
 
-## Running the harness
+```python
+from mnimi import Memory
+from mnimi.embeddings import BgeSmallEmbedder
+from mnimi.extract.cache import CachedExtractor
+from mnimi.extract.llama import DECODE, QwenLlamaExtractor
 
-The harness is the source of truth for every claim in this repo. Two reader
-families: the local one runs the reader through Ollama and only the judge
-touches an API; the gpt-4o one reads and judges over the OpenAI API.
-
-```bash
-pip install -e ".[eval]"
-# or the exact eval stack every recorded run used, from the lockfile (uv.lock;
-# its sha256 is every manifest's environment.lockfile_hash):
-#   uv sync --locked --extra eval
-ollama pull qwen2.5:1.5b-instruct-q4_0     # the pinned reader
-echo 'OPENAI_API_KEY=sk-...' >> .env       # judge only (gpt-4o-2024-08-06)
-
-# Three daemon-level pins, none of which can be sent per request:
-#   - the Ollama build itself must be 0.32.13 — preflight reads GET /api/version
-#     and refuses any other build BEFORE loading a model (a build change moved
-#     20/20 predictions on identical prompts). Run the release zip from a
-#     version-named folder, not the desktop installer: the desktop app's updater
-#     replaces the build on its own schedule and cannot be switched off;
-#   - OLLAMA_FLASH_ATTENTION=1 and LLAMA_ARG_CACHE_RAM=0, resolved at daemon
-#     start; nothing else may be serving on 11434.
-# The daemon logs to stderr; preflight reads the file OLLAMA_SERVE_LOG names.
-# A run under the wrong daemon is a different configuration wearing this one's
-# pins_hash, so preflight refuses to run.
-export OLLAMA_SERVE_LOG="$PWD/serve.log"
-OLLAMA_FLASH_ATTENTION=1 LLAMA_ARG_CACHE_RAM=0 /path/to/ollama-0.32.13/ollama.exe serve >> "$OLLAMA_SERVE_LOG" 2>&1 &
-
-python -m evals --system mnimi --limit 100          # predict + judge, local family
-python -m evals --system no_memory --limit 500      # the full set
-
-# The gpt-4o family: the same harness with an API reader, through the Batch
-# API at half price, as a sequence of sub-batches under the organization's
-# enqueued-token cap (90k at this key's tier; a whole n=100 arm would fail
-# validation). Resumable — re-running the same command in the same
-# --run-dir polls the submitted batch instead of paying again. Every run
-# projects its cost before the first call and refuses above the budget;
-# `python -m evals.pricing` shows the spend ledger.
-python -m evals --system mnimi --limit 100 --reader-transport openai --batch
+extractor = CachedExtractor(QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0}), "extract-cache.sqlite")
+mem = Memory("agent.db", BgeSmallEmbedder(), extractor=extractor)
+mem.add([{"role": "user", "content": "I moved to Boston last month. My dentist is Dr. Lee.", "ts": "2026-10-01T00:00:00"},
+         {"role": "assistant", "content": "Noted: you live in Boston and Dr. Lee is your dentist.", "ts": "2026-10-01T00:00:00"}], "u1")
+mem.add([{"role": "user", "content": "I live in Cambridge now.", "ts": "2026-10-08T00:00:00"},
+         {"role": "assistant", "content": "Updated: you live in Cambridge.", "ts": "2026-10-08T00:00:00"}], "u1")
+print(mem.get_context("where do I live?", "u1"))
+print(mem.export("u1"))
 ```
 
-`--limit` defaults to 10 (a cheap smoke run) and selects questions
-**stratified** across categories, because the dataset is clustered by category
-and a file-order slice comes back single-category — not comparable across
-systems. Pass a limit at or above the dataset size to run everything. n=20 is a
-smoke test only: categories sit at 3–4 questions and one question is 5 points.
+`decode={**DECODE, "n_gpu_layers": 0}` is the CPU profile; drop the keyword on a CUDA build. The
+first run downloads both models by pinned revision and takes about a minute on a laptop CPU; the
+cache file beside the DB makes every later `add()` of the same round free. Run as pasted, it
+prints:
 
-The two stages split, so neither half needs the other's dependency:
+```
+[Session date: 2026-10-01T00:00:00]
+facts:
+- The user's dentist is Dr. Lee.
+user: I moved to Boston last month. My dentist is Dr. Lee.
+assistant: Noted: you live in Boston and Dr. Lee is your dentist.
+[Session date: 2026-10-08T00:00:00]
+facts:
+- The user lives in Cambridge now.
+user: I live in Cambridge now.
+assistant: Updated: you live in Cambridge.
+# memory export
+user_id: u1
+now_logical: 2026-10-08T00:00:00
+records: 5 (rounds 2, facts 3)
 
-```bash
-python -m evals --system no_memory --limit 100 --stage predict   # Ollama, no API key
-python -m evals --system no_memory --limit 100 --stage judge     # API key, no GPU
-python -m evals.stats runs/mnimi__100q runs/naive_rag__100q      # paired McNemar + Holm
-python -m evals.drift runs/mnimi__100q runs/mnimi__100q_again    # N/n changed, one configuration
+[Session date: 2026-10-01T00:00:00]
+user: I moved to Boston last month. My dentist is Dr. Lee.
+assistant: Noted: you live in Boston and Dr. Lee is your dentist.
+  fact: The user moved to Boston last month.  salience 0.0000  (initial 1.0000)  superseded  valid_time 2026-09  pair user|lives in
+  fact: The user's dentist is Dr. Lee.  salience 1.0000  pair user|dentist
+
+[Session date: 2026-10-08T00:00:00]
+user: I live in Cambridge now.
+assistant: Updated: you live in Cambridge.
+  fact: The user lives in Cambridge now.  salience 1.0000  pair user|lives in  supersedes 2
 ```
 
-Each run writes `pins.json`, `predictions.jsonl`, and `results.json` under
-`runs/<system>__<N>q/`. The pins header records the dataset sha256, reader model
-digest, the Ollama build, every decode pin, and both prompt hashes, so a run is
-self-identifying; `results.json` additionally records what the daemon actually
-resolved. `runs/` is gitignored scratch; a run whose number gets quoted is
-copied to [`results/published/`](results/published/) and committed.
+The first fact of the first session is gone from the context: `I live in Cambridge now.` superseded
+`moved to Boston` on the key `user|lives in` (a functional predicate, two values, the later session
+wins), and a superseded fact neither ranks nor renders. The export below still shows it, marked.
 
-## Reproducibility
+## What it does
 
-Since 2026-09-22 every run also carries `manifest.json` (its purpose, claim, commit, tree
-state, configuration, reader, judge, dataset digest, environment, cost and timings), a row in
-the append-only registry `runs/INDEX.md`, per-row retrieved ids and judge verdicts in
-`predictions.jsonl`, and `summary.json`; paired comparisons are saved under `analyses/` from
-per-question rows. `python -m evals.publish` is the only path into `results/published/` and
-refuses a dirty tree or an incomplete manifest. The five gpt-4o n=500 runs were backfilled
-(`python -m evals.backfill`), with `UNKNOWN` where the artifacts record nothing.
+The write path, `add(messages, user_id)`, per round of one user and one assistant turn:
 
-Two claims at two strengths, plus one queued. They are published separately
-because conflating them overstates what the artifacts prove.
+1. **Store the round** verbatim as one record (its embedded text is frozen; its turns are kept for
+   rendering), after an exact-match and one cosine dedup probe against the session.
+2. **Extract** facts with the pinned local model, under a grammar, through an on-disk cache; six
+   deterministic pre-filter rules skip rounds with nothing to extract. Relative dates in a fact
+   ("next Thursday") resolve against the message's `ts`, never by the model.
+3. **Screen** each fact against the facts already stored: an exact collapse, a frozen negation
+   lexicon, a value-substitution check over normalized triples, a token-entropy gate, then one
+   cosine probe. The screens only ever keep a pair apart; they never drop what verbatim storage
+   would have kept.
+4. **Supersede**: two facts on one subject-predicate key conflict only under a rule (opposite
+   polarity, a functional predicate with two values, a changed number). The later effective time
+   wins; the loser's salience goes to 0 and the winner points at it. Logged at INFO as
+   `superseded …`.
 
-### Tier 1 — auditable. Verify any published number yourself:
+The read path, `recall` / `get_context(query, user_id)`:
 
-```bash
-python -m evals --stage judge \
-    --predictions results/published/mnimi__100q/predictions.jsonl
-```
+1. **Embed the bare question** (a `[Current date: <ts>]` prefix, if you pass one, is parsed for
+   the question's own time window and stripped before embedding).
+2. **Select the top-k rounds by score** over an exact candidate pool:
+   `score = (w_sim · relevance + w_rec · recency) · salience + w_time · time_match`. Superseded
+   facts (salience 0) neither rank nor render.
+3. **Render** the selected rounds oldest-first through the one renderer: a `[Session date: …]`
+   header per session, `user:` / `assistant:` lines, the round's facts under a `facts:` header.
 
-Seconds to run. **No GPU, no Ollama, no model weights, no dataset download, and
-no `--system`** — every prediction row carries its question and gold answer
-inline, so the judge needs nothing else. Costs cents in API calls, and nothing
-where the verdict cache hits. Read-only: it cannot modify what it audits. It
-recomputes the score, compares it to the committed `results.json`, and prints
-`MATCHES` or `DIVERGES`.
-
-This proves the **scoring** step — judge transport, the five per-type prompt
-templates, abstention dispatch, aggregation. It does **not** prove the
-predictions came from the pipeline the pins claim. Tier 1 is *auditable*, never
-*reproducible*.
-
-### Tier 2 — reproducible given the pins and the daemon precondition
-
-`--stage predict` regenerates the predictions given the request pins
-(`num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`,
-temperature 0, `num_ctx=32768`) **and** the daemon-level pins — the Ollama build
-(`0.32.13`), `OLLAMA_FLASH_ATTENTION=1`, `LLAMA_ARG_CACHE_RAM=0` — which are
-resolved at daemon start and asserted at preflight before any model load.
-
-Measured error bar on the published build (2026-09-10, Ollama 0.32.13): a
-fresh `--stage predict` of the mnimi arm at n=100 replayed **100/100
-predictions byte-identical** to the published artifact, prompt tokens identical
-on every row, across a daemon restart, a reinstall of the server binary from
-the release zip, 25 days, three harness commits and the pins schema bump. The
-evidence is committed beside the published set as
-`results/published/mnimi__100q_restart_2026-09-10/`, and anyone can diff the
-two `predictions.jsonl` files — or run `python -m evals.drift` on the two
-directories, which prints the same 0/100 (a test does exactly that).
-
-Across builds the reader binary is the whole error bar: the 0.32.5 → 0.32.13
-change, with pins, prompts and fed-token counts byte-identical on every row,
-changed **20/20 predictions** on every arm and moved the headline by up to 8
-points. That is why the build is a pin and any other build is refused. Earlier
-restart figures were measured under a retired prompt or a retired build and
-are not cited. The bisection that found the request-level and daemon-level
-pins, including the two wrong conclusions along the way, is in
-[docs/SPEC.md](docs/SPEC.md) and [docs/DECISIONS.md](docs/DECISIONS.md),
-because the self-corrections are the evidence.
-
-Bit-identity across different GPUs, drivers or CUDA versions is **not**
-claimed: each can change kernel selection and therefore float reduction order.
-Deviating from a request pin self-marks the artifact provisional; deviating
-from a daemon pin, the build included, is refused outright.
-
-### Reproducing the paper (`paper-v1`)
-
-The paper cites the tag `paper-v1`. Its `src/mnimi/` is v2.14.0's, byte for byte (`git diff --quiet v2.14.0 paper-v1
--- src/mnimi`). Each published arm names the commit it ran at (`results/paper/tables.md`, T8) and is reproduced
-there, not at the tag. For the gpt-4o family the two tiers read: Tier 1 **auditable**; Tier 2 **score reproducible
-within 12/500 flips (b=6, c=6); text not reproducible (277/500 changed)**, measured on the shipped configuration.
-
-```bash
-# The tables: no GPU, no key, no dataset. Rewrites results/paper/ from results/published/ and analyses/.
-python -m evals.paper_tables
-
-# Tier 1: audit one arm from its committed predictions. --audit-out turns the verdict cache off,
-# so every row is a fresh judge call ($0.3–0.45 an arm); the record says MATCHES, WITHIN RE-GRADE or DIVERGES.
-python -m evals --stage judge \
-    --predictions results/published/mnimi__500q_gpt4o_p6time/predictions.jsonl \
-    --audit-out /tmp/mnimi__500q_gpt4o_p6time__tier1.json
-
-# The pairs of record under the pre-registered judge and under the second judge, and the primary per category.
-python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o --no-save
-python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o \
-    --judge gpt-4.1-2025-04-14 --no-save
-python -m evals.stats results/published/naive_rag__500q_gpt4o results/published/mnimi__500q_gpt4o_p6time \
-    --by-category --family F2 --out /tmp/f2
-
-# Judge test-retest and the accounting, from the committed replay files (an existing output is never overwritten).
-P=results/published
-python -m evals.accounting retest $P/no_memory__500q_gpt4o $P/naive_rag__500q_gpt4o \
-    $P/mnimi__500q_gpt4o_p6time $P/oracle__500q_gpt4o --judge gpt-4o-2024-08-06 --out /tmp/retest
-python -m evals.accounting buckets --system $P/mnimi__500q_gpt4o_p6time --oracle $P/oracle__500q_gpt4o \
-    --retest /tmp/retest/retest.json --out /tmp/retest
-
-# Tier 2: a second predict of the shipped configuration, then the drift report against the published arm.
-# A run of record (--limit >= 100) names a committed argument list and refuses a dirty tree or a library that
-# differs from the freeze; flags after --config override the file. About $4.1 of API.
-python -m evals --config configs/<run_id>.json
-python -m evals --stage judge --run-dir runs/<run_id> --purpose "..." --claim none
-python -m evals.drift results/published/mnimi__500q_gpt4o_p6time runs/<run_id>
-
-# The third-party arms, each from its own environment (results/published/README.md § Phase 8):
-python -m evals --config configs/mem0__500q_gpt4o.json     # Mem0 OSS 2.2.1; its write LLM bills your key, about $30
-python -m evals --config configs/omega__500q_gpt4o.json    # OMEGA 1.5.17's retrieval over naive_rag's rounds
-```
-
-The shipped configuration's flags are `--system mnimi --limit 500 --reader-transport openai --batch --extractor qwen3
---active-only on --ranking score --consolidate off --render-unit round+facts --time-weight 0.05`. Every mnimi store
-is built from the extraction cache, which replays the pinned extractor's output for every round of the
-benchmark with no model load (`misses: 0`): `e15153f838b8…sqlite`, 95,846 rows, 140,038,144 bytes, sha256
-`ce4a1ab33d661c2c1128974c5d4ea2f69bd238b49085691c600b07a82db4e39e`, attached to the `paper-v1` release on GitHub —
-put it under `.cache/extract/`. Without it the corpus pass is about 80 GPU-hours on the development machine.
-
-### Tier 3 — containerized reference environment
-
-Queued, not forced: the variables that would have made it mandatory (flash
-attention, the prompt cache, the server build) proved controllable in-process
-or checkable at preflight. Trigger conditions in [docs/FUTURE.md](docs/FUTURE.md).
-
-Competitor runs go through the same harness, the same reader, and the same judge,
-so their numbers are auditable on identical terms.
+`consolidate(user_id)` re-runs the conflict pass over every active pair and then the decay pass
+(`salience = max(floor, initial · 0.5^(days / half_life))` on logical days). Decay is built,
+tested and **off** in the shipped configuration: the pre-registered ablation on all 500 questions
+read it at −6.2 points (`mnimi__500q_gpt4o` 422 → `mnimi__500q_gpt4o_decay` 391, b=19, c=50,
+p = 2.4 × 10⁻⁴; T3), because it multiplies down exactly the old evidence the benchmark asks about.
+No benchmark arm calls `consolidate()` unless asked.
 
 ## API
 
 ```python
-from mnimi import Memory
-
-mem = Memory(db_path="agent.db", embedder=embedder)   # optional: config=MemoryConfig(...)
-mem.add(messages, user_id="u1")               # write path
-mem.recall(query, user_id="u1")               # raw retrieval -> list[ScoredRecord]
-mem.get_context(query, user_id="u1")          # assembled context -> str
-mem.consolidate(user_id="u1")                 # merge / resolve conflicts / decay
-mem.export(user_id="u1")                      # human-readable dump -> str
+from mnimi import Memory, MemoryConfig
+mem = Memory(db_path, embedder, config=MemoryConfig(), extractor=None)
 ```
 
-Each message is `{"role": "user"|"assistant", "content": str, "ts": "<ISO>"}`.
-`ts` is the session timestamp, and it is the only clock: decay, recency, and
-ordering all read logical time derived from the `ts` values the store has seen,
-never wall-clock. Same inputs, same numbers, on any day.
+| method | what it does | returns |
+| --- | --- | --- |
+| `add(messages, user_id)` | the write path above, one round at a time; `messages` is a list of `{role, content, ts}` dicts | `None` |
+| `recall(query, user_id)` | the top-`k` rounds by score, best first, with their component scores | `list[ScoredRecord]` (`.score`, `.relevance`, `.recency`, `.salience`, `.record`) |
+| `get_context(query, user_id)` | the recalled rounds rendered oldest-first as reader context | `str` |
+| `consolidate(user_id)` | the conflict pass, then the decay pass; idempotent | `None` |
+| `export(user_id)` | the whole store as readable text, superseded facts shown and marked; no model, no clock | `str` |
 
-Five methods. The surface stays thin on purpose; the depth lives behind `add`
-and `consolidate`. Core install pulls in only `sqlite-vec` and `numpy` — no
-server, no external services, one file on disk.
+Five methods; depth lives behind `add` and `consolidate`. `MemoryConfig` is a frozen dataclass of
+eighteen fields, every threshold the library reads; the ones a user touches:
 
-## Status
+| field | default | what it controls |
+| --- | --- | --- |
+| `top_k` | `10` | rounds returned by `recall` and rendered by `get_context` |
+| `dedup_cosine_threshold` | `0.95` | the one cosine probe that collapses a near-duplicate round or fact |
+| `dedup_scope` | `"session"` | whether the cosine probe looks at the session or the whole store |
+| `conflict_resolution` | `True` | the screens, the entropy gate and supersession; `False` is dedup only |
+| `time_weight` | `0.05` | the time-aware term, read only when a query carries a `[Current date: …]` prefix |
+| `decay_half_life_days` | `30.0` | the decay pass's half-life in logical days |
+| `decay_floor` | `0.15` | the salience a decayed record never falls below (it is down-ranked, never excluded) |
+| `render_unit` | `"round+facts"` | what a rendered round carries: `round+facts`, `turns` (no facts) or `facts` |
 
-Pre-alpha, v2.6.0 (the 2.x series: one minor bump per commit from 2026-09-22). The block above is the locked contract; what ships today
-is narrower. Built: per-round ingestion; the one LLM the library will ever
-call — a local, pinned extractor (`Memory(..., extractor=...)`, the `[extract]`
-extra) whose facts are stored beside each round; dedup as exact match, one
-cosine probe (`dedup_cosine_threshold=0.95`) and, for facts, the negation,
-value-substitution and entropy screens; conflict resolution and supersession
-over a frozen, hashed lexicon; **the read side — SPEC's ranking
-(`(w_sim·relevance + w_rec·recency)·salience` over an exact top-k of rounds),
-`recall()` returning `ScoredRecord`, the salience-0 exclusion, the
-`last_accessed` write-back — and decay with its half-life and floor inside
-`consolidate()`**; the one shared context renderer (two framings, three units,
-one pinned hash each); the `memory_meta` guard (seventeen rows, decay's rules
-among them) that refuses a store built under different pins; the real
-`BAAI/bge-small-en-v1.5` embedder behind the `[embed]` extra (the default
-import path is a numpy hashing placeholder); and the full five-arm eval
-harness. Decay is built, measured and **off by default**: the pre-registered
-ablation read it at −6 points on n=100, so the harness calls `consolidate()`
-only behind `--consolidate`. Not built: `export()`, the context token budget,
-`raw` in the rendered block. `docs/SPEC.md` § "v1 as built" is the exact list;
-the rest of SPEC describes the target.
+The other fields (`ranking`, `active_only`, `recall_min_relevance`, `salience_weights`,
+`rerank_pool`, `dedup_entropy_gate`, `query_instruction`, `chunk_tokens`, `chunk_overlap`,
+`render_format`) are documented in [`src/mnimi/config.py`](src/mnimi/config.py) and sit at the
+values the benchmark was run with.
 
-See [docs/SPEC.md](docs/SPEC.md) for the contract,
-[docs/DECISIONS.md](docs/DECISIONS.md) for locked decisions, and
-[docs/FUTURE.md](docs/FUTURE.md) for what is deliberately deferred.
+## CLI
+
+| command | description |
+| --- | --- |
+| `mnimi export <db> <user_id> [-o FILE] [--format md\|text]` | dump one user's store as Markdown (default) or as `export()`'s text; no model is loaded |
+| `mnimi-mcp` | the MCP server over one store, installed by the `mnimi-mcp` package (§ Use it from an agent) |
+
+## Read your memory
+
+```
+mnimi export agent.db u1 -o memory.md
+```
+
+One heading per session, each round as a quoted block, its facts as bullets, a superseded fact
+struck through with the id that replaced it. The quickstart's store exports as:
+
+```markdown
+# memory export
+
+- user_id: u1
+- now_logical: 2026-10-08T00:00:00
+- records: 5 (rounds 2, facts 3)
+
+## 2026-10-01T00:00:00
+
+> [Session date: 2026-10-01T00:00:00]
+> user: I moved to Boston last month. My dentist is Dr. Lee.
+> assistant: Noted: you live in Boston and Dr. Lee is your dentist.
+
+- ~~The user moved to Boston last month. (**2026-09**)~~ (superseded by #5)
+- The user's dentist is Dr. Lee.
+
+## 2026-10-08T00:00:00
+
+> [Session date: 2026-10-08T00:00:00]
+> user: I live in Cambridge now.
+> assistant: Updated: you live in Cambridge.
+
+- The user lives in Cambridge now. → supersedes #2
+```
+
+## Use it from an agent
+
+A chat loop with memory, one timestamp per launch (a day is a session), the library's INFO lines
+on, and `/recall`, `/facts`, `/export`, `/consolidate` commands:
+
+```
+python examples/chat.py                                   # Ollama, BGE, the CPU extractor
+python examples/chat.py --embedder hashing --extractor none   # nothing beyond mnimi and a chat backend
+```
+
+The MCP server (`integrations/mcp/`, the package `mnimi-mcp`) exposes `remember`, `recall`,
+`context`, `export` and `consolidate` as tools and `memory://export` as a resource over stdio. It
+stamps every stored message with the server's calendar day, so the clock stays in the application;
+one store, one user, from the environment:
+
+```
+pip install mnimi-mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/agent.db -- mnimi-mcp
+```
+
+`MNIMI_USER_ID` (default `me`), `MNIMI_EXTRACTOR` (`cpu` | `gpu` | `none`, default `cpu`) and
+`MNIMI_EMBEDDER` (`bge` | `hashing`, default `bge`) are the other settings;
+[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table.
+
+## How it compares
+
+A feature table, source-verified, no numbers (the numbers are in § The number and in
+[`results/published/README.md`](results/published/README.md) § Phase 8). Each cell names where it
+was read.
+
+| feature | mnimi | naive RAG (the harness's `naive_rag` arm) | Mem0 OSS 2.2.1 | OMEGA 1.5.x |
+| --- | --- | --- | --- | --- |
+| input | raw chat turns, both roles (`src/mnimi/memory.py`) | raw chat turns (`evals/systems/naive_rag.py`) | raw chat turns; the LLM condenses them to facts framed around the user (`mem0/memory/main.py:881`) | agent-curated typed records; "fact extraction" is regex over distilled content (`docs/SPEC.md` § Extraction, `bridge.py:652`) |
+| LLM at write | one pinned local 1.7B model, grammar-constrained, cached (`src/mnimi/extract/llama.py`) | none | yes: an API model decides ADD / UPDATE / DELETE / NONE per fact (`mem0/configs/prompts.py:205-320`; gpt-4o-mini in our run, `configs/mem0_competitor.json`) | none (`docs/SPEC.md` § Extraction) |
+| LLM at read | none (`CLAUDE.md`, `src/mnimi/ranking.py`) | none | none by default; an optional reranker (`mem0/memory/main.py:505-516`) | none; an optional ONNX cross-encoder reranker (`docs/SPEC.md` § Deferred, `reranker.py`) |
+| dedup | exact collapse + one cosine probe at 0.95, per round and per fact (`src/mnimi/memory.py`) | none | the write LLM's NONE / UPDATE decision (`prompts.py`) | exact `content_hash` at write, offline lexical Jaccard 0.6 compaction (`docs/SPEC.md` § Dedup, `schema.py:309`) |
+| contradictions | three deterministic rules over normalized triples; loser superseded, both kept (`src/mnimi/conflict/`) | none | the write LLM's UPDATE / DELETE decision (`prompts.py:246-290`) | a four-signal heuristic (`docs/SPEC.md` § Dedup, `contradictions.py`) |
+| decay | built, measured at −6.2 points on LongMemEval, off (`src/mnimi/decay.py`; T3) | none | platform-only; the OSS build raises on `decay=True` (`mem0/memory/main.py:467-470`) | on, wall-clock days since access, floors 0.15 / 0.35 (`docs/SPEC.md` § Logical time, `_base.py:226`) |
+| time | logical: the message `ts` is the only clock; relative dates resolved against it (`src/mnimi/decay.py`, `extract/resolver.py`) | session date as a rendered header | `created_at` from the wall clock, not read by search; the extraction prompt grounds relative dates on the machine date (`results/published/README.md` § Phase 8) | wall-clock `created_at` and access times (`results/published/README.md` § Phase 8) |
+| storage | one SQLite file with `sqlite-vec`; a `memory_meta` table that refuses a store built under other pins (`src/mnimi/store.py`) | the same file format | a vector store (Qdrant in our run) plus a SQLite history DB (`configs/mem0_competitor.json`) | SQLite with vector, FTS5 and RRF in-process (`docs/SPEC.md` § Deferred) |
+| export | `export()` and `mnimi export`: the whole store as text or Markdown (`src/mnimi/export.py`, `src/mnimi_cli/`) | — | `get_all()` returns the memories; no file export (`mem0/memory/main.py:1269`) | not read |
+
+OMEGA's cells are SPEC's source-verified notes of 2026-07-20 (v1.5.5); the harness ran 1.5.17.
+Both third-party systems were run through this harness under its pins, paired against the same
+rows: readings, never a rank, and not replications of their published numbers.
+
+## Architecture
+
+```
+your application                      (holds the clock: hands every message its ts)
+      │  add(messages, user_id)                 get_context(query, user_id)
+      ▼                                                 ▲
+┌───────────────────────────── mnimi.Memory ─────────────────────────────┐
+│  extract/   the pinned model + cache, prefilter, resolver (write only)  │
+│  conflict/  lexicon, normalize, screens, supersede (deterministic)      │
+│  ranking.py exact top-k by score · decay.py logical time, the pass     │
+│  memory.py  the one renderer: RENDER_TEMPLATE, round+facts             │
+└──────────────────────────────┬─────────────────────────────────────────┘
+                               ▼
+                 store.py ── one SQLite file (sqlite-vec, memory_meta)
+```
+
+## Storage and footprint
+
+- **The DB** is the path you pass; one file, WAL mode. `memory_meta` holds seventeen rows written
+  once at creation (embedder name, revision and dimension; the embed-template hashes; the chunk
+  pair; the five extractor pins or `"none"`; the frozen lexicon, conflict, prefilter, resolver and
+  decay hashes) and checked at every open. A mismatch raises `MemoryMetaError` before any query
+  runs, so two configurations can never share a store by accident.
+- **The extraction cache** is a second SQLite file keyed by the extractor's pins: one row per
+  round the model has seen, so a round is extracted once. `examples/chat.py` and `mnimi-mcp`
+  put it beside the DB; the harness keeps it under `.cache/extract/`. The LongMemEval cache,
+  attached to the `paper-v1` GitHub release, is 95,846 rows, 140,038,144 bytes, sha256
+  `ce4a1ab33d661c2c1128974c5d4ea2f69bd238b49085691c600b07a82db4e39e`.
+- **Sizes.** The quickstart's two rounds make a 3.2 MB store (384-dim float32
+  vectors, the round records and their facts); the models are 130 MB (BGE) and 1.8 GB (Qwen3
+  Q8_0) in the Hugging Face cache, downloaded once by revision.
+
+## Verify the number
+
+Every published row re-grades from its committed predictions, which carry the question and the
+gold answer inline. No GPU, no dataset, no model weights; an OpenAI key for the judge, cents per
+arm:
+
+```
+pip install -e ".[eval]"
+python -m evals --stage judge --predictions results/published/mnimi__500q_gpt4o_p6time/predictions.jsonl
+```
+
+It recomputes the score and prints `MATCHES`, `WITHIN RE-GRADE` or `DIVERGES` against the
+committed result. This is **Tier 1, auditable**: it proves the scoring, not that the predictions
+came from the pipeline the pins claim. **Tier 2** is a fresh run of the shipped configuration
+(`python -m evals --config configs/<run_id>.json`, about $4 of API): on the gpt-4o family it is
+"score reproducible within 12/500 flips; text not reproducible" — measured 277/500 answer texts
+changed, prompt tokens changed on 0/500, 429 both times, b=6, c=6
+(`results/published/mnimi__500q_gpt4o_p6time_drift_2026-09-26`). The judge itself flips about 1 %
+of rows between re-grades, so no absolute difference below that is interpretable; paired
+comparisons are unaffected. Every command of the paper's harness is in
+[`results/published/README.md`](results/published/README.md).
+
+## Run your system through the harness
+
+A system is a class with four methods, in [`evals/base.py`](evals/base.py):
+
+```python
+class MemorySystem(ABC):
+    name: str
+    def reset(self) -> None: ...                       # a fresh store per question
+    def add(self, messages: list[dict]) -> None: ...   # one history, {role, content, ts} dicts
+    def get_context(self, query: str) -> str: ...      # what the reader sees
+    def set_question_date(self, question_date: str | None) -> None: ...  # optional
+```
+
+Render through `mnimi.memory.render_turns` so the reader sees the one format every arm uses
+(date granularity and speaker labels were a measured confound), register it in
+`evals/__main__.py`, and run `python -m evals --system <name> --limit 500 --reader-transport
+openai --batch --purpose "..." --claim none`. Third-party packages go through the contract in
+`evals/systems/competitor.py` (their own environment, a 5,364-token context budget, their own ids
+as `retrieved_ids`); the Mem0 and OMEGA adapters are the worked examples. Adapters welcome: open a
+pull request with the adapter and its config, and the run is paired against the same rows.
+
+## Paper
+
+The library the paper describes is tag `paper-v1`: `src/mnimi/` is that tag's bytes, byte for
+byte, in every release of the 3.x line (a digest test enforces it). The preprint lands
+2026-11-06; its title, arXiv id and BibTeX go here then, and `CITATION.cff` carries the software
+citation now.
+
+## Troubleshooting
+
+**`MemoryMetaError: memory_meta mismatch - this store was created under a different pin`.** The
+DB was built with another embedder, extractor profile or library era (the message names the row).
+Point at a fresh file, or open it with the pins it was built with; the library never upgrades a
+store in place.
+
+**`ValueError: record has no timestamp; pass the message ts as created_at`.** A message lacked
+`ts`. Every message needs `{"role", "content", "ts"}`: the library has no clock, so the
+application must hand it one (a session's start, the calendar day).
+
+**`RuntimeError: this llama-cpp-python build cannot offload to the GPU, but the decode pins ask
+for n_gpu_layers>0`.** You built the extractor with the default `DECODE` on a CPU build. Use the
+CPU profile, `QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0})`, or install the CUDA
+build of 0.3.35. The two profiles write different `extractor_decode_hash` rows, so their stores
+are not interchangeable.
+
+**`sqlite3.OperationalError` at `enable_load_extension`.** Your Python's SQLite was built
+without loadable-extension support (some macOS and conda builds). Use a Python whose `sqlite3`
+module allows `enable_load_extension(True)`, for example the python.org or `uv` builds.
+
+## Development
+
+```
+pip install -e ".[dev]"
+PYTHONPATH="src;." python -m pytest -q          # 630 tests; 4 need the [embed]/[extract] extras, 10 the mcp package
+python -m ruff check .
+```
+
+`src/mnimi/` is frozen at `paper-v1`'s bytes: `evals/freeze.py` holds the digest and
+`tests/test_paper_freeze.py` fails on any edit, so release work lives in `src/mnimi_cli/`,
+`examples/`, `integrations/` and `evals/`. Lifting the freeze is a dated `docs/DECISIONS.md` entry
+and a new digest, and a library fix the paper needs is `paper-v1.1` with every paper arm rerun.
+[`CLAUDE.md`](CLAUDE.md) is the working contract (the invariants that silently invalidate a
+number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
+
+## Status and scope
+
+- v3.0.0 is the developer release: the paper's library, the export CLI, the chat example, the CPU
+  recipe and the MCP server. Alpha.
+- In scope is write-side policy: extraction, screens, supersession, decay, ranking, retrieval.
+  Out of scope: a UI, a chat frontend, a hosted service.
+- Deliberately not built, each with its re-open trigger in [`docs/FUTURE.md`](docs/FUTURE.md): a
+  context token budget, `raw` spans in the rendered block, hybrid FTS5 retrieval, a recency weight
+  above 0, pinned records.
+- The contract is [`docs/SPEC.md`](docs/SPEC.md); the dated rulings are
+  [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## License
 
