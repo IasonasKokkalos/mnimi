@@ -20,3 +20,4 @@ One row per run, including failed and aborted ones. Append-only: only the `statu
 | `mem0__500q_gpt4o` | 2026-09-27 | mem0 | gpt-4o-2024-08-06 | 500 | 336/500 | Y | published | none |
 | `omega__500q_gpt4o` | 2026-09-27 | omega | gpt-4o-2024-08-06 | 500 | 365/500 | Y | published | none |
 | `e2_smoke_mnimi` | 2026-10-13 | mnimi | qwen2.5:1.5b-instruct-q4_0 | 20 | pending | Y | incomplete | none |
+| `mnimi__500q_q15b` | 2026-10-13 | mnimi | qwen2.5:1.5b-instruct-q4_0 | 500 | pending | Y | incomplete | none |
