@@ -23,3 +23,4 @@ One row per run, including failed and aborted ones. Append-only: only the `statu
 | `mnimi__500q_q15b` | 2026-10-13 | mnimi | qwen2.5:1.5b-instruct-q4_0 | 500 | pending | Y | incomplete | none |
 | `naive_rag__500q_q15b` | 2026-10-13 | naive_rag | qwen2.5:1.5b-instruct-q4_0 | 500 | pending | Y | incomplete | none |
 | `oracle__500q_q15b` | 2026-10-13 | oracle | qwen2.5:1.5b-instruct-q4_0 | 500 | pending | Y | incomplete | none |
+| `no_memory__500q_q15b` | 2026-10-13 | no_memory | qwen2.5:1.5b-instruct-q4_0 | 500 | pending | Y | incomplete | none |
