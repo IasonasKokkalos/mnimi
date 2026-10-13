@@ -1,0 +1,188 @@
+{
+  "arm": {
+    "config": {
+      "active_only": null,
+      "answer_reserve": 800,
+      "chunk_unit": "round",
+      "conflict_resolution": null,
+      "consolidate": false,
+      "dedup": {
+        "on": false
+      },
+      "embed_template_hash": "d7c07af084510d838b00e876753d70b882b4447844bfe1a994f98312566b94db",
+      "embedder": "BAAI/bge-small-en-v1.5",
+      "embedder_dim": 384,
+      "embedder_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "extractor_model": null,
+      "fact_embed_template_hash": null,
+      "query_instruction": "Represent this sentence for searching relevant passages: ",
+      "ranking": null,
+      "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+      "render_unit": "turns",
+      "salience_weights": null,
+      "token_budget": 32768,
+      "top_k": 10
+    },
+    "config_committed": true,
+    "config_file": "configs/naive_rag__500q_q15b.json",
+    "config_sha256": "dade1ad9da69fc562d3010ab1e51175ff12f0e34aea07517f117827e0e05c6ee",
+    "pins_hash": "5240fe76ff6e1abc1dd8eccce149b5b7a3ad7bd2bcb9334516825cb2638f0a22",
+    "system": "naive_rag"
+  },
+  "claim": "none",
+  "code": {
+    "clean_tree": true,
+    "commit": "3fc1ebc61eb87059b13e14fbbc95b5d216dc16bc",
+    "git_status_porcelain": "",
+    "harness_version": {
+      "artifact_schema": "mnimi-eval-artifact/12",
+      "manifest_schema": "mnimi-run-manifest/2"
+    },
+    "library_digest": "172457a3fd7da3bd2fdaa0cce880d30933fa84b830e6f97a205939299797c259",
+    "mnimi_version": "2.39.0",
+    "nearest_tag": "paper-v1",
+    "src_mnimi_tree": "401be3ee3eade8e95d838dde5d447f782edc6119",
+    "tag": null
+  },
+  "cost": {
+    "competitor_llm_usd": null,
+    "extractor_cache_misses": 0,
+    "extractor_rounds_sent": 0,
+    "gpu_rental_h": null,
+    "gpu_rental_usd": null,
+    "ingest_s": 8205.8,
+    "judge_completion_tokens": null,
+    "judge_prompt_tokens": null,
+    "judge_usd": null,
+    "judge_wall_s": null,
+    "llm_calls_at_write": 0,
+    "predict_wall_s": 9817.4,
+    "prefilter_drops": 0,
+    "reader_completion_tokens": 0,
+    "reader_prompt_tokens": 0,
+    "reader_usd": 0.0,
+    "tokens_in": null,
+    "tokens_out": null,
+    "wall_clock_s": null
+  },
+  "created_utc": "2026-10-13T23:21:16Z",
+  "dataset": {
+    "file": ".data\\longmemeval_s_cleaned.json",
+    "n": 500,
+    "name": "longmemeval_s_cleaned.json",
+    "question_ids_sha256": "d9cd794c80eafe8e9034e041567eef1e68a77bd2af81031e24a9aafb86f87f76",
+    "sample_seed": 0,
+    "sample_strategy": "stratified-round-robin",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "environment": {
+    "daemon_flags": {
+      "flash_attention_reported": "Flash Attention enabled",
+      "kv_cache_type": "OLLAMA_KV_CACHE_TYPE=unset (build default) (from daemon config; not stated in load log)",
+      "ollama_env_daemon": {
+        "OLLAMA_CONTEXT_LENGTH": "0",
+        "OLLAMA_DEBUG": "INFO",
+        "OLLAMA_DEBUG_LOG_REQUESTS": "false",
+        "OLLAMA_EDITOR": "",
+        "OLLAMA_FLASH_ATTENTION": "true",
+        "OLLAMA_GO_TEMPLATE": "true",
+        "OLLAMA_GPU_OVERHEAD": "0",
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "OLLAMA_IGPU_ENABLE": "",
+        "OLLAMA_KEEP_ALIVE": "5m0s",
+        "OLLAMA_KV_CACHE_TYPE": "",
+        "OLLAMA_LLM_LIBRARY": "",
+        "OLLAMA_LOAD_TIMEOUT": "5m0s",
+        "OLLAMA_MAX_LOADED_MODELS": "0",
+        "OLLAMA_MAX_QUEUE": "512",
+        "OLLAMA_MAX_TRANSFER_STREAMS": "4",
+        "OLLAMA_MODELS": "D:\\ollama-models",
+        "OLLAMA_NOHISTORY": "false",
+        "OLLAMA_NOPRUNE": "false",
+        "OLLAMA_NO_CLOUD": "false",
+        "OLLAMA_NUM_PARALLEL": "1",
+        "OLLAMA_ORIGINS": "[http://localhost",
+        "OLLAMA_REMOTES": "[ollama.com]",
+        "OLLAMA_SCHED_SPREAD": "false",
+        "OLLAMA_VULKAN": "true"
+      },
+      "ollama_version": "0.32.13",
+      "prompt_cache_reported": "prompt cache disabled",
+      "reader_num_batch": 512,
+      "reader_num_gpu": 99,
+      "reader_num_thread": 8
+    },
+    "hardware": {
+      "cpu_count": 16,
+      "cuda_version": "13.2",
+      "driver_version": "595.95",
+      "gpu_model": "NVIDIA RTX 1000 Ada Generation Laptop GPU",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"
+    },
+    "installed_digest": "b9d21de609faac1946925a4d85366384f349d82bcfc2b74ccfecd40109f0dc9c",
+    "lockfile_hash": "15a11d1855a9caf9d752029a88bacb44b04d6d9cee3fef4c1637f3087834bdb7",
+    "lockfile_source": "uv.lock (sha256 over LF bytes, the project's own version line excluded)",
+    "python": "3.14.4"
+  },
+  "hashes": {
+    "conflict_rules_hash": null,
+    "decay_rules_hash": null,
+    "embed_template_hash": "d7c07af084510d838b00e876753d70b882b4447844bfe1a994f98312566b94db",
+    "extractor_decode_hash": null,
+    "extractor_prompt_hash": null,
+    "fact_embed_template_hash": null,
+    "negation_lexicon_hash": null,
+    "prefilter_lexicon_hash": null,
+    "reader_prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "render_template_hash": "9c03ddae5c33062688a42afe94f2a15f528bd4c15c771396c2ba63da491d151c",
+    "render_unit_template_hash": "266002498b7ba407841c45d82a4c3ffa27668e3c4852d0cc93f8ff6e2694188b",
+    "resolver_version": null,
+    "temporal_rules_hash": null
+  },
+  "judge": {
+    "max_tokens": null,
+    "model": null,
+    "prompt_hash": null,
+    "prompt_id": null,
+    "prompt_source": null,
+    "replay_count": null,
+    "temperature": null
+  },
+  "manifest_schema": "mnimi-run-manifest/2",
+  "missing_fields": [
+    "judge.model",
+    "judge.prompt_source",
+    "judge.replay_count",
+    "cost.judge_usd",
+    "cost.tokens_in",
+    "cost.tokens_out",
+    "cost.wall_clock_s"
+  ],
+  "outputs": {
+    "pins": "pins.json",
+    "predictions": "predictions.jsonl"
+  },
+  "provisional_reasons": [],
+  "purpose": "E2 arm 2 of 4: the strong K=V baseline under the local 1.5B reader on all 500 questions; the primary's other side (F1 per reader)",
+  "reader": {
+    "max_tokens": 800,
+    "num_ctx": 32768,
+    "prompt_hash": "50c6fe1057734876943b107c1995b472f9a8caa4ef64fa11d5a7febb677f68ce",
+    "prompt_id": "mnimi-con-v1",
+    "requested_model": "qwen2.5:1.5b-instruct-q4_0",
+    "seed": 0,
+    "served_fingerprints": null,
+    "served_models": {
+      "635e70c8687b9d74080d28893d462dd3785adea62437de360afd54bdb3a058fc": 500
+    },
+    "temperature": 0,
+    "transport": "ollama",
+    "transport_version": "0.32.13"
+  },
+  "rule_commit": "e184ed9",
+  "run_id": "naive_rag__500q_q15b",
+  "status": "incomplete",
+  "unknown_fields": [],
+  "updated_utc": "2026-10-13T23:21:16Z"
+}
