@@ -4242,3 +4242,39 @@ with its command and sha), `PHASE8-REPORT.md` (the paste-able state); commits `8
 pre-registrations · `23f5e2a` P1 · `6f546b7` P2 · `ff1b4ee` P3 · `51492fd` the agreement · `fd58a50` C2 and C1 ·
 `5f074ba` the review's fixes · `4615aa3` Mem0 · `c75988e` OMEGA · `5a4d743` P4 · `58c4c1b` the tables · the v2.38.1
 fix pass · this close.
+
+## E2 pre-registration: the 1.5B reader tier at n=500 (2026-10-13)
+
+**What runs.** The four arms of record under the local family: `no_memory__500q_q15b`,
+`naive_rag__500q_q15b`, `mnimi__500q_q15b` (the paper system, L1 alone — the pins of
+`mnimi__500q_gpt4o_p6time` with `reader_transport=ollama`, `qwen2.5:1.5b-instruct-q4_0`, `num_ctx=32768`),
+`oracle__500q_q15b`; the same 500 questions (stratified-round-robin, seed 0), the same reader prompt
+`mnimi-con-v1`, the same judge `gpt-4o-2024-08-06` / `longmemeval-paper-v3`. Predict on the laptop
+(RTX 1000 Ada, Ollama 0.32.13 under the daemon precondition), judge at home.
+
+**What is measured, in the gpt-4o arms' order.** (1) Each arm's `summary.json`. (2) F1, the primary per
+reader: `naive_rag__500q_q15b` vs `mnimi__500q_q15b`, exact McNemar, saved with `--family F1`; Holm across
+the three readers' primaries is taken in `paper_tables.families`. (3) The secondaries `no_memory` vs mnimi
+and `oracle` vs mnimi, descriptive. (4) The second judge (`gpt-4.1-2025-04-14`) on mnimi and oracle, and a
+same-judge cache-off re-grade on each (C2's instrument), recorded as `judge_replay_N.json`, never merged.
+(5) The oracle-paired accounting over the judge-stable rows (`evals.accounting retest` + `buckets`):
+the retrieval-bound share of the paper system's misses under this reader — C3's row for the 1.5B tier,
+beside the gpt-4o row (44 of 69). (6) `cost.llm_calls_at_write` and `prefilter_drops` from the mnimi
+manifest — C5's first record of rounds sent (PLAN §0.5).
+
+**One directional prediction, the maintainer's `[J 2026-10-13]`, no number attached.** A 1.5B reader
+has far less capacity than gpt-4o, so more of the paper system's misses should be reader-bound under it:
+the share of its judge-stable misses that the oracle also gets wrong (the `both_wrong` bucket) is
+expected to be **larger** under the 1.5B reader than under gpt-4o, and the retrieval-bound share (oracle
+right, system wrong — 44 of 69 under gpt-4o) correspondingly **smaller**. Read as held or not held on
+the direction of the two shares alone; no threshold, no percentage, no significance test is attached,
+and the absolute scores falling under the weaker reader is expected and is not the prediction.
+
+**No decision rides on E2.** Nothing is adopted or reverted; the shipped configuration stays L1 alone.
+C3's collapse condition is PLAN R2's: the bucket shares do not move across readers. The n=100 reading of 2026-08-16 under this reader (v1 library: mnimi 35 vs naive_rag 41, b=0,
+c=6) is the prior and is cited as such; E2 is the extraction-era library and does not replicate it.
+
+**Disclosed before the run.** The reader is 1.5B at q4_0 on a 6 GB laptop GPU; the judge is the gpt-4o
+family's (so reader ≠ judge in this tier, unlike the gpt-4o arms); the local family's Tier 2 statement
+(100/100 byte-identical on a restart pair, 2026-09-10) was measured on the v1 library at n=100 and is
+not re-measured here. `naive_rag` and `no_memory` get no replays (PLAN §4.1's budget line, 8 passes).
