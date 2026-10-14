@@ -4401,3 +4401,34 @@ noted in the issues doc.
 **Addendum (2026-10-14, Task 6 read).** The split alone was not enough on numeric-dense text: a 600-char sub-round still filled the 1,024-token budget (2,083 chars of JSON, cut inside a slot). The CPU profile's `max_tokens` is 2048 from this commit — `CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}` in `mnimi-mcp` and `examples/chat.py`, hash `6a813662b070…`, its own cache file — and the paper's `DECODE` is unchanged. The 10 live rounds re-ingested under it: 31 facts, 0 truncated outputs (run 1 at 1,024: 26 facts, 1 truncated). `tests/test_cpu_profile.py` pins the new hash and the two differing keys.
 
 **Addendum (2026-10-14, the review fix pass, `544282b`).** A fresh review of the branch found six defects in the first cut and all six are fixed with tests: the grown `raw` excerpt is capped at `MAX_TEXT_CHARS` on a whitespace boundary (an unbounded excerpt pushed the fact text past the embedder's 512 tokens) and CJK terminators are sentence ends; the claimed role's turns are searched first and a match must start and end on a word boundary; the overlap fallback needs Jaccard >= 0.2 over non-stopword words; resolver v3 dates a weekday + numeric mention only within 183 days of the anchor and never when `am`/`pm` follows; the split runs only when the whole round's output was truncated or reached `MAX_FACTS`, and the reading with more facts is kept (a clean whole round keeps its cache key, so a benchmark pass with the split on would re-key only the 312 truncated and 2,853 capped rounds, not 83 % of the corpus). **Deferred:** the verify rules have no `memory_meta` row; `VERIFY_VERSION = "v1"` is declared in `mnimi.extract.verify` and any edit to its constants (`MIN_PREFIX_WORDS`, `MIN_OVERLAP_JACCARD`, `STOPWORDS`, the terminators) is a version bump that must refuse older stores — today `resolver_version = "v3"` refuses every pre-PT1 store, so no mixed store exists; the row is the first item when the library is next opened.
+
+## PT1 pre-registration: the developer library (v3.1.0) at n=500 on gpt-4o (2026-10-14)
+
+**What runs.** One arm, `mnimi__500q_gpt4o_pt1`: the paper system's configuration
+(`mnimi__500q_gpt4o_p6time`'s pins — extractor qwen3, active_only on, ranking score, consolidate off,
+render_unit round+facts, time_weight 0.05, reader gpt-4o-2024-08-06 through the Batch API, reader prompt
+mnimi-con-v1, judge gpt-4o-2024-08-06 / longmemeval-paper-v3) on the library after TESTFIXESPT1
+(`mnimi.extract.verify` in `round_pieces`, `when` per turn, resolver v3). The same 500 questions, the same
+extraction cache (`misses: 0` or stop). The split and the pre-escape are not on this path.
+
+**What is measured.** (1) The $0 probe `runs/probe_mnimi_pt1.json` against `runs/probe_mnimi_p6t.json`
+through `evals.probes.identity`: ANY@10 and ALL@10, and the evidence moves. (2) The arm's `summary.json`.
+(3) The pair of record: `results/published/mnimi__500q_gpt4o_p6time` vs the arm, exact McNemar through
+`evals.stats`. A `--pins-only` pre-flight ($0, 2026-10-14, at `fe6cea3`) read the arm's pins against
+p6time's: they differ in `resolver_version` (v2 → v3 — a system pin, the experiment's own difference, not a
+parity field), the artifact schema (/11 → /12) and the harness commit; `evals.stats` REPORTS the last two
+and does not refuse them, and every reader, prompt, renderer and dataset pin is equal. `--verify-drift` is
+not applicable: the pins differ.
+
+**The rule, fixed before any number is read.** The arm runs iff the probe does not lose evidence:
+ALL@10 on the 500 ≥ p6t's ALL@10 − 5 rows. The reading is reported as "the n=500 reading of the v3.1.0
+library, b=… c=… against the published 429", with its Wilson interval; it is adopted as the developer
+release's quoted number iff b ≥ c, and in either case it is published under `results/published/` as a
+developer-release row, in its own table, never beside the paper's arms as a replication. The judge
+instrument band (6/100 flips) applies: a difference inside it is not a finding. Nothing here changes the
+paper, its tag or its arms.
+
+**Expectation (stated, not a criterion).** Within ±5 of 429. The verification rewrites the embed text of
+the 21 % of facts whose `raw` was not verbatim in its turn (mostly the 300-cap tail) — a cleaner span for
+the same fact, so retrieval should move little either way; the per-turn `when` check drops some borrowed
+dates (a small loss on temporal rows is possible); resolver v3 touches few LongMemEval mentions.
