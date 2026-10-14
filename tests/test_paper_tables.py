@@ -174,24 +174,26 @@ def test_the_per_category_pairs_sum_to_the_paper_systems_pair_of_record():
 
 
 def _reader_of(run_id: str) -> str:
-    pins = json.loads((ROOT / "results" / "published" / run_id / "pins.json").read_text(encoding="utf-8"))
-    return pins["pins"]["reader_model"]
+    path = ROOT / "results" / "published" / run_id / "pins.json"
+    return json.loads(path.read_text(encoding="utf-8"))["pins"]["reader_model"]
 
 
 def test_family_f1_is_the_primary_per_reader_and_nothing_else():
-    """F1 is the primary per reader (the maintainer, 2026-10-06; E2's rule, 2026-10-13): under each
-    judge, naive_rag → the paper system's arm once per reader tier, Holm across the readers' primaries,
-    and no other pair. The gpt-4o pair of record is always one of them."""
+    """F1 is the primary per reader (the maintainer, 2026-10-06; E2's rule, 2026-10-13): under
+    each judge, naive_rag → the paper system's arm once per reader tier, Holm across the readers'
+    primaries, and no other pair. The gpt-4o pair of record is always one of them."""
     data = paper_tables.load(ROOT / "results" / "published", ROOT / "analyses")
     families = paper_tables.families_record(data)["families"]
     f1 = families["F1"]
     assert {e["judge"] for e in f1} == {None, paper_tables.SECOND_JUDGE}
     for judge in (None, paper_tables.SECOND_JUDGE):
         group = [e for e in f1 if e["judge"] == judge]
-        assert (paper_tables.BAR, paper_tables.PAPER_SYSTEM) in {(e["first"], e["second"]) for e in group}
+        pairs = {(e["first"], e["second"]) for e in group}
+        assert (paper_tables.BAR, paper_tables.PAPER_SYSTEM) in pairs
         readers = []
         for e in group:
-            assert e["first"].startswith("naive_rag__500q_") and e["second"].startswith("mnimi__500q_")
+            assert e["first"].startswith("naive_rag__500q_")
+            assert e["second"].startswith("mnimi__500q_")
             assert e["category"] is None and e["tests"] == len(group)
             assert _reader_of(e["first"]) == _reader_of(e["second"])  # a pair never crosses readers
             readers.append(_reader_of(e["second"]))
