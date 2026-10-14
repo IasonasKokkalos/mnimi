@@ -120,7 +120,7 @@
     "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
     "prompt_id": "longmemeval-paper-v3",
     "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
-    "replay_count": 1,
+    "replay_count": 2,
     "replays": [
       {
         "commit": "d44b3ad7dd831d0dcedb8331e37a0502c7fc7473",
@@ -134,6 +134,19 @@
         "judge_usd": 0.362064,
         "purpose": "E2: the second judge on the oracle 1.5B arm",
         "score": "223/500"
+      },
+      {
+        "commit": "b9aecaec639157068f354340f0027dba9eccca7d",
+        "file": "judge_replay_2.json",
+        "graded_utc": "2026-10-14T00:43:37Z",
+        "judge_completion_tokens": 906,
+        "judge_hash": "e150d260a0e8bc116924b96112825ed7acc0d8336d6d1d3c86c5825c7c00f4a0",
+        "judge_model": "gpt-4o-2024-08-06",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 179330,
+        "judge_usd": 0.457385,
+        "purpose": "E2: same-judge cache-off re-grade of the oracle 1.5B arm (C2's instrument)",
+        "score": "226/500"
       }
     ],
     "temperature": 0
@@ -142,7 +155,8 @@
   "missing_fields": [],
   "outputs": {
     "judge_replays": [
-      "judge_replay_1.json"
+      "judge_replay_1.json",
+      "judge_replay_2.json"
     ],
     "pins": "pins.json",
     "predictions": "predictions.jsonl",
@@ -170,5 +184,5 @@
   "run_id": "oracle__500q_q15b",
   "status": "complete",
   "unknown_fields": [],
-  "updated_utc": "2026-10-14T00:37:41Z"
+  "updated_utc": "2026-10-14T00:43:37Z"
 }
