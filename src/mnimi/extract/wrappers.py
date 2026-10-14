@@ -12,7 +12,7 @@ the model is shown (the escape, the split) or whether it is called at all (clien
 * :class:`SplittingExtractor` — the output budget (``max_tokens`` 1024 ≈ 5,600 chars of JSON)
   and ``MAX_FACTS`` 8 are per call; a long round was cut mid-fact and the strict parser dropped
   every fact (1 of 9 live rounds; 312 of 95,846 cached). The whole round is extracted first;
-  only when that output was truncated or reached ``MAX_FACTS`` are turns longer than
+  only when that output was truncated, reached ``MAX_FACTS`` or was empty are turns longer than
   ``max_chars`` cut at sentence boundaries and the inner called once per sub-round, and the
   reading with more facts is kept (an assistant-only sub-round often extracts to ``[]`` under
   the prompt's assistant rule — measured 2026-10-14: 8 facts → 1 when a round was always split).
@@ -114,8 +114,10 @@ class SplittingExtractor:
         whole = self.inner.extract(turns)
         if max((len(c) for c in per_turn), default=0) <= 1:
             return whole
-        if not whole.truncated and len(whole.facts) < MAX_FACTS:
+        if not whole.truncated and 0 < len(whole.facts) < MAX_FACTS:
             return whole  # the whole round fit: nothing to split
+        # Truncated, at MAX_FACTS, or a clean [] on a long round (the prompt's assistant rule
+        # firing on the whole; measured 2026-10-14: 8 facts in sub-rounds, 0 whole): split.
         facts: list[ExtractedFact] = []
         outputs: list[str] = []
         truncated = truncated_input = False

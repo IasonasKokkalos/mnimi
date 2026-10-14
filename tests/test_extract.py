@@ -787,3 +787,29 @@ def test_splitting_wrapper_splits_only_when_the_whole_round_overflows():
     inner = _Recording([eight, one])
     r = SplittingExtractor(inner, max_chars=12).extract(turns)
     assert len(r.facts) == 8, "a split that yields fewer facts than the whole round loses"
+
+
+def test_splitting_wrapper_also_splits_when_the_whole_round_extracts_nothing():
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    def f(s):
+        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
+
+    turns = [{"role": "user", "content": "Q?"},
+             {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}]
+    # A clean [] on a long round is the prompt's assistant rule firing, not a fit (run 3, 2026-10-14:
+    # the "keep monitoring" round lost its 8 facts that way); the sub-rounds get their chance.
+    inner = _Recording([
+        ExtractionResult(facts=[], truncated=False, raw_output="[]"),
+        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
+        ExtractionResult(facts=[], truncated=False, raw_output="[]"),
+        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
+    ])
+    w = SplittingExtractor(inner, max_chars=12)
+    r = w.extract(turns)
+    assert [x.content for x in r.facts] == ["A.", "C."] and w.sub_rounds == 3
+    # A short round that extracts nothing is left alone: one call.
+    inner = _Recording([ExtractionResult(facts=[], truncated=False, raw_output="[]")])
+    short = [{"role": "user", "content": "hi"}]
+    assert SplittingExtractor(inner, max_chars=12).extract(short).facts == [] and len(inner.seen) == 1
