@@ -1,0 +1,71 @@
+{
+  "by_category": {
+    "knowledge-update": {
+      "accuracy": 0.5128205128205128,
+      "ci_alpha": 0.05,
+      "ci_high": 0.6205104797510615,
+      "ci_low": 0.4039270123076001,
+      "ci_method": "wilson",
+      "correct": 40,
+      "n": 78
+    },
+    "multi-session": {
+      "accuracy": 0.2857142857142857,
+      "ci_alpha": 0.05,
+      "ci_high": 0.3676589202131707,
+      "ci_low": 0.21580065051028852,
+      "ci_method": "wilson",
+      "correct": 38,
+      "n": 133
+    },
+    "single-session-assistant": {
+      "accuracy": 0.6607142857142857,
+      "ci_alpha": 0.05,
+      "ci_high": 0.770800275984081,
+      "ci_low": 0.5299945300706023,
+      "ci_method": "wilson",
+      "correct": 37,
+      "n": 56
+    },
+    "single-session-preference": {
+      "accuracy": 0.13333333333333333,
+      "ci_alpha": 0.05,
+      "ci_high": 0.2968132668203629,
+      "ci_low": 0.053096554840547455,
+      "ci_method": "wilson",
+      "correct": 4,
+      "n": 30
+    },
+    "single-session-user": {
+      "accuracy": 0.7142857142857143,
+      "ci_alpha": 0.05,
+      "ci_high": 0.8067777962128024,
+      "ci_low": 0.5994980341827976,
+      "ci_method": "wilson",
+      "correct": 50,
+      "n": 70
+    },
+    "temporal-reasoning": {
+      "accuracy": 0.21052631578947367,
+      "ci_alpha": 0.05,
+      "ci_high": 0.28744057305564974,
+      "ci_low": 0.14986446107954962,
+      "ci_method": "wilson",
+      "correct": 28,
+      "n": 133
+    }
+  },
+  "correct": 197,
+  "n": 500,
+  "overall": {
+    "accuracy": 0.394,
+    "ci_alpha": 0.05,
+    "ci_high": 0.4374821906927827,
+    "ci_low": 0.3521341694850665,
+    "ci_method": "wilson",
+    "correct": 197,
+    "n": 500
+  },
+  "run_id": "naive_rag__500q_q15b",
+  "score": "197/500"
+}
