@@ -4367,3 +4367,37 @@ family's Tier 2 statement remains the 2026-09-10 restart pair; E2 adds none.
 `retest/retest.json`, `buckets/buckets.json`, `agreement/agreement.json`). Commits on `paper-runs`: `e184ed9` the
 rule · `55fe765` the configs · `8859eb6` the smoke · `3fc1ebc` … `6dd7f2e` the arms · `7423616` … `4eb02ae` the
 gradings · `f76cbde` … `6c38647` promotion · `714c0b9` the pairs and the accounting.
+
+## The developer release lifts the paper freeze: TESTFIXESPT1 (2026-10-14, release/v3)
+
+**What.** The MCP test week (2026-10-12 → 14, `mnimi-mcp-test/mnimi-extraction-issues.md`) found
+nine extraction defects in the shipped library: the grammar rescan substitutes garbage after an
+unescaped backslash and at the 300-char cap (19 % of the LongMemEval cache's `raw` excerpts are
+verbatim nowhere, 2 % carry the wrong role); the 1,024-token output budget drops every fact of a
+long round (312 of 95,846 cached rounds; 1 of 9 live rounds); `MAX_FACTS = 8` and the
+assistant-turn rule skip dense content; "on Tuesday 10-20" resolves to the previous Tuesday; a
+user-turn fact can borrow the assistant turn's date because `when` is verified against the whole
+round. The maintainer's decisions of 2026-10-14 are in `mnimi docs/TESTFIXESPT1.md`.
+
+**The freeze.** `src/mnimi/` changes on `release/v3` for the first time since `paper-v1`. The
+paper's library stays `paper-v1` = `21239e2` (v2.14.0's bytes, digest `172457a3…c259`); the
+paper cites nothing from this branch and no paper arm is rerun. `evals.freeze` keeps its job —
+a run of record on this branch must use the committed library — under the era name
+`FREEZE_NAME = "v3.0.0-dev"`, and every commit that edits the library recomputes
+`LIBRARY_FREEZE_SHA256` in the same commit. A LongMemEval reading taken with this library is a
+developer-release reading, paired against the published arm under the run-documentation rule,
+and is never the paper's number.
+
+**What changes, in order (one commit each):** `mnimi.extract.verify` (the post-hoc `raw`/role
+verification, wired into `round_pieces`, with `when` verified against the fact's own turn);
+`mnimi.extract.wrappers` (`BackslashEscapingExtractor`, `SplittingExtractor`,
+`ClientFactsExtractor`); resolver **v3** (`RESOLVER_VERSION = "v3"`: a weekday beside a numeric
+`MM-DD`/`DD-MM` resolves to the date whose weekday matches; v2 stores are refused at open);
+`mnimi-mcp` `remember(messages, facts=None)` and `MNIMI_SPLIT_CHARS`; versions 3.1.0 / 0.2.0.
+The prompt, the schema, the grammar and the paper's `DECODE` do not move, so the extraction
+cache replays every unsplit round. Not done, by decision: cross-key supersession (issue 7) —
+noted in the issues doc.
+
+**Addendum (2026-10-14, Task 6 read).** The split alone was not enough on numeric-dense text: a 600-char sub-round still filled the 1,024-token budget (2,083 chars of JSON, cut inside a slot). The CPU profile's `max_tokens` is 2048 from this commit — `CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}` in `mnimi-mcp` and `examples/chat.py`, hash `6a813662b070…`, its own cache file — and the paper's `DECODE` is unchanged. The 10 live rounds re-ingested under it: 31 facts, 0 truncated outputs (run 1 at 1,024: 26 facts, 1 truncated). `tests/test_cpu_profile.py` pins the new hash and the two differing keys.
+
+**Addendum (2026-10-14, the review fix pass, `544282b`).** A fresh review of the branch found six defects in the first cut and all six are fixed with tests: the grown `raw` excerpt is capped at `MAX_TEXT_CHARS` on a whitespace boundary (an unbounded excerpt pushed the fact text past the embedder's 512 tokens) and CJK terminators are sentence ends; the claimed role's turns are searched first and a match must start and end on a word boundary; the overlap fallback needs Jaccard >= 0.2 over non-stopword words; resolver v3 dates a weekday + numeric mention only within 183 days of the anchor and never when `am`/`pm` follows; the split runs only when the whole round's output was truncated or reached `MAX_FACTS`, and the reading with more facts is kept (a clean whole round keeps its cache key, so a benchmark pass with the split on would re-key only the 312 truncated and 2,853 capped rounds, not 83 % of the corpus). **Deferred:** the verify rules have no `memory_meta` row; `VERIFY_VERSION = "v1"` is declared in `mnimi.extract.verify` and any edit to its constants (`MIN_PREFIX_WORDS`, `MIN_OVERLAP_JACCARD`, `STOPWORDS`, the terminators) is a version bump that must refuse older stores — today `resolver_version = "v3"` refuses every pre-PT1 store, so no mixed store exists; the row is the first item when the library is next opened.

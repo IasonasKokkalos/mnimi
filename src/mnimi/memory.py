@@ -27,6 +27,7 @@ from .embeddings import Embedder
 from .export import export_store
 from .extract import prefilter
 from .extract.resolver import RESOLVER_VERSION, resolve, verbatim_mention
+from .extract.verify import verify_raw
 from .models import KIND_FACT, KIND_ROUND, MemoryRecord, ScoredRecord
 from .ranking import (
     RANKING_RERANK,
@@ -884,6 +885,13 @@ def new_extraction_stats() -> dict:
         "truncated_outputs": 0,
         "truncated_inputs": 0,
         "facts": 0,
+        # TESTFIXESPT1 Task 2: how each stored fact's raw excerpt was verified
+        # (mnimi.extract.verify).
+        "raw_verbatim": 0,
+        "raw_role": 0,
+        "raw_prefix": 0,
+        "raw_overlap": 0,
+        "raw_kept": 0,
     }
 
 
@@ -1039,22 +1047,35 @@ def round_pieces(
         stats["facts"] += len(facts)
     round_text = _round_text(round_)
     for fact in facts:
-        # A mention the round does not contain is an invention, not a date.
-        mention = verbatim_mention(fact.when, round_text)
+        # TESTFIXESPT1 Task 2: the excerpt that is embedded and rendered is verified against
+        # the round (the turn's own bytes when found), and the time mention is verified
+        # against the fact's OWN turn — a mention the other turn carries is an invention for
+        # this fact (issue 1: a user fact borrowed the assistant's "Sunday 2026-10-11").
+        verdict = verify_raw(fact.content, fact.raw, round_.turns)
+        if stats is not None:
+            stats[f"raw_{verdict.how}"] += 1
+        raw = verdict.raw
+        scope = round_text
+        if verdict.role is not None:
+            scope = "\n".join(
+                str(t.get("content", "")).strip()
+                for t in round_.turns if str(t.get("role", "")) == verdict.role
+            )
+        mention = verbatim_mention(fact.when, scope)
         triple = normalize_triple(fact.subject, fact.predicate, fact.object)
         pieces.append(
             Piece(
-                content=_FACT_EMBED_T.substitute(raw=fact.raw, fact=fact.content),
+                content=_FACT_EMBED_T.substitute(raw=raw, fact=fact.content),
                 round_key=key,
                 kind=KIND_FACT,
                 fact=fact.content,
-                raw=fact.raw,
+                raw=raw,
                 subject=fact.subject,
                 predicate=fact.predicate,
                 object=fact.object,
                 # v2 (PHASE6 D4): the fact's own text decides whether an undated
                 # month/day resolves forward ("planning ... in October").
-                valid_time=resolve(mention, round_.ts, context=f"{fact.content} {fact.raw}"),
+                valid_time=resolve(mention, round_.ts, context=f"{fact.content} {raw}"),
                 time_mention=mention,
                 salience=float(fact.salience),
                 pair_key=triple.pair_key if triple is not None else None,

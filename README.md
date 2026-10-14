@@ -419,6 +419,12 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
 - v3.0.0 is the developer release: the paper's library, the export CLI, the chat example, the CPU
   recipe and the MCP server. Alpha.
+- v3.1.0 (2026-10-14) fixes what the MCP test week found in extraction, in the developer release
+  only: the model's `raw` excerpts are verified against the round (`mnimi.extract.verify`), long
+  turns are extracted in sub-rounds behind a backslash pre-escape (`mnimi.extract.wrappers`), a
+  caller can hand `remember` its own facts, a weekday beside a numeric date resolves (resolver
+  v3; v2 stores are refused at open), and a time mention is verified against the fact's own turn.
+  The paper's library stays tag `paper-v1`.
 - In scope is write-side policy: extraction, screens, supersession, decay, ranking, retrieval.
   Out of scope: a UI, a chat frontend, a hosted service.
 - Deliberately not built, each with its re-open trigger in [`docs/FUTURE.md`](docs/FUTURE.md): a

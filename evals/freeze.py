@@ -16,9 +16,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 #: sha256 over src/mnimi at v2.14.0 (e015931), set in PHASE7 Task 1 Step 4.
-LIBRARY_FREEZE_SHA256 = "172457a3fd7da3bd2fdaa0cce880d30933fa84b830e6f97a205939299797c259"
+LIBRARY_FREEZE_SHA256 = "5f58aacdc336c12b4f332f3d8d0f33eaca0b6753564896b061319f028766a078"
 #: The tag whose src/mnimi the digest pins (PHASE8 Task 17); v2.14.0's bytes, unchanged.
-FREEZE_NAME = "paper-v1"
+#: The era this digest names. "paper-v1" is the paper's library (tag paper-v1 = 21239e2);
+#: "v3.0.0-dev" is release/v3 after TESTFIXESPT1 (DECISIONS 2026-10-14) — every commit that
+#: edits src/mnimi recomputes the constant above in the same commit.
+FREEZE_NAME = "v3.0.0-dev"
 
 
 def library_digest(root: Path = ROOT) -> str:
@@ -39,7 +42,7 @@ def check(root: Path = ROOT) -> list[str]:
     reasons = []
     digest = library_digest(root)
     if digest != LIBRARY_FREEZE_SHA256:
-        reasons.append(f"src/mnimi differs from the paper freeze ({FREEZE_NAME}): "
+        reasons.append(f"src/mnimi differs from the committed freeze ({FREEZE_NAME}): "
                        f"{digest[:12]}... != {LIBRARY_FREEZE_SHA256[:12]}...")
     porcelain = manifest_mod.git_status_porcelain()
     if porcelain:

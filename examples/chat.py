@@ -38,7 +38,11 @@ Backend = Callable[[str, str], str]
 #: runs and ``flash_attn=True`` holds (``llama_context: flash_attn = enabled``), so this one key
 #: is the whole difference. It yields its own ``extractor_decode_hash``, so a CPU store is its
 #: own configuration: the ``memory_meta`` guard refuses it under the GPU pins and vice versa.
-CPU_DECODE = {**DECODE, "n_gpu_layers": 0}
+# Two keys differ from the paper's DECODE: n_gpu_layers 0 (the recipe, measured 2026-10-10)
+# and max_tokens, doubled 2026-10-14 (TESTFIXESPT1 Task 6) because a 600-char sub-round of
+# numeric-dense text still filled the 1,024-token budget (2,083 chars of JSON, cut inside a
+# slot). The CPU profile has its own decode hash and its own cache; DECODE never moves.
+CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}
 
 #: ``cpu`` is the default since T5 measured it; ``none`` is the v1 write path (rounds only).
 DEFAULT_EXTRACTOR = "cpu"
@@ -63,25 +67,32 @@ def build_embedder(name: str):
         sys.exit(f'--embedder bge needs the [embed] extra: pip install "mnimi[embed]" ({exc})')
 
 
-def build_extractor(name: str, db: str):
-    """``none`` (the v1 write path: rounds only), ``cpu`` (the recipe), ``gpu`` (the pin)."""
+def build_extractor(name: str, db: str, split_chars: int = 600):
+    """``none`` (the v1 write path: rounds only), ``cpu`` (the recipe), ``gpu`` (the pin).
+
+    The model runs behind the backslash pre-escape and the sub-round split
+    (``mnimi.extract.wrappers``, TESTFIXESPT1); ``split_chars=0`` turns the split off."""
     if name == "none":
         return None
     from mnimi.extract.cache import CachedExtractor
     from mnimi.extract.llama import QwenLlamaExtractor
+    from mnimi.extract.wrappers import BackslashEscapingExtractor, SplittingExtractor
 
     # The CPU profile passes the public decode= keyword and nothing else (CPU_DECODE above).
     decode = dict(DECODE) if name == "gpu" else dict(CPU_DECODE)
     cache = os.path.join(os.path.dirname(os.path.abspath(db)), f"extract-cache-{name}.sqlite")
     try:
-        return CachedExtractor(QwenLlamaExtractor(decode=decode), cache)
+        cached = CachedExtractor(QwenLlamaExtractor(decode=decode), cache)
+        model = BackslashEscapingExtractor(cached)
+        return SplittingExtractor(model, max_chars=split_chars)
     except (ImportError, RuntimeError) as exc:
         sys.exit(f"--extractor {name}: {exc}")
 
 
-def build_memory(db: str, embedder: str = "bge", extractor: str = "none") -> Memory:
+def build_memory(db: str, embedder: str = "bge", extractor: str = "none",
+                 split_chars: int = 600) -> Memory:
     return Memory(db, build_embedder(embedder), MemoryConfig(),
-                  extractor=build_extractor(extractor, db))
+                  extractor=build_extractor(extractor, db, split_chars))
 
 
 def build_backend(name: str, model: str | None = None) -> Backend:
@@ -196,6 +207,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--embedder", choices=("bge", "hashing"), default="bge")
     parser.add_argument("--extractor", choices=("cpu", "gpu", "none"),
                         default=DEFAULT_EXTRACTOR)
+    parser.add_argument("--split-chars", type=int, default=600,
+                        help="cut turns longer than this into sub-rounds for the extractor; "
+                             "0 = off")
     args = parser.parse_args(argv)
 
     # The library's INFO lines are the point of watching it work: `superseded ...`,
@@ -203,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
     logging.getLogger("mnimi.memory").setLevel(logging.INFO)
 
-    memory = build_memory(args.db, args.embedder, args.extractor)
+    memory = build_memory(args.db, args.embedder, args.extractor, args.split_chars)
     backend = build_backend(args.backend, args.model)
     ts = session_ts()
     print(f"mnimi chat: db={args.db} user={args.user} session ts={ts}; "

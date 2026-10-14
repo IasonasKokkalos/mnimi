@@ -29,6 +29,12 @@ Conventions, stated so a reader can predict every result:
   month / year at that precision.
 * Vague mentions ("recently", "a while ago", "a few days ago") resolve to
   ``None`` rather than to a guess.
+* **v3 (TESTFIXESPT1 Task 4, 2026-10-14):** a weekday beside a numeric date ("on Tuesday
+  10-20", "Tuesday, 20-10", "Monday 10/12") resolves to the date — read as month-day or
+  day-month, in the anchor's year or its neighbours, or in the year written — whose weekday
+  matches, the nearest to ``ts`` (a tie goes forward) and within half a year of it. v2 read
+  "on Tuesday" alone and dated it to the previous Tuesday. If no reading matches the weekday
+  within the window (a time range like "9-5", a typo) the rules above apply as before.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ import calendar
 import re
 from datetime import date, timedelta
 
-RESOLVER_VERSION = "v2"
+RESOLVER_VERSION = "v3"
 
 #: v2 (PHASE6 D4): the words that make an undated month/day, month or weekday
 #: mention resolve forward. Frozen with the version: an edit is a version bump.
@@ -79,6 +85,11 @@ _LAST_WEEKDAY_RE = re.compile(
     rf"\b(last|this past|past|next|this|on|this coming|coming) ({_WEEKDAY_RE})\b"
 )
 _BARE_WEEKDAY_RE = re.compile(rf"\b({_WEEKDAY_RE})\b")
+#: v3: a weekday + numeric date resolves only within this many days of the anchor.
+WEEKDAY_NUMERIC_WINDOW_DAYS = 183
+_WEEKDAY_NUMERIC_RE = re.compile(
+    rf"\b({_WEEKDAY_RE}),? (\d{{1,2}})[-/](\d{{1,2}})(?:[-/](\d{{2,4}}))?\b(?!\s*[ap]\.?m\b)"
+)  # "1-2 pm" is a time range, never a date
 _LAST_UNIT_RE = re.compile(r"\b(last|this|next) (week|month|year)\b")
 _BEFORE_LAST_RE = re.compile(r"\bthe (week|month|year) before last\b")
 _MONTH_DAY_RE = re.compile(rf"\b({_MONTH_RE})\.? (\d{{1,2}})(?:st|nd|rd|th)?(?:,? (\d{{4}}))?\b")
@@ -232,6 +243,26 @@ def resolve(mention: str | None, ts: str | None, context: str | None = None) -> 
         # v2: the most recent Saturday strictly before ts, at day precision.
         delta = (anchor.weekday() - 5) % 7 or 7
         return (anchor - timedelta(days=delta)).isoformat()
+
+    m = _WEEKDAY_NUMERIC_RE.search(text)
+    if m:
+        # v3: the weekday decides which reading (month-day / day-month) and which year.
+        weekday, a, b = _WEEKDAYS[m.group(1)], int(m.group(2)), int(m.group(3))
+        if m.group(4):
+            year = int(m.group(4))
+            years = [year + 2000 if year < 100 else year]
+        else:
+            years = [anchor.year - 1, anchor.year, anchor.year + 1]
+        # Only a date within half a year of ``ts`` is a date: "Friday 9-5" and "Monday 1-2 pm"
+        # are time ranges, and a fitting weekday a year away is a coincidence (review 2026-10-14).
+        candidates = [
+            d for y in years for mo, da in ((a, b), (b, a))
+            if (d := _safe_date(y, mo, da)) is not None and d.weekday() == weekday
+            and abs((d - anchor).days) <= WEEKDAY_NUMERIC_WINDOW_DAYS
+        ]
+        if candidates:
+            best = min(candidates, key=lambda d: (abs((d - anchor).days), (anchor - d).days))
+            return best.isoformat()
 
     m = _LAST_WEEKDAY_RE.search(text)
     if m:

@@ -285,7 +285,7 @@ def test_resolver_never_reads_the_clock():
     src = inspect.getsource(resolver)
     for forbidden in ("datetime.now", "date.today", "time.time", "utcnow"):
         assert forbidden not in src
-    assert resolver.RESOLVER_VERSION == "v2"
+    assert resolver.RESOLVER_VERSION == "v3"
 
 
 @pytest.mark.parametrize(
@@ -407,3 +407,410 @@ def test_scripted_extractor_returns_the_authored_facts_per_round():
     assert hit.facts == [fact] and hit.truncated is False
     assert ex.extract([{"role": "user", "content": "unscripted"}]).facts == []
     assert ex.pins["extractor_model"] == "fake-scripted" and set(ex.pins) == set(protocol.PIN_KEYS)
+
+
+# --- TESTFIXESPT1 Task 1: the post-hoc raw/role verification ---
+
+
+def test_verify_raw_keeps_a_verbatim_excerpt_and_returns_the_turns_bytes():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "I moved to Athens.  I adopted a cat yesterday."},
+             {"role": "assistant", "content": "Noted."}]
+    v = verify_raw("The user adopted a cat.", "user: i adopted a  cat yesterday", turns)
+    assert v.how == "verbatim" and v.role == "user"
+    assert v.raw == "user: I adopted a cat yesterday", "case and spacing come from the turn"
+
+
+def test_verify_raw_fixes_a_wrong_role_prefix():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "begin with task 0"},
+             {"role": "assistant", "content": "E2 started 2026-10-13 evening. Branch paper-runs."}]
+    v = verify_raw("E2 started.", "user: E2 started 2026-10-13 evening.", turns)
+    assert v.how == "role" and v.role == "assistant"
+    assert v.raw == "assistant: E2 started 2026-10-13 evening."
+
+
+def test_verify_raw_extends_a_cut_excerpt_to_the_end_of_its_sentence():
+    from mnimi.extract.verify import verify_raw
+
+    # Issue 4: the grammar rescan after an unescaped backslash cut the excerpt and closed it.
+    text = ("E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\mnimi-paper "
+            "(paper-v1 = 21239e2), branch paper-runs. Rule commit e184ed9.")
+    turns = [{"role": "user", "content": "begin"}, {"role": "assistant", "content": text}]
+    v = verify_raw("Worktree D:\\\\", "user: E2 started 2026-10-13 evening. Worktree D:\\\\", turns)
+    assert v.how == "prefix" and v.role == "assistant"
+    assert v.raw == ("assistant: E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\\"
+                     "mnimi-paper (paper-v1 = 21239e2), branch paper-runs.")
+    # Issue 2: the 300-cap squeezed the tail into CJK; the prefix walk restores the sentence.
+    text2 = "The finding in two sentences (44 of 69 judge-stable misses are retrieval-bound), done."
+    turns2 = [{"role": "assistant", "content": text2}]
+    cut = "assistant: the finding in two sentences (44 of 69 judge-stable misses are检索-1"
+    v2 = verify_raw("x", cut, turns2)
+    assert v2.how == "prefix" and v2.raw == "assistant: " + text2
+
+
+def test_verify_raw_treats_slash_and_backslash_as_one_character():
+    from mnimi.extract.verify import verify_raw
+
+    # The pre-escape wrapper shows the model "/" where the turn has "\"; the excerpt still
+    # verifies, and the returned bytes are the turn's (backslashes restored).
+    turns = [{"role": "assistant", "content": "Worktree D:\Projects\mnimi-paper is ready."}]
+    v = verify_raw("x", "assistant: Worktree D:/Projects/mnimi-paper is ready.", turns)
+    assert v.how == "verbatim" and v.raw == "assistant: Worktree D:\Projects\mnimi-paper is ready."
+
+
+def test_verify_raw_falls_back_to_the_best_overlapping_sentence():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "Hi there. I live in Boston with two cats. Thanks!"},
+             {"role": "assistant", "content": "Boston is lovely."}]
+    v = verify_raw("The user lives in Boston with two cats.", "user: user lives Boston two cats",
+                   turns)
+    assert v.how == "overlap" and v.role == "user"
+    assert v.raw == "user: I live in Boston with two cats."
+
+
+def test_verify_raw_empty_body_never_verifies():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "I live in Boston."}]
+    assert verify_raw("The user lives in Boston.", "user: ", turns).how == "overlap"
+    assert verify_raw("The user lives in Boston.", "", turns).how == "overlap"
+    kept = verify_raw("Nothing in common here.", "", [{"role": "user", "content": "zzz qqq"}])
+    assert kept.how == "kept" and kept.raw == "" and kept.role is None
+
+
+def test_verify_raw_scans_every_turn_of_a_role():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "First message."},
+             {"role": "user", "content": "I adopted a cat."},
+             {"role": "assistant", "content": "Lovely."}]
+    v = verify_raw("The user adopted a cat.", "assistant: I adopted a cat.", turns)
+    assert v.how == "role" and v.role == "user" and v.raw == "user: I adopted a cat."
+
+
+def test_sentences_split_on_terminators_and_newlines():
+    from mnimi.extract.verify import sentences
+
+    assert sentences("A one. B two!\nC three? D") == ["A one.", "B two!", "C three?", "D"]
+    assert sentences("  \n") == []
+
+
+# --- TESTFIXESPT1 Task 2: round_pieces stores the verified excerpt; when is per turn ---
+
+
+def _pieces_for(turn_texts: list[tuple[str, str]], facts: list, ts: str = "2026-10-12T00:00:00"):
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+    from mnimi.extract.protocol import ExtractionResult
+    from mnimi.memory import _messages_to_rounds, new_extraction_stats, round_pieces
+
+    class Fixed:
+        pins = fake.RuleExtractor().pins
+
+        def extract(self, turns):
+            return ExtractionResult(facts=facts, truncated=False, raw_output="[]")
+
+    (round_,) = _messages_to_rounds(
+        [{"role": r, "content": c, "ts": ts} for r, c in turn_texts]
+    )
+    stats = new_extraction_stats()
+    pieces = round_pieces(round_, HashingEmbedder(), MemoryConfig(), Fixed(), stats=stats)
+    return [p for p in pieces if p.kind == "fact"], stats
+
+
+def test_round_pieces_store_the_verified_excerpt_and_count_the_repair():
+    from mnimi.extract.protocol import ExtractedFact
+
+    assistant = ("E2 started 2026-10-13 evening. Worktree D:\Projects\mnimi-paper "
+                 "(paper-v1 = 21239e2), branch paper-runs.")
+    facts, stats = _pieces_for(
+        [("user", "begin with task 0"), ("assistant", assistant)],
+        [ExtractedFact("Worktree D:\\\\", "user: E2 started 2026-10-13 evening. Worktree D:\\\\",
+                       None, "E2", "worktree", "D:\\\\", 1.0)],
+    )
+    (fact,) = facts
+    assert fact.raw == "assistant: " + assistant
+    assert fact.content == f"{fact.raw}\n{fact.fact}", "the embed text carries the repaired excerpt"
+    assert stats["raw_prefix"] == 1 and stats["raw_verbatim"] == 0
+
+
+def test_round_pieces_verify_when_against_the_facts_own_turn():
+    from mnimi.extract.protocol import ExtractedFact
+
+    # Issue 1: the model copied the assistant's "Sunday 2026-10-11" onto a user-turn fact.
+    facts, _ = _pieces_for(
+        [("user", "Yesterday I meal prepped until thursday, where I will be meal prepping again."),
+         ("assistant", "Noted. On Sunday 2026-10-11 you meal prepped until Thursday 2026-10-15.")],
+        [ExtractedFact("The user will meal prep again on Sunday 2026-10-11.",
+                       "user: where I will be meal prepping again", "Sunday 2026-10-11",
+                       "user", "will meal prep again", "Sunday 2026-10-11", 1.0),
+         ExtractedFact("The user meal prepped yesterday.", "user: Yesterday I meal prepped",
+                       "Yesterday", "user", "meal prepped", None, 1.0)],
+    )
+    assert [(p.time_mention, p.valid_time) for p in facts] == [
+        (None, None), ("Yesterday", "2026-10-11")
+    ], "a mention from the other turn is an invention for this fact; the own-turn one resolves"
+
+
+def test_round_pieces_fall_back_to_the_round_when_the_role_is_unverified():
+    from mnimi.extract.protocol import ExtractedFact
+
+    facts, stats = _pieces_for(
+        [("user", "zzz qqq yesterday")],
+        [ExtractedFact("Nothing in common.", "user: nothing in common", "yesterday",
+                       None, None, None, 0.25)],
+    )
+    (fact,) = facts
+    assert stats["raw_kept"] == 1
+    assert fact.raw == "user: nothing in common" and fact.valid_time == "2026-10-11"
+
+
+# --- TESTFIXESPT1 Task 3: the three extractor wrappers ---
+
+
+class _Recording:
+    """An inner extractor that records what it was shown and answers from a script."""
+
+    pins = fake.RuleExtractor().pins
+
+    def __init__(self, answers=None):
+        from mnimi.extract.protocol import ExtractionResult
+        self.seen: list[list[dict]] = []
+        self._answers = list(answers or [])
+        self._empty = ExtractionResult(facts=[], truncated=False, raw_output="[]")
+
+    def extract(self, turns):
+        self.seen.append(turns)
+        return self._answers.pop(0) if self._answers else self._empty
+
+
+def test_escaping_wrapper_shows_the_model_slashes_and_keeps_pins():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording()
+    w = BackslashEscapingExtractor(inner)
+    w.extract([{"role": "assistant", "content": "Worktree D:\\Projects\\x", "ts": "2026-10-13"}])
+    assert inner.seen == [[{"role": "assistant", "content": "Worktree D:/Projects/x"}]]
+    assert w.pins == inner.pins
+
+
+def test_split_text_packs_sentences_under_the_budget_and_keeps_order():
+    from mnimi.extract.wrappers import split_text
+
+    text = "One one one. Two two two! Three three?\nFour four."
+    assert split_text(text, 0) == [text] and split_text(text, 1000) == [text]
+    assert split_text(text, 26) == ["One one one. Two two two!", "Three three? Four four."]
+
+
+def test_split_text_hard_cuts_an_oversize_sentence():
+    from mnimi.extract.wrappers import split_text
+
+    assert split_text("aaaa bbbb cccc dddd", 9) == ["aaaa bbbb", "cccc dddd"]
+    assert split_text("abcdefghij", 4) == ["abcd", "efgh", "ij"], "no whitespace: cut at the budget"
+
+
+def test_splitting_wrapper_is_a_plain_call_when_nothing_exceeds_the_budget():
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    inner = _Recording()
+    turns = [{"role": "user", "content": "short"}, {"role": "assistant", "content": "also short"}]
+    SplittingExtractor(inner, max_chars=600).extract(turns)
+    SplittingExtractor(inner, max_chars=0).extract(turns)
+    assert inner.seen == [turns, turns] and inner.seen[0] is turns
+
+
+def test_client_facts_wrapper_returns_the_queue_once_and_fills_raw():
+    from mnimi.extract.protocol import ExtractedFact
+    from mnimi.extract.wrappers import ClientFactsExtractor
+
+    inner = _Recording()
+    w = ClientFactsExtractor(inner)
+    turns = [{"role": "user", "content": "I run on Sundays. I live in Boston."}]
+    w.provide([ExtractedFact("The user lives in Boston.", "", None, "user", "lives in",
+                             "Boston", 1.0),
+               ExtractedFact("The user runs on Sundays.", "user: I run on Sundays", None,
+                             "user", "runs on", "Sundays", 1.0)])
+    assert w.pending is not None
+    r = w.extract(turns)
+    assert [x.raw for x in r.facts] == ["user: I live in Boston.", "user: I run on Sundays"]
+    assert r.truncated is False and inner.seen == [] and w.pending is None
+    w.extract(turns)
+    assert inner.seen == [turns], "with no queue the wrapper delegates"
+    assert w.pins == inner.pins
+
+
+def test_client_facts_wrapper_without_an_inner_extracts_nothing_and_has_its_own_pins():
+    from mnimi.extract.wrappers import CLIENT_FACTS_PINS, ClientFactsExtractor
+
+    w = ClientFactsExtractor(None)
+    r = w.extract([{"role": "user", "content": "hello"}])
+    assert r.facts == [] and r.truncated is False
+    assert w.pins == CLIENT_FACTS_PINS and w.pins["extractor_model"] == "client-facts"
+
+
+# --- TESTFIXESPT1 Task 4: resolver v3 ---
+
+
+@pytest.mark.parametrize(
+    "mention, ts, expected",
+    [
+        ("on Tuesday 10-20", "2026-10-12T00:00:00", "2026-10-20"),     # issue 3: MM-DD, forward
+        ("Tuesday, 20-10", "2026-10-12T00:00:00", "2026-10-20"),       # DD-MM, the weekday decides
+        ("on Monday 10/12", "2026-10-14T00:00:00", "2026-10-12"),       # slash, backward, nearest
+        ("Saturday 01-02", "2026-12-30T00:00:00", "2027-01-02"),        # the year that fits
+        ("Tuesday 10-20-26", "2026-10-12T00:00:00", "2026-10-20"),      # an explicit two-digit year
+        ("on Tuesday", "2026-10-12T00:00:00", "2026-10-06"),            # v2 unchanged: no number
+    ],
+)
+def test_resolver_v3_weekday_beside_a_numeric_date(mention, ts, expected):
+    from mnimi.extract import resolver
+
+    assert resolver.resolve(mention, ts) == expected
+
+
+def test_resolver_v3_weekday_numeric_falls_through_when_no_reading_matches():
+    from mnimi.extract import resolver
+
+    # 2025-10-21 is a Tuesday but a year away (outside the half-year window); 2026-10-21 is a
+    # Wednesday; "21-10" is no date. Today's rules take over: the most recent Tuesday.
+    assert resolver.resolve("Tuesday 10-21", "2026-10-12T00:00:00") == "2026-10-06"
+    # Neither reading is a date and no year fits: today's rules take over ("on Tuesday").
+    assert resolver.resolve("on Tuesday 13-13", "2026-10-12T00:00:00") == "2026-10-06"
+
+
+def test_resolver_version_is_v3_and_v2_markers_are_unchanged():
+    from mnimi.extract import resolver
+
+    assert resolver.RESOLVER_VERSION == "v3"
+    assert resolver.FUTURE_MARKERS[0] == "next" and resolver.PAST_MARKERS[0] == "last"
+
+
+# --- TESTFIXESPT1 review fix pass (2026-10-14) ---
+
+
+def test_verify_raw_caps_a_grown_excerpt_at_the_schema_limit():
+    from mnimi.extract.schema import MAX_TEXT_CHARS
+    from mnimi.extract.verify import verify_raw
+
+    turn = ("alpha beta gamma delta epsilon " * 30).strip() + " end"  # one unpunctuated run
+    v = verify_raw("x", "assistant: alpha beta gamma delta epsilon alpha 检索-1",
+                   [{"role": "assistant", "content": turn}])
+    assert v.how == "prefix"
+    assert len(v.raw) <= len("assistant: ") + MAX_TEXT_CHARS
+    assert not v.raw.endswith(" ") and v.raw.startswith("assistant: alpha beta")
+
+
+def test_verify_raw_knows_cjk_sentence_ends():
+    from mnimi.extract.verify import sentences, verify_raw
+
+    assert sentences("我喜欢猫。我住在北京！好吗？") == ["我喜欢猫。", "我住在北京！", "好吗？"]
+    v = verify_raw("我住在北京", "", [{"role": "user", "content": "我喜欢猫。我住在北京。"}])
+    assert v.how == "overlap" and v.raw == "user: 我住在北京。"
+
+
+def test_verify_raw_stops_at_the_terminator_the_prefix_ends_on():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "assistant", "content": "Alpha beta gamma delta epsilon. Zeta eta theta."}]
+    v = verify_raw("x", "assistant: Alpha beta gamma delta epsilon. 检索", turns)
+    assert v.how == "prefix" and v.raw == "assistant: Alpha beta gamma delta epsilon."
+
+
+def test_verify_raw_prefers_the_claimed_role_and_anchors_on_word_boundaries():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user",
+              "content": "I'm flying to Paris on Friday. Yesterday was long."},
+             {"role": "assistant", "content": "flying to Paris on Friday, noted."}]
+    v = verify_raw("x", "assistant: flying to Paris on Friday", turns)
+    assert v.how == "verbatim" and v.role == "assistant"
+    v2 = verify_raw("x", "assistant: Yes", turns)  # "Yes" is inside "Yesterday", not a word
+    assert v2.how == "kept" and v2.raw == "assistant: Yes"
+
+
+def test_verify_raw_overlap_needs_more_than_a_stopword():
+    from mnimi.extract.verify import verify_raw
+
+    v = verify_raw("The user owns a cat.", "user: I have a kitty",
+                   [{"role": "user", "content": "The weather is bad."}])
+    assert v.how == "kept" and v.raw == "user: I have a kitty"
+
+
+@pytest.mark.parametrize(
+    "mention, ts, expected",
+    [
+        ("on Friday 9-5", "2026-10-14T00:00:00", "2026-10-09"),      # a time range: "on Friday"
+        ("Monday 1-2 pm", "2026-10-14T00:00:00", "2026-10-12"),      # a time range: bare weekday
+        ("Tuesday 10-21", "2026-10-12T00:00:00", "2026-10-06"),      # no reading within half a year
+    ],
+)
+def test_resolver_v3_only_dates_within_half_a_year(mention, ts, expected):
+    from mnimi.extract import resolver
+
+    assert resolver.resolve(mention, ts) == expected
+
+
+def test_splitting_wrapper_splits_only_when_the_whole_round_overflows():
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    def f(s):
+        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
+
+    turns = [{"role": "user", "content": "Q?"},
+             {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}]
+    # The whole round extracts cleanly: one call, no split, its facts.
+    inner = _Recording([ExtractionResult(facts=[f("Whole.")], truncated=False, raw_output="[w]")])
+    r = SplittingExtractor(inner, max_chars=12).extract(turns)
+    assert [x.content for x in r.facts] == ["Whole."] and inner.seen == [turns]
+    # The whole round is truncated: the sub-rounds run and their facts are used.
+    inner = _Recording([
+        ExtractionResult(facts=[], truncated=True, raw_output="[w"),
+        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
+        ExtractionResult(facts=[], truncated=True, raw_output="[b"),
+        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
+    ])
+    w = SplittingExtractor(inner, max_chars=12)
+    r = w.extract(turns)
+    assert [[t["content"] for t in s] for s in inner.seen] == [
+        ["Q?", "Aaaa aaaa. Bbbb bbbb. Cccc cccc."], ["Q?", "Aaaa aaaa."], ["Bbbb bbbb."],
+        ["Cccc cccc."],
+    ]
+    assert [x.content for x in r.facts] == ["A.", "C."] and w.sub_rounds == 3
+    # The whole round hit MAX_FACTS: split, and keep whichever reading has more facts.
+    eight = ExtractionResult(facts=[f(str(i)) for i in range(8)], truncated=False, raw_output="[8]")
+    one = ExtractionResult(facts=[f("only")], truncated=False, raw_output="[1]")
+    inner = _Recording([eight, one])
+    r = SplittingExtractor(inner, max_chars=12).extract(turns)
+    assert len(r.facts) == 8, "a split that yields fewer facts than the whole round loses"
+
+
+def test_splitting_wrapper_also_splits_when_the_whole_round_extracts_nothing():
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    def f(s):
+        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
+
+    turns = [{"role": "user", "content": "Q?"},
+             {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}]
+    # A clean [] on a long round is the prompt's assistant rule firing, not a fit (run 3,
+    # 2026-10-14: the "keep monitoring" round lost its 8 facts that way); the sub-rounds run.
+    inner = _Recording([
+        ExtractionResult(facts=[], truncated=False, raw_output="[]"),
+        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
+        ExtractionResult(facts=[], truncated=False, raw_output="[]"),
+        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
+    ])
+    w = SplittingExtractor(inner, max_chars=12)
+    r = w.extract(turns)
+    assert [x.content for x in r.facts] == ["A.", "C."] and w.sub_rounds == 3
+    # A short round that extracts nothing is left alone: one call.
+    inner = _Recording([ExtractionResult(facts=[], truncated=False, raw_output="[]")])
+    short = [{"role": "user", "content": "hi"}]
+    assert SplittingExtractor(inner, max_chars=12).extract(short).facts == []
+    assert len(inner.seen) == 1
