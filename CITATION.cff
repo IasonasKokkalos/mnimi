@@ -10,7 +10,7 @@ authors:
   - family-names: Kokkalos
     given-names: Iasonas
     email: iasonaskokkalos@gmail.com
-version: 3.0.0
+version: 3.1.0
 date-released: 2026-10-17
 license: Apache-2.0
 repository-code: "https://github.com/IasonasKokkalos/mnimi"

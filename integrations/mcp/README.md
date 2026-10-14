@@ -20,7 +20,7 @@ so pass it on the install line and nothing is compiled:
 pip install mnimi-mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 ```
 
-Before `mnimi` 3.0.0 is on PyPI, install both from a checkout of the repository (the
+Before `mnimi` 3.1.0 is on PyPI, install both from a checkout of the repository (the
 `release/v3` branch), into a venv of its own:
 
 ```
@@ -55,7 +55,7 @@ nothing.
 | --- | --- | --- | --- |
 | `MNIMI_DB` | a path | **required** | the SQLite store; created with its `memory_meta` on first use |
 | `MNIMI_USER_ID` | a string | `me` | the `user_id` every record is stored and recalled under |
-| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0}`); `gpu` = the paper's pin (CUDA build); `none` = rounds only, no fact records |
+| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`; the output budget doubled 2026-10-14 for dense turns); `gpu` = the paper's pin (CUDA build); `none` = rounds only, no fact records |
 | `MNIMI_EMBEDDER` | `bge` · `hashing` | `bge` | `bge` = `BAAI/bge-small-en-v1.5` (the real one); `hashing` = numpy only, for tests |
 | `MNIMI_SPLIT_CHARS` | an integer | `600` | turns longer than this are cut at sentence boundaries into sub-rounds for the extractor, so a long answer is not lost to the model's output budget; `0` = off |
 

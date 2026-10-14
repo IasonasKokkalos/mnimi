@@ -263,7 +263,7 @@ def test_recall_and_context_hand_the_library_the_servers_date_as_the_query_prefi
 def test_the_version_is_one_value():
     import mnimi_mcp
 
-    assert server.mcp.version == mnimi_mcp.__version__ == "0.1.0"
+    assert server.mcp.version == mnimi_mcp.__version__ == "0.2.0"
 
 
 def test_tool_results_are_json_serialisable(env):
@@ -341,3 +341,12 @@ def test_the_none_extractor_is_a_client_facts_extractor_and_the_store_says_so(en
     run(_call("remember", messages=[{"role": "user", "content": "I live in Boston."}]))
     assert isinstance(server.memory().extractor, ClientFactsExtractor)
     assert server.memory().store._expected_meta()["extractor_model"] == "client-facts"
+
+
+def test_the_cpu_profile_raises_the_output_budget_and_leaves_the_papers_decode_alone():
+    # TESTFIXESPT1 Task 6 Step 4: a 600-char sub-round of numeric-dense text still hit the
+    # 1,024-token budget (2,083 chars of JSON, cut inside the sixth slot). The CPU profile,
+    # which has its own decode hash and its own cache, doubles it; DECODE itself never moves.
+    from mnimi.extract.llama import DECODE
+    assert server.CPU_DECODE["max_tokens"] == 2048 and server.CPU_DECODE["n_gpu_layers"] == 0
+    assert DECODE["max_tokens"] == 1024

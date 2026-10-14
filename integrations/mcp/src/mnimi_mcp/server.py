@@ -62,7 +62,10 @@ EXTRACTORS = ("cpu", "gpu", "none")
 EMBEDDERS = ("bge", "hashing")
 
 #: The CPU extractor recipe (MERGED-PLAN T5): the paper's decode pins with GPU offload off.
-CPU_DECODE = {**DECODE, "n_gpu_layers": 0}
+# max_tokens doubled 2026-10-14 (TESTFIXESPT1 Task 6): a 600-char sub-round of numeric-dense text
+# still filled the paper's 1,024-token budget (2,083 chars of JSON, cut inside a slot). The CPU
+# profile has its own decode hash and its own cache; the paper's DECODE never moves.
+CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}
 
 mcp = MCPServer(
     "mnimi",
