@@ -446,7 +446,8 @@ def test_verify_raw_extends_a_cut_excerpt_to_the_end_of_its_sentence():
     # Issue 2: the 300-cap squeezed the tail into CJK; the prefix walk restores the sentence.
     text2 = "The finding in two sentences (44 of 69 judge-stable misses are retrieval-bound), done."
     turns2 = [{"role": "assistant", "content": text2}]
-    v2 = verify_raw("x", "assistant: the finding in two sentences (44 of 69 judge-stable misses are检索-1", turns2)
+    cut = "assistant: the finding in two sentences (44 of 69 judge-stable misses are检索-1"
+    v2 = verify_raw("x", cut, turns2)
     assert v2.how == "prefix" and v2.raw == "assistant: " + text2
 
 
@@ -465,7 +466,8 @@ def test_verify_raw_falls_back_to_the_best_overlapping_sentence():
 
     turns = [{"role": "user", "content": "Hi there. I live in Boston with two cats. Thanks!"},
              {"role": "assistant", "content": "Boston is lovely."}]
-    v = verify_raw("The user lives in Boston with two cats.", "user: user lives Boston two cats", turns)
+    v = verify_raw("The user lives in Boston with two cats.", "user: user lives Boston two cats",
+                   turns)
     assert v.how == "overlap" and v.role == "user"
     assert v.raw == "user: I live in Boston with two cats."
 
