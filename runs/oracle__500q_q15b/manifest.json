@@ -120,13 +120,30 @@
     "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
     "prompt_id": "longmemeval-paper-v3",
     "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
-    "replay_count": 0,
+    "replay_count": 1,
+    "replays": [
+      {
+        "commit": "d44b3ad7dd831d0dcedb8331e37a0502c7fc7473",
+        "file": "judge_replay_1.json",
+        "graded_utc": "2026-10-14T00:37:41Z",
+        "judge_completion_tokens": 501,
+        "judge_hash": "bc432272c472a51b052cf3bb0f89e3f64509b13f78a1f348d8604585f75706df",
+        "judge_model": "gpt-4.1-2025-04-14",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 179028,
+        "judge_usd": 0.362064,
+        "purpose": "E2: the second judge on the oracle 1.5B arm",
+        "score": "223/500"
+      }
+    ],
     "temperature": 0
   },
   "manifest_schema": "mnimi-run-manifest/2",
   "missing_fields": [],
   "outputs": {
-    "judge_replays": [],
+    "judge_replays": [
+      "judge_replay_1.json"
+    ],
     "pins": "pins.json",
     "predictions": "predictions.jsonl",
     "results": "results.json",
@@ -153,5 +170,5 @@
   "run_id": "oracle__500q_q15b",
   "status": "complete",
   "unknown_fields": [],
-  "updated_utc": "2026-10-14T00:20:07Z"
+  "updated_utc": "2026-10-14T00:37:41Z"
 }
