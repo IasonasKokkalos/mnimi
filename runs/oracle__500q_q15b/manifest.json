@@ -164,6 +164,7 @@
     "summary": "summary.json"
   },
   "provisional_reasons": [],
+  "published_as": "results\\published\\oracle__500q_q15b",
   "purpose": "E2: first grading of the oracle 1.5B arm (gpt-4o judge, cache on)",
   "reader": {
     "max_tokens": 800,
@@ -182,7 +183,7 @@
   },
   "rule_commit": "e184ed9",
   "run_id": "oracle__500q_q15b",
-  "status": "complete",
+  "status": "published",
   "unknown_fields": [],
   "updated_utc": "2026-10-14T00:43:37Z"
 }
