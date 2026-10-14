@@ -44,6 +44,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from mnimi import Memory, MemoryConfig
 from mnimi.decay import now_logical
 from mnimi.extract.llama import DECODE  # the pinned decode; importing it loads no model
+from mnimi.extract.protocol import ExtractedFact
+from mnimi.extract.wrappers import (
+    DEFAULT_SPLIT_CHARS,
+    BackslashEscapingExtractor,
+    ClientFactsExtractor,
+    SplittingExtractor,
+)
 from mnimi.temporal import dated_query
 from mnimi_cli.main import export_markdown
 
@@ -80,10 +87,11 @@ class Settings:
     user_id: str
     extractor: str
     embedder: str
+    split_chars: int
 
 
 def settings() -> Settings:
-    """Read the four environment variables.
+    """Read the five environment variables.
 
     Raises ``ValueError`` on a missing DB or an unknown value: ``main()`` turns that into an
     exit before the transport starts, ``memory()`` into a ``ToolError`` the client can read.
@@ -103,8 +111,17 @@ def settings() -> Settings:
     embedder = os.environ.get("MNIMI_EMBEDDER", "bge").strip().lower()
     if embedder not in EMBEDDERS:
         raise ValueError(f"mnimi-mcp: MNIMI_EMBEDDER must be one of {EMBEDDERS}, got {embedder!r}")
+    raw_split = os.environ.get("MNIMI_SPLIT_CHARS", str(DEFAULT_SPLIT_CHARS)).strip()
+    try:
+        split_chars = int(raw_split)
+    except ValueError:
+        raise ValueError(
+            "mnimi-mcp: MNIMI_SPLIT_CHARS must be an integer number of characters (0 = off), "
+            f"got {raw_split!r}"
+        ) from None
     return Settings(
-        db, os.environ.get("MNIMI_USER_ID", "me").strip() or "me", extractor, embedder
+        db, os.environ.get("MNIMI_USER_ID", "me").strip() or "me", extractor, embedder,
+        split_chars,
     )
 
 
@@ -131,23 +148,26 @@ def _build_embedder(name: str):
     return BgeSmallEmbedder()
 
 
-def _build_extractor(name: str, db: str):
-    """``none`` (rounds only), ``cpu`` (the recipe), ``gpu`` (the paper's pin)."""
+def _build_extractor(name: str, db: str, split_chars: int):
+    """``none`` (client facts only), ``cpu`` (the recipe), ``gpu`` (the paper's pin) — each
+    behind the client-facts wrapper, the model ones behind the split and the pre-escape too
+    (TESTFIXESPT1 Task 5)."""
     if name == "none":
-        return None
+        return ClientFactsExtractor(None)
     from mnimi.extract.cache import CachedExtractor
     from mnimi.extract.llama import QwenLlamaExtractor
 
     decode = dict(DECODE) if name == "gpu" else dict(CPU_DECODE)
     cache = os.path.join(os.path.dirname(db), f"extract-cache-{name}.sqlite")
-    return CachedExtractor(QwenLlamaExtractor(decode=decode), cache)
+    model = BackslashEscapingExtractor(CachedExtractor(QwenLlamaExtractor(decode=decode), cache))
+    return ClientFactsExtractor(SplittingExtractor(model, max_chars=split_chars))
 
 
 def build_memory(s: Settings) -> Memory:
     os.makedirs(os.path.dirname(s.db), exist_ok=True)
     return Memory(
         s.db, _build_embedder(s.embedder), MemoryConfig(),
-        extractor=_build_extractor(s.extractor, s.db),
+        extractor=_build_extractor(s.extractor, s.db, s.split_chars),
     )
 
 
@@ -207,6 +227,29 @@ class Message(BaseModel):
     content: str
 
 
+class ClientFact(BaseModel):
+    """One fact the caller extracted itself. ``raw`` and ``when`` must be text of the round:
+    a missing ``raw`` is filled with the turn sentence closest to ``content``; a ``when`` the
+    round does not contain is dropped (the fact is kept undated)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, description=(
+        "one self-contained sentence; begin with 'The user' or 'The assistant'; keep names, "
+        "numbers and dates exactly as written in the turn"))
+    raw: str | None = Field(None, description=(
+        "a contiguous verbatim excerpt of the turn, prefixed 'user: ' or 'assistant: '; "
+        "omit it and the server picks the turn sentence closest to content"))
+    when: str | None = Field(None, description=(
+        "the time expression exactly as the turn writes it ('yesterday', 'on May 14th', "
+        "'2026-10-14'); resolved against the session day; omit when the turn states none"))
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    salience: Literal[0.25, 0.5, 1.0] = Field(1.0, description=(
+        "1.0 durable facts about the user; 0.5 what the assistant decided for them; 0.25 the rest"))
+
+
 def _hit_text(record) -> str:
     """What a hit reads as: a fact record's fact, else the round's labelled turns."""
     if record.kind == "fact" and record.fact:
@@ -231,24 +274,60 @@ def remember(
             ),
         ),
     ],
+    facts: Annotated[
+        list[ClientFact] | None,
+        Field(
+            description=(
+                "Optional: the facts you extracted from these turns yourself. When given, the "
+                "local model is not run for this round and these are stored instead — use it "
+                "for dense turns (results, decisions, many numbers) the small model would skip "
+                "or cut. Needs exactly one round: one user turn, optionally followed by one "
+                "assistant turn."
+            ),
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Store chat turns in long-term memory. Returns the records this call added by kind
-    (`round`, `fact`; a duplicate round adds 0), how many earlier facts it superseded, and the
-    session timestamp the turns were stamped with."""
+    (`round`, `fact`; a duplicate round adds 0), how many earlier facts it superseded, the
+    session timestamp the turns were stamped with, and how many facts you supplied."""
     ts = session_ts()
+    if facts:
+        roles = [m.role for m in messages]
+        if roles not in (["user"], ["user", "assistant"]):
+            raise ToolError(
+                "facts need exactly one round: one user turn, optionally followed by one "
+                f"assistant turn; got roles {roles}"
+            )
+    unused = 0
     with _lock:
         mem, uid = memory(), user_id()
+        extractor = mem.extractor
+        if facts:
+            extractor.provide([
+                ExtractedFact(f.content.strip(), (f.raw or "").strip(), f.when, f.subject,
+                              f.predicate, f.object, float(f.salience))
+                for f in facts
+            ])
         before = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
         superseded_before = mem.conflict_stats["superseded"]
-        mem.add([{"role": m.role, "content": m.content, "ts": ts} for m in messages], uid)
+        try:
+            mem.add([{"role": m.role, "content": m.content, "ts": ts} for m in messages], uid)
+        finally:
+            if facts:
+                unused = len(extractor.pending or [])
+                extractor.pending = None
         after = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
         superseded = mem.conflict_stats["superseded"] - superseded_before
-    return {
+    out = {
         "round": after["round"] - before["round"],
         "fact": after["fact"] - before["fact"],
         "superseded": superseded,
         "ts": ts,
+        "facts_supplied": len(facts or []),
     }
+    if unused:
+        out["facts_unused"] = unused  # the pre-filter skipped the round (a greeting, a thanks)
+    return out
 
 
 @mcp.tool()

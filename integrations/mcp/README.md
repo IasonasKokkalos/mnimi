@@ -57,24 +57,36 @@ nothing.
 | `MNIMI_USER_ID` | a string | `me` | the `user_id` every record is stored and recalled under |
 | `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0}`); `gpu` = the paper's pin (CUDA build); `none` = rounds only, no fact records |
 | `MNIMI_EMBEDDER` | `bge` · `hashing` | `bge` | `bge` = `BAAI/bge-small-en-v1.5` (the real one); `hashing` = numpy only, for tests |
+| `MNIMI_SPLIT_CHARS` | an integer | `600` | turns longer than this are cut at sentence boundaries into sub-rounds for the extractor, so a long answer is not lost to the model's output budget; `0` = off |
 
 A store remembers these pins in `memory_meta`. Opening it later under other pins (another
 embedder, the GPU profile on a CPU store) is refused with `MemoryMetaError`, and the tool call
 returns that message as its error text (so the model, and you, read it): re-point `MNIMI_DB` at
 a fresh file or use the pins the store was built with. A model that cannot load
-(`MNIMI_EXTRACTOR=gpu` on a CPU build) and a bad setting come back the same way.
+(`MNIMI_EXTRACTOR=gpu` on a CPU build) and a bad setting come back the same way. A store
+written before mnimi 3.1.0's `resolver_version = "v3"` (the 2026-10-14 test-week fixes), or a
+`MNIMI_EXTRACTOR=none` store from before client facts, is refused the same way: point `MNIMI_DB`
+at a fresh file and re-`remember` the rounds (the extraction cache replays what it has).
 
 ## Tools
 
 | tool | arguments | returns |
 | --- | --- | --- |
-| `remember` | `messages: [{role: user\|assistant, content}]` (at least one) | `{round, fact, superseded, ts}`: the records this call added by kind (a duplicate round adds 0), the earlier facts it superseded, and the session timestamp they were stamped with |
+| `remember` | `messages: [{role: user\|assistant, content}]` (at least one); `facts: [{content, raw?, when?, subject?, predicate?, object?, salience?}]` (optional) | `{round, fact, superseded, ts, facts_supplied, facts_unused?}`: the records this call added by kind (a duplicate round adds 0), the earlier facts it superseded, the session timestamp they were stamped with, how many facts you supplied, and — only when the pre-filter skipped the round — how many of them went unused |
 | `recall` | `query`, `k` (default 10) | `[{score, salience, kind, text, session_date}]`, best first; the returned memories count as accessed today, which protects them from the next decay pass |
 | `context` | `query` | the context block the library hands a reader: session-date headers, `user:`/`assistant:` lines, the facts |
 | `export` | — | the whole memory as Markdown (the same text `mnimi export --format md` writes) |
 | `consolidate` | — | `{conflict, decay, now_logical}`: what this call changed (the conflict pass's counters; the decay pass's `passes`, `decayed`, `at_floor`) and the logical now; a second call changes nothing |
 
 Resource: `memory://export` (`text/markdown`), the same Markdown as the `export` tool.
+
+**Supplying facts yourself.** The local 1.7B extractor skips dense assistant turns (results,
+decisions, commit ids) and extracts at most eight facts per sub-round. When you know the facts,
+pass them: `remember(messages, facts=[...])` stores *your* facts for that round and does not run
+the model. They go through the same date resolution, the same dedup screens and the same
+conflict pass as the model's facts; `raw` must be verbatim text of the turn (omit it and the
+server picks the closest sentence), `when` must be the turn's own words (an expression the turn
+does not contain is dropped and the fact is stored undated). Needs exactly one round per call.
 
 **The clock lives here, not in the library.** Every message `remember` stores is stamped
 `ts` = the server's calendar day at the call (`YYYY-MM-DDT00:00:00`): a day is a session, the

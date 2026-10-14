@@ -78,7 +78,8 @@ def test_remember_stamps_the_servers_day_and_recall_round_trips(env):
         {"role": "user", "content": "I live in Boston."},
         {"role": "assistant", "content": "Boston, noted."},
     ])))
-    assert stored == {"round": 1, "fact": 0, "superseded": 0, "ts": "2026-10-10T00:00:00"}
+    assert stored == {"round": 1, "fact": 0, "superseded": 0, "ts": "2026-10-10T00:00:00",
+                      "facts_supplied": 0}
 
     hits = _structured(run(_call("recall", query="where do I live", k=5)))["result"]
     assert len(hits) == 1
@@ -269,3 +270,74 @@ def test_tool_results_are_json_serialisable(env):
     run(_call("remember", messages=[{"role": "user", "content": "I live in Boston."}]))
     for name, args in (("recall", {"query": "Boston"}), ("export", {}), ("consolidate", {})):
         json.dumps(_structured(run(_call(name, **args))))
+
+
+# --- TESTFIXESPT1 Task 5: remember(messages, facts=), the wrappers, MNIMI_SPLIT_CHARS ---
+
+
+def test_remember_with_facts_stores_them_without_a_model_and_they_reach_context(env):
+    stored = _structured(run(_call("remember",
+        messages=[{"role": "user",
+                   "content": "E2 done 2026-10-14 02:50: mnimi 229/500, oracle 225."},
+                  {"role": "assistant", "content": "Recorded."}],
+        facts=[{"content": "The user's E2 run finished with mnimi at 229/500 and oracle at 225.",
+                "subject": "E2", "predicate": "mnimi score", "object": "229/500"},
+               {"content": "The user finished E2 on 2026-10-14.", "when": "2026-10-14",
+                "raw": "user: E2 done 2026-10-14 02:50", "salience": 1.0}],
+    )))
+    assert stored["round"] == 1 and stored["fact"] == 2 and stored["facts_supplied"] == 2
+    assert "facts_unused" not in stored
+    hits = _structured(run(_call("recall", query="how did E2 end", k=5)))["result"]
+    assert len(hits) == 1, "recall returns the round the facts hang on"
+    context = _structured(run(_call("context", query="how did E2 end")))["result"]
+    assert "229/500" in context and "(2026-10-14)" in context
+
+
+def test_remember_with_facts_needs_exactly_one_round(env):
+    async def call():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("remember", {
+                "messages": [{"role": "user", "content": "a"},
+                             {"role": "assistant", "content": "b"},
+                             {"role": "user", "content": "c"}],
+                "facts": [{"content": "The user said a."}],
+            })
+    result = run(call())
+    assert result.is_error and "exactly one round" in result.content[0].text
+
+
+def test_remember_with_facts_reports_a_round_the_prefilter_skipped(env):
+    stored = _structured(run(_call("remember",
+        messages=[{"role": "user", "content": "thanks!"}],
+        facts=[{"content": "The user said thanks."}],
+    )))
+    assert stored["fact"] == 0 and stored["facts_supplied"] == 1 and stored["facts_unused"] == 1
+
+
+def test_remember_refuses_a_bad_salience_and_an_empty_fact(env):
+    async def call(facts):
+        async with Client(server.mcp) as client:
+            return await client.call_tool("remember", {
+                "messages": [{"role": "user", "content": "I live in Boston."}], "facts": facts})
+    assert run(call([{"content": "x", "salience": 0.7}])).is_error
+    assert run(call([{"content": ""}])).is_error
+
+
+def test_split_chars_is_read_from_the_environment_and_defaults_to_600(monkeypatch, tmp_path):
+    monkeypatch.setenv("MNIMI_DB", str(tmp_path / "a.db"))
+    monkeypatch.setenv("MNIMI_EXTRACTOR", "none")
+    monkeypatch.setenv("MNIMI_EMBEDDER", "hashing")
+    monkeypatch.delenv("MNIMI_SPLIT_CHARS", raising=False)
+    assert server.settings().split_chars == 600
+    monkeypatch.setenv("MNIMI_SPLIT_CHARS", "0")
+    assert server.settings().split_chars == 0
+    monkeypatch.setenv("MNIMI_SPLIT_CHARS", "ten")
+    with pytest.raises(ValueError, match="MNIMI_SPLIT_CHARS"):
+        server.settings()
+
+
+def test_the_none_extractor_is_a_client_facts_extractor_and_the_store_says_so(env):
+    from mnimi.extract.wrappers import ClientFactsExtractor
+    run(_call("remember", messages=[{"role": "user", "content": "I live in Boston."}]))
+    assert isinstance(server.memory().extractor, ClientFactsExtractor)
+    assert server.memory().store._expected_meta()["extractor_model"] == "client-facts"
