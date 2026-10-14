@@ -4293,9 +4293,9 @@ The four arms of `configs/*__500q_q15b.json` ran on the laptop under the daemon 
 
 The harness sha differs across the arms because a finished run's registry row and manifest are tracked files, and
 `freeze.check` refuses a dirty tree, so each was committed before the next arm; `evals.stats` reports the difference
-and does not refuse it, and no code changed between the shas. Judged at home 2026-10-14 00:00 → 00:50 UTC: the four
+and does not refuse it, and no code changed between the shas. Judged at home 2026-10-13 23:58 → 10-14 00:49 UTC: the four
 first gradings $1.52, the five replays $2.04 (gpt-4.1 on mnimi, oracle and — the accepted ninth pass — naive_rag;
-cache-off gpt-4o on mnimi and oracle), **$3.57 in all; $40.13 of $113.85 left**. All four manifests `complete`,
+cache-off gpt-4o on mnimi and oracle), **$3.57 in all; $40.13 of $113.85 left**. All four manifests `complete` (then `published` by promotion),
 `provisional: []`, promoted by `evals.publish` with their replays.
 
 **The reading (gpt-4o judge; the second judge in parentheses).**
