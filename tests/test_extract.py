@@ -567,3 +567,108 @@ def test_round_pieces_fall_back_to_the_round_when_the_role_is_unverified():
     (fact,) = facts
     assert stats["raw_kept"] == 1
     assert fact.raw == "user: nothing in common" and fact.valid_time == "2026-10-11"
+
+
+# --- TESTFIXESPT1 Task 3: the three extractor wrappers ---
+
+
+class _Recording:
+    """An inner extractor that records what it was shown and answers from a script."""
+
+    pins = fake.RuleExtractor().pins
+
+    def __init__(self, answers=None):
+        from mnimi.extract.protocol import ExtractionResult
+        self.seen: list[list[dict]] = []
+        self._answers = list(answers or [])
+        self._empty = ExtractionResult(facts=[], truncated=False, raw_output="[]")
+
+    def extract(self, turns):
+        self.seen.append(turns)
+        return self._answers.pop(0) if self._answers else self._empty
+
+
+def test_escaping_wrapper_shows_the_model_slashes_and_keeps_pins():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording()
+    w = BackslashEscapingExtractor(inner)
+    w.extract([{"role": "assistant", "content": "Worktree D:\\Projects\\x", "ts": "2026-10-13"}])
+    assert inner.seen == [[{"role": "assistant", "content": "Worktree D:/Projects/x"}]]
+    assert w.pins == inner.pins
+
+
+def test_split_text_packs_sentences_under_the_budget_and_keeps_order():
+    from mnimi.extract.wrappers import split_text
+
+    text = "One one one. Two two two! Three three?\nFour four."
+    assert split_text(text, 0) == [text] and split_text(text, 1000) == [text]
+    assert split_text(text, 26) == ["One one one. Two two two!", "Three three? Four four."]
+
+
+def test_split_text_hard_cuts_an_oversize_sentence():
+    from mnimi.extract.wrappers import split_text
+
+    assert split_text("aaaa bbbb cccc dddd", 9) == ["aaaa bbbb", "cccc dddd"]
+    assert split_text("abcdefghij", 4) == ["abcd", "efgh", "ij"], "no whitespace: cut at the budget"
+
+
+def test_splitting_wrapper_calls_the_inner_once_per_sub_round_and_merges_facts():
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    def f(s):
+        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
+
+    inner = _Recording([
+        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
+        ExtractionResult(facts=[], truncated=True, raw_output="[b"),
+        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
+    ])
+    w = SplittingExtractor(inner, max_chars=12)
+    r = w.extract([{"role": "user", "content": "Q?"},
+                   {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}])
+    assert [[t["content"] for t in s] for s in inner.seen] == [
+        ["Q?", "Aaaa aaaa."], ["Bbbb bbbb."], ["Cccc cccc."]
+    ]
+    assert [x.content for x in r.facts] == ["A.", "C."], "a truncated sub-round loses only itself"
+    assert r.truncated is True and r.raw_output == "[a]\n[b\n[c]" and w.sub_rounds == 3
+
+
+def test_splitting_wrapper_is_a_plain_call_when_nothing_exceeds_the_budget():
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    inner = _Recording()
+    turns = [{"role": "user", "content": "short"}, {"role": "assistant", "content": "also short"}]
+    SplittingExtractor(inner, max_chars=600).extract(turns)
+    SplittingExtractor(inner, max_chars=0).extract(turns)
+    assert inner.seen == [turns, turns] and inner.seen[0] is turns
+
+
+def test_client_facts_wrapper_returns_the_queue_once_and_fills_raw():
+    from mnimi.extract.protocol import ExtractedFact
+    from mnimi.extract.wrappers import ClientFactsExtractor
+
+    inner = _Recording()
+    w = ClientFactsExtractor(inner)
+    turns = [{"role": "user", "content": "I run on Sundays. I live in Boston."}]
+    w.provide([ExtractedFact("The user lives in Boston.", "", None, "user", "lives in",
+                             "Boston", 1.0),
+               ExtractedFact("The user runs on Sundays.", "user: I run on Sundays", None,
+                             "user", "runs on", "Sundays", 1.0)])
+    assert w.pending is not None
+    r = w.extract(turns)
+    assert [x.raw for x in r.facts] == ["user: I live in Boston.", "user: I run on Sundays"]
+    assert r.truncated is False and inner.seen == [] and w.pending is None
+    w.extract(turns)
+    assert inner.seen == [turns], "with no queue the wrapper delegates"
+    assert w.pins == inner.pins
+
+
+def test_client_facts_wrapper_without_an_inner_extracts_nothing_and_has_its_own_pins():
+    from mnimi.extract.wrappers import CLIENT_FACTS_PINS, ClientFactsExtractor
+
+    w = ClientFactsExtractor(None)
+    r = w.extract([{"role": "user", "content": "hello"}])
+    assert r.facts == [] and r.truncated is False
+    assert w.pins == CLIENT_FACTS_PINS and w.pins["extractor_model"] == "client-facts"
