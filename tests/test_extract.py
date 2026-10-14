@@ -407,3 +407,91 @@ def test_scripted_extractor_returns_the_authored_facts_per_round():
     assert hit.facts == [fact] and hit.truncated is False
     assert ex.extract([{"role": "user", "content": "unscripted"}]).facts == []
     assert ex.pins["extractor_model"] == "fake-scripted" and set(ex.pins) == set(protocol.PIN_KEYS)
+
+
+# --- TESTFIXESPT1 Task 1: the post-hoc raw/role verification ---
+
+
+def test_verify_raw_keeps_a_verbatim_excerpt_and_returns_the_turns_bytes():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "I moved to Athens.  I adopted a cat yesterday."},
+             {"role": "assistant", "content": "Noted."}]
+    v = verify_raw("The user adopted a cat.", "user: i adopted a  cat yesterday", turns)
+    assert v.how == "verbatim" and v.role == "user"
+    assert v.raw == "user: I adopted a cat yesterday", "case and spacing come from the turn"
+
+
+def test_verify_raw_fixes_a_wrong_role_prefix():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "begin with task 0"},
+             {"role": "assistant", "content": "E2 started 2026-10-13 evening. Branch paper-runs."}]
+    v = verify_raw("E2 started.", "user: E2 started 2026-10-13 evening.", turns)
+    assert v.how == "role" and v.role == "assistant"
+    assert v.raw == "assistant: E2 started 2026-10-13 evening."
+
+
+def test_verify_raw_extends_a_cut_excerpt_to_the_end_of_its_sentence():
+    from mnimi.extract.verify import verify_raw
+
+    # Issue 4: the grammar rescan after an unescaped backslash cut the excerpt and closed it.
+    text = ("E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\mnimi-paper "
+            "(paper-v1 = 21239e2), branch paper-runs. Rule commit e184ed9.")
+    turns = [{"role": "user", "content": "begin"}, {"role": "assistant", "content": text}]
+    v = verify_raw("Worktree D:\\\\", "user: E2 started 2026-10-13 evening. Worktree D:\\\\", turns)
+    assert v.how == "prefix" and v.role == "assistant"
+    assert v.raw == ("assistant: E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\\"
+                     "mnimi-paper (paper-v1 = 21239e2), branch paper-runs.")
+    # Issue 2: the 300-cap squeezed the tail into CJK; the prefix walk restores the sentence.
+    text2 = "The finding in two sentences (44 of 69 judge-stable misses are retrieval-bound), done."
+    turns2 = [{"role": "assistant", "content": text2}]
+    v2 = verify_raw("x", "assistant: the finding in two sentences (44 of 69 judge-stable misses are检索-1", turns2)
+    assert v2.how == "prefix" and v2.raw == "assistant: " + text2
+
+
+def test_verify_raw_treats_slash_and_backslash_as_one_character():
+    from mnimi.extract.verify import verify_raw
+
+    # The pre-escape wrapper shows the model "/" where the turn has "\"; the excerpt still
+    # verifies, and the returned bytes are the turn's (backslashes restored).
+    turns = [{"role": "assistant", "content": "Worktree D:\Projects\mnimi-paper is ready."}]
+    v = verify_raw("x", "assistant: Worktree D:/Projects/mnimi-paper is ready.", turns)
+    assert v.how == "verbatim" and v.raw == "assistant: Worktree D:\Projects\mnimi-paper is ready."
+
+
+def test_verify_raw_falls_back_to_the_best_overlapping_sentence():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "Hi there. I live in Boston with two cats. Thanks!"},
+             {"role": "assistant", "content": "Boston is lovely."}]
+    v = verify_raw("The user lives in Boston with two cats.", "user: user lives Boston two cats", turns)
+    assert v.how == "overlap" and v.role == "user"
+    assert v.raw == "user: I live in Boston with two cats."
+
+
+def test_verify_raw_empty_body_never_verifies():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "I live in Boston."}]
+    assert verify_raw("The user lives in Boston.", "user: ", turns).how == "overlap"
+    assert verify_raw("The user lives in Boston.", "", turns).how == "overlap"
+    kept = verify_raw("Nothing in common here.", "", [{"role": "user", "content": "zzz qqq"}])
+    assert kept.how == "kept" and kept.raw == "" and kept.role is None
+
+
+def test_verify_raw_scans_every_turn_of_a_role():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user", "content": "First message."},
+             {"role": "user", "content": "I adopted a cat."},
+             {"role": "assistant", "content": "Lovely."}]
+    v = verify_raw("The user adopted a cat.", "assistant: I adopted a cat.", turns)
+    assert v.how == "role" and v.role == "user" and v.raw == "user: I adopted a cat."
+
+
+def test_sentences_split_on_terminators_and_newlines():
+    from mnimi.extract.verify import sentences
+
+    assert sentences("A one. B two!\nC three? D") == ["A one.", "B two!", "C three?", "D"]
+    assert sentences("  \n") == []
