@@ -1,5 +1,6 @@
-"""The paper freeze (Phase 7 D1; the guard PHASE8 D4): the library the paper describes is
-``paper-v1``'s, which is v2.14.0's, byte for byte.
+"""The library freeze (Phase 7 D1; the guard PHASE8 D4; lifted for the developer release in
+DECISIONS 2026-10-14 "TESTFIXESPT1"): a run of record uses the committed library, whose digest is
+pinned in ``evals.freeze`` under the era ``FREEZE_NAME``. The paper's library is tag ``paper-v1``.
 
 A digest over every file under ``src/mnimi``, taken over LF-normalised bytes so a
 Windows checkout with ``core.autocrlf`` and CI's Linux checkout agree, pinned in
@@ -14,9 +15,9 @@ from evals.freeze import LIBRARY_FREEZE_SHA256, library_digest
 
 def test_the_library_is_frozen_for_the_paper():
     assert library_digest() == LIBRARY_FREEZE_SHA256, (
-        "src/mnimi differs from the paper freeze (paper-v1). The paper describes that library; "
-        "lift the freeze with a DECISIONS entry and a new digest, never by editing the "
-        "constant alone."
+        "src/mnimi differs from the committed freeze (FREEZE_NAME). Recompute "
+        "LIBRARY_FREEZE_SHA256 in the commit that edits the library, with a DECISIONS entry "
+        "for the era."
     )
 
 
@@ -34,7 +35,7 @@ def test_check_names_a_changed_library(tmp_path, monkeypatch):
     (tmp_path / "src" / "mnimi" / "x.py").write_bytes(b"x = 1\n")
     monkeypatch.setattr("evals.manifest.git_status_porcelain", lambda: "")
     reasons = freeze.check(tmp_path)
-    assert len(reasons) == 1 and "differs from the paper freeze (paper-v1)" in reasons[0]
+    assert len(reasons) == 1 and "differs from the paper freeze (v3.0.0-dev)" in reasons[0]
 
 
 def test_check_names_a_dirty_tree(monkeypatch):

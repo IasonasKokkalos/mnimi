@@ -18,7 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 #: sha256 over src/mnimi at v2.14.0 (e015931), set in PHASE7 Task 1 Step 4.
 LIBRARY_FREEZE_SHA256 = "172457a3fd7da3bd2fdaa0cce880d30933fa84b830e6f97a205939299797c259"
 #: The tag whose src/mnimi the digest pins (PHASE8 Task 17); v2.14.0's bytes, unchanged.
-FREEZE_NAME = "paper-v1"
+#: The era this digest names. "paper-v1" is the paper's library (tag paper-v1 = 21239e2);
+#: "v3.0.0-dev" is release/v3 after TESTFIXESPT1 (DECISIONS 2026-10-14) — every commit that
+#: edits src/mnimi recomputes the constant above in the same commit.
+FREEZE_NAME = "v3.0.0-dev"
 
 
 def library_digest(root: Path = ROOT) -> str:
