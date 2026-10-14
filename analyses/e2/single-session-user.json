@@ -1,0 +1,59 @@
+{
+  "analysis_schema": "mnimi-paired-analysis/1",
+  "b_second_wins": 12,
+  "c_first_wins": 11,
+  "category": "single-session-user",
+  "discordant": 23,
+  "first": {
+    "artifact_schema": "mnimi-eval-artifact/12",
+    "correct": 50,
+    "harness_git_sha": "3fc1ebc61eb87059b13e14fbbc95b5d216dc16bc",
+    "n": 70,
+    "pins_hash": "5240fe76ff6e1abc1dd8eccce149b5b7a3ad7bd2bcb9334516825cb2638f0a22",
+    "run_id": "naive_rag__500q_q15b"
+  },
+  "first_wins_ids": [
+    "15745da0_abs",
+    "29f2956b_abs",
+    "3d86fd0a",
+    "58bf7951",
+    "6ade9755",
+    "76d63226",
+    "86b68151",
+    "bc8a6e93_abs",
+    "ccb36322",
+    "ec81a493",
+    "f4f1d8a4_abs"
+  ],
+  "harness_notes": {
+    "harness_git_sha": {
+      "first": "3fc1ebc61eb87059b13e14fbbc95b5d216dc16bc",
+      "second": "8859eb6150a9adc71d4925b4234eba2bb5cd8391"
+    }
+  },
+  "n_pairs": 70,
+  "p_exact_mcnemar": 0.9999999999999999,
+  "second": {
+    "artifact_schema": "mnimi-eval-artifact/12",
+    "correct": 51,
+    "harness_git_sha": "8859eb6150a9adc71d4925b4234eba2bb5cd8391",
+    "n": 70,
+    "pins_hash": "ef36b606190064f0b6fb57fcabfc81840906d43f05c4c8ddbbba57935681b5d2",
+    "run_id": "mnimi__500q_q15b"
+  },
+  "second_wins_ids": [
+    "0862e8bf",
+    "118b2229",
+    "15745da0",
+    "19b5f2b3",
+    "6b168ec8",
+    "8a137a7f",
+    "a82c026e",
+    "b86304ba",
+    "c14c00dd",
+    "d52b4f67",
+    "e01b8e2f",
+    "e47becba"
+  ],
+  "source": "per-question verdicts (predictions.jsonl first verdict, else results.json rows)"
+}

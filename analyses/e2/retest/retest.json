@@ -1,0 +1,47 @@
+{
+  "analysis_schema": "mnimi-judge-retest/1",
+  "arms": {
+    "mnimi__500q_q15b": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 1,
+      "flips_to_wrong": 1,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.004,
+      "rate_high": 0.01446571521517703,
+      "rate_low": 0.0010976305226827908,
+      "replays": 1,
+      "run_id": "mnimi__500q_q15b",
+      "score_by_grading": [
+        229,
+        229
+      ],
+      "unstable": 2,
+      "unstable_ids": [
+        "9ee3ecd6",
+        "a1eacc2a"
+      ]
+    },
+    "oracle__500q_q15b": {
+      "analysis_schema": "mnimi-judge-retest/1",
+      "flips_to_right": 1,
+      "flips_to_wrong": 0,
+      "judge_model": "gpt-4o-2024-08-06",
+      "n": 500,
+      "rate": 0.002,
+      "rate_high": 0.011240706705146753,
+      "rate_low": 0.00035313639455927543,
+      "replays": 1,
+      "run_id": "oracle__500q_q15b",
+      "score_by_grading": [
+        225,
+        226
+      ],
+      "unstable": 1,
+      "unstable_ids": [
+        "d24813b1"
+      ]
+    }
+  },
+  "judge_model": "gpt-4o-2024-08-06"
+}

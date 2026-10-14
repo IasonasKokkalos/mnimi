@@ -1,0 +1,25 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "naive_rag",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "ollama",
+    "--model",
+    "qwen2.5:1.5b-instruct-q4_0",
+    "--num-ctx",
+    "32768",
+    "--purpose",
+    "E2 arm 2 of 4: the strong K=V baseline under the local 1.5B reader on all 500 questions; the primary's other side (F1 per reader)",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "e184ed9",
+    "--run-dir",
+    "runs/naive_rag__500q_q15b"
+  ]
+}
