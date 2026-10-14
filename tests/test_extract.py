@@ -798,8 +798,8 @@ def test_splitting_wrapper_also_splits_when_the_whole_round_extracts_nothing():
 
     turns = [{"role": "user", "content": "Q?"},
              {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}]
-    # A clean [] on a long round is the prompt's assistant rule firing, not a fit (run 3, 2026-10-14:
-    # the "keep monitoring" round lost its 8 facts that way); the sub-rounds get their chance.
+    # A clean [] on a long round is the prompt's assistant rule firing, not a fit (run 3,
+    # 2026-10-14: the "keep monitoring" round lost its 8 facts that way); the sub-rounds run.
     inner = _Recording([
         ExtractionResult(facts=[], truncated=False, raw_output="[]"),
         ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
@@ -812,4 +812,5 @@ def test_splitting_wrapper_also_splits_when_the_whole_round_extracts_nothing():
     # A short round that extracts nothing is left alone: one call.
     inner = _Recording([ExtractionResult(facts=[], truncated=False, raw_output="[]")])
     short = [{"role": "user", "content": "hi"}]
-    assert SplittingExtractor(inner, max_chars=12).extract(short).facts == [] and len(inner.seen) == 1
+    assert SplittingExtractor(inner, max_chars=12).extract(short).facts == []
+    assert len(inner.seen) == 1
