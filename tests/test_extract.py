@@ -613,28 +613,6 @@ def test_split_text_hard_cuts_an_oversize_sentence():
     assert split_text("abcdefghij", 4) == ["abcd", "efgh", "ij"], "no whitespace: cut at the budget"
 
 
-def test_splitting_wrapper_calls_the_inner_once_per_sub_round_and_merges_facts():
-    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
-    from mnimi.extract.wrappers import SplittingExtractor
-
-    def f(s):
-        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
-
-    inner = _Recording([
-        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
-        ExtractionResult(facts=[], truncated=True, raw_output="[b"),
-        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
-    ])
-    w = SplittingExtractor(inner, max_chars=12)
-    r = w.extract([{"role": "user", "content": "Q?"},
-                   {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}])
-    assert [[t["content"] for t in s] for s in inner.seen] == [
-        ["Q?", "Aaaa aaaa."], ["Bbbb bbbb."], ["Cccc cccc."]
-    ]
-    assert [x.content for x in r.facts] == ["A.", "C."], "a truncated sub-round loses only itself"
-    assert r.truncated is True and r.raw_output == "[a]\n[b\n[c]" and w.sub_rounds == 3
-
-
 def test_splitting_wrapper_is_a_plain_call_when_nothing_exceeds_the_budget():
     from mnimi.extract.wrappers import SplittingExtractor
 
@@ -697,9 +675,9 @@ def test_resolver_v3_weekday_beside_a_numeric_date(mention, ts, expected):
 def test_resolver_v3_weekday_numeric_falls_through_when_no_reading_matches():
     from mnimi.extract import resolver
 
-    # 2025-10-21 is a Tuesday, 2026-10-21 a Wednesday, 2027-10-21 a Thursday; "21-10" is
-    # no date in any year. The nearest year whose weekday fits is 2025.
-    assert resolver.resolve("Tuesday 10-21", "2026-10-12T00:00:00") == "2025-10-21"
+    # 2025-10-21 is a Tuesday but a year away (outside the half-year window); 2026-10-21 is a
+    # Wednesday; "21-10" is no date. Today's rules take over: the most recent Tuesday.
+    assert resolver.resolve("Tuesday 10-21", "2026-10-12T00:00:00") == "2026-10-06"
     # Neither reading is a date and no year fits: today's rules take over ("on Tuesday").
     assert resolver.resolve("on Tuesday 13-13", "2026-10-12T00:00:00") == "2026-10-06"
 
@@ -709,3 +687,103 @@ def test_resolver_version_is_v3_and_v2_markers_are_unchanged():
 
     assert resolver.RESOLVER_VERSION == "v3"
     assert resolver.FUTURE_MARKERS[0] == "next" and resolver.PAST_MARKERS[0] == "last"
+
+
+# --- TESTFIXESPT1 review fix pass (2026-10-14) ---
+
+
+def test_verify_raw_caps_a_grown_excerpt_at_the_schema_limit():
+    from mnimi.extract.schema import MAX_TEXT_CHARS
+    from mnimi.extract.verify import verify_raw
+
+    turn = ("alpha beta gamma delta epsilon " * 30).strip() + " end"  # one unpunctuated run
+    v = verify_raw("x", "assistant: alpha beta gamma delta epsilon alpha 检索-1",
+                   [{"role": "assistant", "content": turn}])
+    assert v.how == "prefix"
+    assert len(v.raw) <= len("assistant: ") + MAX_TEXT_CHARS
+    assert not v.raw.endswith(" ") and v.raw.startswith("assistant: alpha beta")
+
+
+def test_verify_raw_knows_cjk_sentence_ends():
+    from mnimi.extract.verify import sentences, verify_raw
+
+    assert sentences("我喜欢猫。我住在北京！好吗？") == ["我喜欢猫。", "我住在北京！", "好吗？"]
+    v = verify_raw("我住在北京", "", [{"role": "user", "content": "我喜欢猫。我住在北京。"}])
+    assert v.how == "overlap" and v.raw == "user: 我住在北京。"
+
+
+def test_verify_raw_stops_at_the_terminator_the_prefix_ends_on():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "assistant", "content": "Alpha beta gamma delta epsilon. Zeta eta theta."}]
+    v = verify_raw("x", "assistant: Alpha beta gamma delta epsilon. 检索", turns)
+    assert v.how == "prefix" and v.raw == "assistant: Alpha beta gamma delta epsilon."
+
+
+def test_verify_raw_prefers_the_claimed_role_and_anchors_on_word_boundaries():
+    from mnimi.extract.verify import verify_raw
+
+    turns = [{"role": "user",
+              "content": "I'm flying to Paris on Friday. Yesterday was long."},
+             {"role": "assistant", "content": "flying to Paris on Friday, noted."}]
+    v = verify_raw("x", "assistant: flying to Paris on Friday", turns)
+    assert v.how == "verbatim" and v.role == "assistant"
+    v2 = verify_raw("x", "assistant: Yes", turns)  # "Yes" is inside "Yesterday", not a word
+    assert v2.how == "kept" and v2.raw == "assistant: Yes"
+
+
+def test_verify_raw_overlap_needs_more_than_a_stopword():
+    from mnimi.extract.verify import verify_raw
+
+    v = verify_raw("The user owns a cat.", "user: I have a kitty",
+                   [{"role": "user", "content": "The weather is bad."}])
+    assert v.how == "kept" and v.raw == "user: I have a kitty"
+
+
+@pytest.mark.parametrize(
+    "mention, ts, expected",
+    [
+        ("on Friday 9-5", "2026-10-14T00:00:00", "2026-10-09"),      # a time range: "on Friday"
+        ("Monday 1-2 pm", "2026-10-14T00:00:00", "2026-10-12"),      # a time range: bare weekday
+        ("Tuesday 10-21", "2026-10-12T00:00:00", "2026-10-06"),      # no reading within half a year
+    ],
+)
+def test_resolver_v3_only_dates_within_half_a_year(mention, ts, expected):
+    from mnimi.extract import resolver
+
+    assert resolver.resolve(mention, ts) == expected
+
+
+def test_splitting_wrapper_splits_only_when_the_whole_round_overflows():
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+    from mnimi.extract.wrappers import SplittingExtractor
+
+    def f(s):
+        return ExtractedFact(s, "assistant: " + s, None, None, None, None, 0.5)
+
+    turns = [{"role": "user", "content": "Q?"},
+             {"role": "assistant", "content": "Aaaa aaaa. Bbbb bbbb. Cccc cccc."}]
+    # The whole round extracts cleanly: one call, no split, its facts.
+    inner = _Recording([ExtractionResult(facts=[f("Whole.")], truncated=False, raw_output="[w]")])
+    r = SplittingExtractor(inner, max_chars=12).extract(turns)
+    assert [x.content for x in r.facts] == ["Whole."] and inner.seen == [turns]
+    # The whole round is truncated: the sub-rounds run and their facts are used.
+    inner = _Recording([
+        ExtractionResult(facts=[], truncated=True, raw_output="[w"),
+        ExtractionResult(facts=[f("A.")], truncated=False, raw_output="[a]"),
+        ExtractionResult(facts=[], truncated=True, raw_output="[b"),
+        ExtractionResult(facts=[f("C.")], truncated=False, raw_output="[c]"),
+    ])
+    w = SplittingExtractor(inner, max_chars=12)
+    r = w.extract(turns)
+    assert [[t["content"] for t in s] for s in inner.seen] == [
+        ["Q?", "Aaaa aaaa. Bbbb bbbb. Cccc cccc."], ["Q?", "Aaaa aaaa."], ["Bbbb bbbb."],
+        ["Cccc cccc."],
+    ]
+    assert [x.content for x in r.facts] == ["A.", "C."] and w.sub_rounds == 3
+    # The whole round hit MAX_FACTS: split, and keep whichever reading has more facts.
+    eight = ExtractionResult(facts=[f(str(i)) for i in range(8)], truncated=False, raw_output="[8]")
+    one = ExtractionResult(facts=[f("only")], truncated=False, raw_output="[1]")
+    inner = _Recording([eight, one])
+    r = SplittingExtractor(inner, max_chars=12).extract(turns)
+    assert len(r.facts) == 8, "a split that yields fewer facts than the whole round loses"

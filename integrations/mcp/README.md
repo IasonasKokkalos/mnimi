@@ -55,7 +55,7 @@ nothing.
 | --- | --- | --- | --- |
 | `MNIMI_DB` | a path | **required** | the SQLite store; created with its `memory_meta` on first use |
 | `MNIMI_USER_ID` | a string | `me` | the `user_id` every record is stored and recalled under |
-| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`; the output budget doubled 2026-10-14 for dense turns); `gpu` = the paper's pin (CUDA build); `none` = rounds only, no fact records |
+| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`; the output budget doubled 2026-10-14 for dense turns); `gpu` = the paper's pin (CUDA build); `none` = no model: rounds only, plus the facts you pass to `remember` |
 | `MNIMI_EMBEDDER` | `bge` · `hashing` | `bge` | `bge` = `BAAI/bge-small-en-v1.5` (the real one); `hashing` = numpy only, for tests |
 | `MNIMI_SPLIT_CHARS` | an integer | `600` | turns longer than this are cut at sentence boundaries into sub-rounds for the extractor, so a long answer is not lost to the model's output budget; `0` = off |
 
@@ -66,7 +66,9 @@ a fresh file or use the pins the store was built with. A model that cannot load
 (`MNIMI_EXTRACTOR=gpu` on a CPU build) and a bad setting come back the same way. A store
 written before mnimi 3.1.0's `resolver_version = "v3"` (the 2026-10-14 test-week fixes), or a
 `MNIMI_EXTRACTOR=none` store from before client facts, is refused the same way: point `MNIMI_DB`
-at a fresh file and re-`remember` the rounds (the extraction cache replays what it has).
+at a fresh file and re-`remember` the rounds (the extraction cache replays what it has). A
+`none` store of this server carries the `client-facts` pins; `examples/chat.py --extractor none`
+builds a store with no extractor at all, so the two are not interchangeable.
 
 ## Tools
 

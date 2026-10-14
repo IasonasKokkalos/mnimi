@@ -11,9 +11,12 @@ the model is shown (the escape, the split) or whether it is called at all (clien
   turn's bytes in ``raw`` (``/`` and ``\\`` are one character there). ``content`` keeps ``/``.
 * :class:`SplittingExtractor` — the output budget (``max_tokens`` 1024 ≈ 5,600 chars of JSON)
   and ``MAX_FACTS`` 8 are per call; a long round was cut mid-fact and the strict parser dropped
-  every fact (1 of 9 live rounds; 312 of 95,846 cached). Turns longer than ``max_chars`` are cut
-  at sentence boundaries and the inner is called once per sub-round; a truncated sub-round
-  loses only its own facts.
+  every fact (1 of 9 live rounds; 312 of 95,846 cached). The whole round is extracted first;
+  only when that output was truncated or reached ``MAX_FACTS`` are turns longer than
+  ``max_chars`` cut at sentence boundaries and the inner called once per sub-round, and the
+  reading with more facts is kept (an assistant-only sub-round often extracts to ``[]`` under
+  the prompt's assistant rule — measured 2026-10-14: 8 facts → 1 when a round was always split).
+  A truncated sub-round loses only its own facts; a clean whole round keeps its cache key.
 * :class:`ClientFactsExtractor` — the calling model supplies the facts for the next round
   (the MCP server's ``remember(..., facts=)``); they go through the same resolver, screens and
   conflict pass as the model's, and the inner is not called for that round.
@@ -24,6 +27,7 @@ from __future__ import annotations
 import json
 
 from .protocol import ExtractedFact, ExtractionResult, sha256_text
+from .schema import MAX_FACTS
 from .verify import sentences, verify_raw
 
 DEFAULT_SPLIT_CHARS = 600
@@ -107,8 +111,11 @@ class SplittingExtractor:
 
     def extract(self, turns: list[dict]) -> ExtractionResult:
         per_turn = [split_text(str(t.get("content", "")), self.max_chars) for t in turns]
+        whole = self.inner.extract(turns)
         if max((len(c) for c in per_turn), default=0) <= 1:
-            return self.inner.extract(turns)
+            return whole
+        if not whole.truncated and len(whole.facts) < MAX_FACTS:
+            return whole  # the whole round fit: nothing to split
         facts: list[ExtractedFact] = []
         outputs: list[str] = []
         truncated = truncated_input = False
@@ -123,12 +130,19 @@ class SplittingExtractor:
             outputs.append(result.raw_output)
             truncated = truncated or bool(result.truncated)
             truncated_input = truncated_input or bool(getattr(result, "truncated_input", False))
+        if len(facts) <= len(whole.facts):
+            return whole  # the split read fewer facts than the whole round: keep the round's
         return ExtractionResult(facts=facts, truncated=truncated, raw_output="\n".join(outputs),
                                 truncated_input=truncated_input)
 
 
 class ClientFactsExtractor:
-    """Facts queued by the caller for the next round; otherwise the inner, or nothing."""
+    """Facts queued by the caller for the next round; otherwise the inner, or nothing.
+
+    ``provide`` queues for the NEXT ``extract`` call only. A caller that then hands ``add`` a
+    round the pre-filter skips, or several rounds, must clear ``pending`` itself afterwards
+    (the MCP server does, under its lock); otherwise the queue reaches a later round.
+    """
 
     def __init__(self, inner=None) -> None:
         self.inner = inner

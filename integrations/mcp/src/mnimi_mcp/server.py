@@ -117,9 +117,12 @@ def settings() -> Settings:
     raw_split = os.environ.get("MNIMI_SPLIT_CHARS", str(DEFAULT_SPLIT_CHARS)).strip()
     try:
         split_chars = int(raw_split)
+        if split_chars < 0:
+            raise ValueError
     except ValueError:
         raise ValueError(
-            "mnimi-mcp: MNIMI_SPLIT_CHARS must be an integer number of characters (0 = off), "
+            "mnimi-mcp: MNIMI_SPLIT_CHARS must be a non-negative integer number of characters "
+            "(0 = off), "
             f"got {raw_split!r}"
         ) from None
     return Settings(
@@ -295,6 +298,8 @@ def remember(
     session timestamp the turns were stamped with, and how many facts you supplied."""
     ts = session_ts()
     if facts:
+        if any(not f.content.strip() for f in facts):
+            raise ToolError("a fact's content must not be blank")
         roles = [m.role for m in messages]
         if roles not in (["user"], ["user", "assistant"]):
             raise ToolError(

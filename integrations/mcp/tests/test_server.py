@@ -350,3 +350,22 @@ def test_the_cpu_profile_raises_the_output_budget_and_leaves_the_papers_decode_a
     from mnimi.extract.llama import DECODE
     assert server.CPU_DECODE["max_tokens"] == 2048 and server.CPU_DECODE["n_gpu_layers"] == 0
     assert DECODE["max_tokens"] == 1024
+
+
+def test_split_chars_rejects_a_negative_value(monkeypatch, tmp_path):
+    monkeypatch.setenv("MNIMI_DB", str(tmp_path / "a.db"))
+    monkeypatch.setenv("MNIMI_EXTRACTOR", "none")
+    monkeypatch.setenv("MNIMI_EMBEDDER", "hashing")
+    monkeypatch.setenv("MNIMI_SPLIT_CHARS", "-1")
+    with pytest.raises(ValueError, match="MNIMI_SPLIT_CHARS"):
+        server.settings()
+
+
+def test_remember_refuses_a_whitespace_only_fact(env):
+    async def call():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("remember", {
+                "messages": [{"role": "user", "content": "I live in Boston."}],
+                "facts": [{"content": "   "}]})
+    result = run(call())
+    assert result.is_error and "content" in result.content[0].text

@@ -35,7 +35,7 @@ def test_check_names_a_changed_library(tmp_path, monkeypatch):
     (tmp_path / "src" / "mnimi" / "x.py").write_bytes(b"x = 1\n")
     monkeypatch.setattr("evals.manifest.git_status_porcelain", lambda: "")
     reasons = freeze.check(tmp_path)
-    assert len(reasons) == 1 and "differs from the paper freeze (v3.0.0-dev)" in reasons[0]
+    assert len(reasons) == 1 and "differs from the committed freeze (v3.0.0-dev)" in reasons[0]
 
 
 def test_check_names_a_dirty_tree(monkeypatch):

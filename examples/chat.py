@@ -38,9 +38,10 @@ Backend = Callable[[str, str], str]
 #: runs and ``flash_attn=True`` holds (``llama_context: flash_attn = enabled``), so this one key
 #: is the whole difference. It yields its own ``extractor_decode_hash``, so a CPU store is its
 #: own configuration: the ``memory_meta`` guard refuses it under the GPU pins and vice versa.
-# max_tokens doubled 2026-10-14 (TESTFIXESPT1 Task 6): a 600-char sub-round of numeric-dense text
-# still filled the paper's 1,024-token budget (2,083 chars of JSON, cut inside a slot). The CPU
-# profile has its own decode hash and its own cache; the paper's DECODE never moves.
+# Two keys differ from the paper's DECODE: n_gpu_layers 0 (the recipe, measured 2026-10-10)
+# and max_tokens, doubled 2026-10-14 (TESTFIXESPT1 Task 6) because a 600-char sub-round of
+# numeric-dense text still filled the 1,024-token budget (2,083 chars of JSON, cut inside a
+# slot). The CPU profile has its own decode hash and its own cache; DECODE never moves.
 CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}
 
 #: ``cpu`` is the default since T5 measured it; ``none`` is the v1 write path (rounds only).
