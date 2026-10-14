@@ -4397,3 +4397,5 @@ verification, wired into `round_pieces`, with `when` verified against the fact's
 The prompt, the schema, the grammar and the paper's `DECODE` do not move, so the extraction
 cache replays every unsplit round. Not done, by decision: cross-key supersession (issue 7) —
 noted in the issues doc.
+
+**Addendum (2026-10-14, Task 6 read).** The split alone was not enough on numeric-dense text: a 600-char sub-round still filled the 1,024-token budget (2,083 chars of JSON, cut inside a slot). The CPU profile's `max_tokens` is 2048 from this commit — `CPU_DECODE = {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}` in `mnimi-mcp` and `examples/chat.py`, hash `6a813662b070…`, its own cache file — and the paper's `DECODE` is unchanged. The 10 live rounds re-ingested under it: 31 facts, 0 truncated outputs (run 1 at 1,024: 26 facts, 1 truncated). `tests/test_cpu_profile.py` pins the new hash and the two differing keys.

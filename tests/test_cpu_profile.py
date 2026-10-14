@@ -7,7 +7,10 @@ the CPU is a different, self-identifying configuration: the ``memory_meta`` guar
 refuses to open it under the GPU pins and vice versa. Measured 2026-10-10 on an
 AMD Ryzen 7 PRO 8845HS with the CPU wheel of llama-cpp-python 0.3.35:
 ``flash_attn=True`` holds on the CPU build (``llama_context: flash_attn = enabled``),
-so exactly one key differs from ``DECODE``.
+so exactly one key differed from ``DECODE`` at the measurement. Since 2026-10-14
+(TESTFIXESPT1 Task 6) a second key differs: ``max_tokens`` 2048, because a 600-char
+sub-round of numeric-dense text still filled the 1,024-token budget; the CPU profile
+carries its own hash and cache, and the paper's ``DECODE`` is unchanged.
 """
 
 from __future__ import annotations
@@ -25,7 +28,8 @@ from mnimi.store import MemoryMetaError
 
 #: The two hashes as measured (DECODE's is the paper's pin; the CPU one is the recipe's).
 GPU_DECODE_HASH = "ba1a81ab349dd09ed5fb77d49b4d44e4a2835b8e05a7873808883999171b8241"
-CPU_DECODE_HASH = "40552b1e3de03253781d8a48abfcfd7111b355da6c568ccfe5919075e92f6d65"
+# max_tokens 2048 since 2026-10-14 (TESTFIXESPT1 Task 6).
+CPU_DECODE_HASH = "6a813662b07025826f8d7b303e648ea58d0df698085b8197bebca062fe835131"
 
 
 @pytest.fixture(scope="module")
@@ -50,10 +54,10 @@ class _PinnedExtractor(RuleExtractor):
         return {**super().pins, "extractor_decode_hash": self._decode_hash}
 
 
-def test_cpu_decode_changes_exactly_one_key_of_the_pinned_decode(chat):
-    assert chat.CPU_DECODE == {**DECODE, "n_gpu_layers": 0}
+def test_cpu_decode_changes_exactly_two_keys_of_the_pinned_decode(chat):
+    assert chat.CPU_DECODE == {**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}
     changed = {k for k in DECODE if chat.CPU_DECODE[k] != DECODE[k]}
-    assert changed == {"n_gpu_layers"}, "flash_attn held on the CPU build (measured)"
+    assert changed == {"n_gpu_layers", "max_tokens"}, "flash_attn held on the CPU build (measured)"
     assert chat.CPU_DECODE["flash_attn"] is True
 
 
