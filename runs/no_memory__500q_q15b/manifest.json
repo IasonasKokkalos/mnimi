@@ -51,19 +51,19 @@
     "gpu_rental_h": null,
     "gpu_rental_usd": null,
     "ingest_s": 0.1,
-    "judge_completion_tokens": null,
-    "judge_prompt_tokens": null,
-    "judge_usd": null,
-    "judge_wall_s": null,
+    "judge_completion_tokens": 708,
+    "judge_prompt_tokens": 103341,
+    "judge_usd": 0.26543249999999996,
+    "judge_wall_s": 299.5,
     "llm_calls_at_write": 0,
     "predict_wall_s": 514.0,
     "prefilter_drops": 0,
     "reader_completion_tokens": 0,
     "reader_prompt_tokens": 0,
     "reader_usd": 0.0,
-    "tokens_in": null,
-    "tokens_out": null,
-    "wall_clock_s": null
+    "tokens_in": 103341,
+    "tokens_out": 708,
+    "wall_clock_s": 813.5
   },
   "created_utc": "2026-10-13T23:57:25Z",
   "dataset": {
@@ -77,37 +77,11 @@
   },
   "environment": {
     "daemon_flags": {
-      "flash_attention_reported": "Flash Attention enabled",
-      "kv_cache_type": "OLLAMA_KV_CACHE_TYPE=unset (build default) (from daemon config; not stated in load log)",
-      "ollama_env_daemon": {
-        "OLLAMA_CONTEXT_LENGTH": "0",
-        "OLLAMA_DEBUG": "INFO",
-        "OLLAMA_DEBUG_LOG_REQUESTS": "false",
-        "OLLAMA_EDITOR": "",
-        "OLLAMA_FLASH_ATTENTION": "true",
-        "OLLAMA_GO_TEMPLATE": "true",
-        "OLLAMA_GPU_OVERHEAD": "0",
-        "OLLAMA_HOST": "http://127.0.0.1:11434",
-        "OLLAMA_IGPU_ENABLE": "",
-        "OLLAMA_KEEP_ALIVE": "5m0s",
-        "OLLAMA_KV_CACHE_TYPE": "",
-        "OLLAMA_LLM_LIBRARY": "",
-        "OLLAMA_LOAD_TIMEOUT": "5m0s",
-        "OLLAMA_MAX_LOADED_MODELS": "0",
-        "OLLAMA_MAX_QUEUE": "512",
-        "OLLAMA_MAX_TRANSFER_STREAMS": "4",
-        "OLLAMA_MODELS": "D:\\ollama-models",
-        "OLLAMA_NOHISTORY": "false",
-        "OLLAMA_NOPRUNE": "false",
-        "OLLAMA_NO_CLOUD": "false",
-        "OLLAMA_NUM_PARALLEL": "1",
-        "OLLAMA_ORIGINS": "[http://localhost",
-        "OLLAMA_REMOTES": "[ollama.com]",
-        "OLLAMA_SCHED_SPREAD": "false",
-        "OLLAMA_VULKAN": "true"
-      },
+      "flash_attention_reported": null,
+      "kv_cache_type": null,
+      "ollama_env_daemon": {},
       "ollama_version": "0.32.13",
-      "prompt_cache_reported": "prompt cache disabled",
+      "prompt_cache_reported": null,
       "reader_num_batch": 512,
       "reader_num_gpu": 99,
       "reader_num_thread": 8
@@ -141,30 +115,25 @@
     "temporal_rules_hash": null
   },
   "judge": {
-    "max_tokens": null,
-    "model": null,
-    "prompt_hash": null,
-    "prompt_id": null,
-    "prompt_source": null,
-    "replay_count": null,
-    "temperature": null
+    "max_tokens": 10,
+    "model": "gpt-4o-2024-08-06",
+    "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+    "prompt_id": "longmemeval-paper-v3",
+    "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
+    "replay_count": 0,
+    "temperature": 0
   },
   "manifest_schema": "mnimi-run-manifest/2",
-  "missing_fields": [
-    "judge.model",
-    "judge.prompt_source",
-    "judge.replay_count",
-    "cost.judge_usd",
-    "cost.tokens_in",
-    "cost.tokens_out",
-    "cost.wall_clock_s"
-  ],
+  "missing_fields": [],
   "outputs": {
+    "judge_replays": [],
     "pins": "pins.json",
-    "predictions": "predictions.jsonl"
+    "predictions": "predictions.jsonl",
+    "results": "results.json",
+    "summary": "summary.json"
   },
   "provisional_reasons": [],
-  "purpose": "E2 arm 4 of 4: the no-memory floor under the local 1.5B reader on all 500 questions",
+  "purpose": "E2: first grading of the no_memory 1.5B arm (gpt-4o judge, cache on)",
   "reader": {
     "max_tokens": 800,
     "num_ctx": 32768,
@@ -182,7 +151,7 @@
   },
   "rule_commit": "e184ed9",
   "run_id": "no_memory__500q_q15b",
-  "status": "incomplete",
+  "status": "complete",
   "unknown_fields": [],
-  "updated_utc": "2026-10-13T23:57:25Z"
+  "updated_utc": "2026-10-14T00:03:24Z"
 }
