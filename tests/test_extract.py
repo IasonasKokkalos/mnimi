@@ -497,3 +497,73 @@ def test_sentences_split_on_terminators_and_newlines():
 
     assert sentences("A one. B two!\nC three? D") == ["A one.", "B two!", "C three?", "D"]
     assert sentences("  \n") == []
+
+
+# --- TESTFIXESPT1 Task 2: round_pieces stores the verified excerpt; when is per turn ---
+
+
+def _pieces_for(turn_texts: list[tuple[str, str]], facts: list, ts: str = "2026-10-12T00:00:00"):
+    from mnimi import MemoryConfig
+    from mnimi.embeddings import HashingEmbedder
+    from mnimi.extract.protocol import ExtractionResult
+    from mnimi.memory import _messages_to_rounds, new_extraction_stats, round_pieces
+
+    class Fixed:
+        pins = fake.RuleExtractor().pins
+
+        def extract(self, turns):
+            return ExtractionResult(facts=facts, truncated=False, raw_output="[]")
+
+    (round_,) = _messages_to_rounds(
+        [{"role": r, "content": c, "ts": ts} for r, c in turn_texts]
+    )
+    stats = new_extraction_stats()
+    pieces = round_pieces(round_, HashingEmbedder(), MemoryConfig(), Fixed(), stats=stats)
+    return [p for p in pieces if p.kind == "fact"], stats
+
+
+def test_round_pieces_store_the_verified_excerpt_and_count_the_repair():
+    from mnimi.extract.protocol import ExtractedFact
+
+    assistant = ("E2 started 2026-10-13 evening. Worktree D:\Projects\mnimi-paper "
+                 "(paper-v1 = 21239e2), branch paper-runs.")
+    facts, stats = _pieces_for(
+        [("user", "begin with task 0"), ("assistant", assistant)],
+        [ExtractedFact("Worktree D:\\\\", "user: E2 started 2026-10-13 evening. Worktree D:\\\\",
+                       None, "E2", "worktree", "D:\\\\", 1.0)],
+    )
+    (fact,) = facts
+    assert fact.raw == "assistant: " + assistant
+    assert fact.content == f"{fact.raw}\n{fact.fact}", "the embed text carries the repaired excerpt"
+    assert stats["raw_prefix"] == 1 and stats["raw_verbatim"] == 0
+
+
+def test_round_pieces_verify_when_against_the_facts_own_turn():
+    from mnimi.extract.protocol import ExtractedFact
+
+    # Issue 1: the model copied the assistant's "Sunday 2026-10-11" onto a user-turn fact.
+    facts, _ = _pieces_for(
+        [("user", "Yesterday I meal prepped until thursday, where I will be meal prepping again."),
+         ("assistant", "Noted. On Sunday 2026-10-11 you meal prepped until Thursday 2026-10-15.")],
+        [ExtractedFact("The user will meal prep again on Sunday 2026-10-11.",
+                       "user: where I will be meal prepping again", "Sunday 2026-10-11",
+                       "user", "will meal prep again", "Sunday 2026-10-11", 1.0),
+         ExtractedFact("The user meal prepped yesterday.", "user: Yesterday I meal prepped",
+                       "Yesterday", "user", "meal prepped", None, 1.0)],
+    )
+    assert [(p.time_mention, p.valid_time) for p in facts] == [
+        (None, None), ("Yesterday", "2026-10-11")
+    ], "a mention from the other turn is an invention for this fact; the own-turn one resolves"
+
+
+def test_round_pieces_fall_back_to_the_round_when_the_role_is_unverified():
+    from mnimi.extract.protocol import ExtractedFact
+
+    facts, stats = _pieces_for(
+        [("user", "zzz qqq yesterday")],
+        [ExtractedFact("Nothing in common.", "user: nothing in common", "yesterday",
+                       None, None, None, 0.25)],
+    )
+    (fact,) = facts
+    assert stats["raw_kept"] == 1
+    assert fact.raw == "user: nothing in common" and fact.valid_time == "2026-10-11"
