@@ -1,0 +1,25 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "no_memory",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "ollama",
+    "--model",
+    "qwen2.5:1.5b-instruct-q4_0",
+    "--num-ctx",
+    "32768",
+    "--purpose",
+    "E2 arm 4 of 4: the no-memory floor under the local 1.5B reader on all 500 questions",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "e184ed9",
+    "--run-dir",
+    "runs/no_memory__500q_q15b"
+  ]
+}

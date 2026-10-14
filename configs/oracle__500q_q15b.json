@@ -1,0 +1,25 @@
+{
+  "config_schema": "mnimi-run-config/1",
+  "args": [
+    "--system",
+    "oracle",
+    "--limit",
+    "500",
+    "--stage",
+    "predict",
+    "--reader-transport",
+    "ollama",
+    "--model",
+    "qwen2.5:1.5b-instruct-q4_0",
+    "--num-ctx",
+    "32768",
+    "--purpose",
+    "E2 arm 3 of 4: the evidence-availability bound under the local 1.5B reader on all 500 questions; the accounting's oracle side",
+    "--claim",
+    "none",
+    "--rule-commit",
+    "e184ed9",
+    "--run-dir",
+    "runs/oracle__500q_q15b"
+  ]
+}
