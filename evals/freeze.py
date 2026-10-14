@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 #: sha256 over src/mnimi at v2.14.0 (e015931), set in PHASE7 Task 1 Step 4.
-LIBRARY_FREEZE_SHA256 = "f93118abea637aa74580e81ff30337ade25bcd2debf61697c0740be421b0fb5d"
+LIBRARY_FREEZE_SHA256 = "223d39c60e9279a06ba6bf5b8993869c79f4f6789c829c5bb1dd864914257dfc"
 #: The tag whose src/mnimi the digest pins (PHASE8 Task 17); v2.14.0's bytes, unchanged.
 #: The era this digest names. "paper-v1" is the paper's library (tag paper-v1 = 21239e2);
 #: "v3.0.0-dev" is release/v3 after TESTFIXESPT1 (DECISIONS 2026-10-14) — every commit that

@@ -180,7 +180,7 @@ def test_retrieving_systems_declare_their_pins_and_others_declare_none():
     # The library default (round+facts; v2.13.0 chose L1 alone); the unit is declared
     # even without facts.
     assert mnimi["render_unit"] == "round+facts" and len(mnimi["prefilter_lexicon_hash"]) == 64
-    assert mnimi["resolver_version"] == "v2" and len(mnimi["fact_embed_template_hash"]) == 64
+    assert mnimi["resolver_version"] == "v3" and len(mnimi["fact_embed_template_hash"]) == 64
 
 
 def test_retrieval_pins_carry_the_embedder_revision_constant():

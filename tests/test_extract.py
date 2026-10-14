@@ -285,7 +285,7 @@ def test_resolver_never_reads_the_clock():
     src = inspect.getsource(resolver)
     for forbidden in ("datetime.now", "date.today", "time.time", "utcnow"):
         assert forbidden not in src
-    assert resolver.RESOLVER_VERSION == "v2"
+    assert resolver.RESOLVER_VERSION == "v3"
 
 
 @pytest.mark.parametrize(
@@ -672,3 +672,40 @@ def test_client_facts_wrapper_without_an_inner_extracts_nothing_and_has_its_own_
     r = w.extract([{"role": "user", "content": "hello"}])
     assert r.facts == [] and r.truncated is False
     assert w.pins == CLIENT_FACTS_PINS and w.pins["extractor_model"] == "client-facts"
+
+
+# --- TESTFIXESPT1 Task 4: resolver v3 ---
+
+
+@pytest.mark.parametrize(
+    "mention, ts, expected",
+    [
+        ("on Tuesday 10-20", "2026-10-12T00:00:00", "2026-10-20"),     # issue 3: MM-DD, forward
+        ("Tuesday, 20-10", "2026-10-12T00:00:00", "2026-10-20"),       # DD-MM, the weekday decides
+        ("on Monday 10/12", "2026-10-14T00:00:00", "2026-10-12"),       # slash, backward, nearest
+        ("Saturday 01-02", "2026-12-30T00:00:00", "2027-01-02"),        # the year that fits
+        ("Tuesday 10-20-26", "2026-10-12T00:00:00", "2026-10-20"),      # an explicit two-digit year
+        ("on Tuesday", "2026-10-12T00:00:00", "2026-10-06"),            # v2 unchanged: no number
+    ],
+)
+def test_resolver_v3_weekday_beside_a_numeric_date(mention, ts, expected):
+    from mnimi.extract import resolver
+
+    assert resolver.resolve(mention, ts) == expected
+
+
+def test_resolver_v3_weekday_numeric_falls_through_when_no_reading_matches():
+    from mnimi.extract import resolver
+
+    # 2025-10-21 is a Tuesday, 2026-10-21 a Wednesday, 2027-10-21 a Thursday; "21-10" is
+    # no date in any year. The nearest year whose weekday fits is 2025.
+    assert resolver.resolve("Tuesday 10-21", "2026-10-12T00:00:00") == "2025-10-21"
+    # Neither reading is a date and no year fits: today's rules take over ("on Tuesday").
+    assert resolver.resolve("on Tuesday 13-13", "2026-10-12T00:00:00") == "2026-10-06"
+
+
+def test_resolver_version_is_v3_and_v2_markers_are_unchanged():
+    from mnimi.extract import resolver
+
+    assert resolver.RESOLVER_VERSION == "v3"
+    assert resolver.FUTURE_MARKERS[0] == "next" and resolver.PAST_MARKERS[0] == "last"
