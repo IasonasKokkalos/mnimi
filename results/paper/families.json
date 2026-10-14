@@ -10,10 +10,10 @@
         "judge": null,
         "n_pairs": 500,
         "p_exact_mcnemar": 1.0892545009628211e-08,
-        "p_holm": 1.0892545009628211e-08,
+        "p_holm": 2.1785090019256422e-08,
         "p_holm_saved": 1.0892545009628211e-08,
         "second": "mnimi__500q_gpt4o_p6time",
-        "tests": 1
+        "tests": 2
       },
       {
         "b_second_wins": 76,
@@ -24,10 +24,38 @@
         "judge": "gpt-4.1-2025-04-14",
         "n_pairs": 500,
         "p_exact_mcnemar": 1.4457981791730654e-06,
-        "p_holm": 1.4457981791730654e-06,
+        "p_holm": 2.891596358346131e-06,
         "p_holm_saved": 1.4457981791730654e-06,
         "second": "mnimi__500q_gpt4o_p6time",
-        "tests": 1
+        "tests": 2
+      },
+      {
+        "b_second_wins": 82,
+        "c_first_wins": 50,
+        "category": null,
+        "file": "naive_rag__500q_q15b__vs__mnimi__500q_q15b.json",
+        "first": "naive_rag__500q_q15b",
+        "judge": null,
+        "n_pairs": 500,
+        "p_exact_mcnemar": 0.006746358859536215,
+        "p_holm": 0.006746358859536215,
+        "p_holm_saved": 0.006746358859536215,
+        "second": "mnimi__500q_q15b",
+        "tests": 2
+      },
+      {
+        "b_second_wins": 78,
+        "c_first_wins": 49,
+        "category": null,
+        "file": "naive_rag__500q_q15b__vs__mnimi__500q_q15b__judge-gpt-4.1-2025-04-14.json",
+        "first": "naive_rag__500q_q15b",
+        "judge": "gpt-4.1-2025-04-14",
+        "n_pairs": 500,
+        "p_exact_mcnemar": 0.012660684520477215,
+        "p_holm": 0.012660684520477215,
+        "p_holm_saved": 0.012660684520477215,
+        "second": "mnimi__500q_q15b",
+        "tests": 2
       }
     ],
     "F2": [
