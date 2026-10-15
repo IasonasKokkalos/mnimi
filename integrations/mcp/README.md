@@ -7,9 +7,10 @@ on your disk, writes facts with a small local model, never calls a model when it
 can be read whole as Markdown.
 
 The server is its own package so the library keeps its two dependencies (`sqlite-vec`,
-`numpy`). It depends on `mnimi[embed,extract]>=3.1,<4` (the BGE embedder and the Qwen3-1.7B
-extractor; 3.1.0 is the floor because the server uses `mnimi.extract.wrappers` — the sub-round
-split, the backslash pre-escape and client facts — which are new in that release) and on the
+`numpy`). It depends on `mnimi[embed,extract]>=3.1.1,<4` (the BGE embedder and the Qwen3-1.7B
+extractor; 3.1.1 is the floor because the server uses `mnimi.extract.wrappers` — the sub-round
+split, the backslash pre-escape and client facts, new in 3.1.0 — and 3.1.1 is where a fact that
+mentions a `\` path comes back spelled the turn's way) and on the
 `mcp` SDK (written and tested against `mcp` 2.3.0, 2026-10-02).
 
 ## Install
@@ -22,7 +23,7 @@ so pass it on the install line and nothing is compiled:
 pip install mnimi-mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 ```
 
-Before `mnimi` 3.1.0 is on PyPI, install both from a checkout of the repository (the
+Before `mnimi` 3.1.1 is on PyPI, install both from a checkout of the repository (the
 `release/v3` branch), into a venv of its own:
 
 ```
@@ -128,6 +129,6 @@ The tests drive the server through the SDK's in-memory client (`Client(server.mc
 `MNIMI_EMBEDDER=hashing MNIMI_EXTRACTOR=none` over a temporary DB. The server imports
 `mnimi.extract.llama` for the decode dict, `mnimi.extract.wrappers` for the split, the pre-escape
 and client facts, and `mnimi_cli.main` for the Markdown export; it changes nothing under
-`src/mnimi/`. The paper's library is tag `paper-v1`; 3.1.0 departs from it in extraction only.
+`src/mnimi/`. The paper's library is tag `paper-v1`; 3.1.x departs from it in extraction only.
 
 Apache-2.0, like the library.

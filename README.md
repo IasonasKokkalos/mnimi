@@ -275,8 +275,8 @@ claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/agent.db -- mnim
 `MNIMI_USER_ID` (default `me`), `MNIMI_EXTRACTOR` (`cpu` | `gpu` | `none`, default `cpu`) and
 `MNIMI_EMBEDDER` (`bge` | `hashing`, default `bge`) are the other settings;
 [`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table. `mnimi-mcp` 0.2.0
-requires `mnimi` 3.1.0 or later (`>=3.1,<4`): it uses the extractor wrappers and the client-facts
-path that are new in 3.1.0.
+requires `mnimi` 3.1.1 or later (`>=3.1.1,<4`): it uses the extractor wrappers and the client-facts
+path that are new in 3.1.0, and 3.1.1's backslash restoration.
 
 ## How it compares
 
@@ -396,7 +396,7 @@ pull request with the adapter and its config, and the run is paired against the 
 ## Paper
 
 The library the paper describes is tag `paper-v1` (`21239e2`, v2.14.0's `src/mnimi/`); the mnimi
-row in § The number is that library's. The 3.x releases are not that library byte for byte: 3.1.0
+row in § The number is that library's. The 3.x releases are not that library byte for byte: 3.1.x
 changes `src/mnimi/` in extraction (§ Status and scope; `docs/DECISIONS.md` "The developer release
 lifts the paper freeze"), its LongMemEval reading is a developer-release reading, and the paper
 cites nothing from it. `git checkout paper-v1` gives the paper's library. The preprint lands
@@ -443,9 +443,13 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
 ## Status and scope
 
-- v3.1.0 is the developer release and the first on PyPI (`mnimi` 3.1.0, `mnimi-mcp` 0.2.0): the
-  export CLI, the chat example, the CPU recipe and the MCP server. Alpha. 3.0.0 was the release
-  branch's version before the MCP test week and was never published.
+- v3.1.1 is the developer release and the first on PyPI (`mnimi` 3.1.1, `mnimi-mcp` 0.2.0): the
+  export CLI, the chat example, the CPU recipe and the MCP server. Alpha. 3.0.0 and 3.1.0 were the
+  release branch's versions before and during the MCP test week and were never published.
+- v3.1.1 (2026-10-15) puts the backslashes back: the pre-escape that shows the extractor `/` for
+  `\` now restores the turn's spelling in the facts it returns (`restore_backslashes`), and
+  `mnimi export --format md` applies the same rule to a fact stored before it. Off the benchmark
+  path: the PT1 reading below is of the extraction path 3.1.1 ships unchanged.
 - v3.1.0 (2026-10-14) fixes what the MCP test week found in extraction, in the developer release
   only: the model's `raw` excerpts are verified against the round (`mnimi.extract.verify`), long
   turns are extracted in sub-rounds behind a backslash pre-escape (`mnimi.extract.wrappers`), a

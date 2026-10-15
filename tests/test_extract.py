@@ -815,3 +815,60 @@ def test_splitting_wrapper_also_splits_when_the_whole_round_extracts_nothing():
     short = [{"role": "user", "content": "hi"}]
     assert SplittingExtractor(inner, max_chars=12).extract(short).facts == []
     assert len(inner.seen) == 1
+
+
+def _slash_answer(content, raw="user: x", subject=None, obj=None):
+    from mnimi.extract.protocol import ExtractedFact, ExtractionResult
+
+    fact = ExtractedFact(content=content, raw=raw, when=None, subject=subject,
+                         predicate="p" if subject else None, object=obj, salience=1.0)
+    return ExtractionResult(facts=[fact], truncated=False, raw_output="[]")
+
+
+def test_escaping_wrapper_restores_backslashes_in_the_returned_fact():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording([_slash_answer("The user's worktree is D:/Projects/x.",
+                                      subject="worktree", obj="D:/Projects/x")])
+    w = BackslashEscapingExtractor(inner)
+    out = w.extract([{"role": "user", "content": "My worktree is D:\\Projects\\x."}])
+    assert out.facts[0].content == "The user's worktree is D:\\Projects\\x."
+    assert out.facts[0].object == "D:\\Projects\\x"
+    assert out.facts[0].raw == "user: x", "raw is verify_raw's job, left alone here"
+
+
+def test_escaping_wrapper_leaves_a_slash_the_turn_itself_wrote():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording([_slash_answer("The user compares a/b with a/b.")])
+    w = BackslashEscapingExtractor(inner)
+    out = w.extract([{"role": "user", "content": "I compare a\\b with a/b."}])
+    assert out.facts[0].content == "The user compares a/b with a/b.", (
+        "the slash form exists in the turn: ambiguous, nothing swapped")
+
+
+def test_escaping_wrapper_restores_a_token_with_punctuation_attached():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording([_slash_answer("The user keeps notes in (C:/notes/a.md).")])
+    w = BackslashEscapingExtractor(inner)
+    out = w.extract([{"role": "user", "content": "I keep notes in C:\\notes\\a.md, always."}])
+    assert out.facts[0].content == "The user keeps notes in (C:\\notes\\a.md)."
+
+
+def test_escaping_wrapper_leaves_a_fact_without_slashes_untouched():
+    from mnimi.extract.wrappers import BackslashEscapingExtractor
+
+    inner = _Recording([_slash_answer("The user lives in Boston.")])
+    w = BackslashEscapingExtractor(inner)
+    out = w.extract([{"role": "user", "content": "I live in Boston, D:\\x is my disk."}])
+    assert out.facts[0].content == "The user lives in Boston."
+
+
+def test_restore_backslashes_is_the_one_rule_the_export_reuses():
+    from mnimi.extract.wrappers import restore_backslashes
+
+    turns = [{"role": "user", "content": "Repo at D:\\Projects\\mnimi; log D:/ollama/serve.log"}]
+    assert restore_backslashes("Repo D:/Projects/mnimi, log D:/ollama/serve.log", turns) == (
+        "Repo D:\\Projects\\mnimi, log D:/ollama/serve.log")
+    assert restore_backslashes("", turns) == ""

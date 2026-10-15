@@ -33,6 +33,7 @@ from mnimi import Memory, MemoryConfig
 from mnimi.decay import now_logical
 from mnimi.export import HEADER, NO_NOW
 from mnimi.extract.protocol import PIN_KEYS
+from mnimi.extract.wrappers import restore_backslashes
 from mnimi.memory import render_records
 from mnimi.models import KIND_FACT, KIND_ROUND, MemoryRecord
 from mnimi.store import GUARD_NONE, MemoryMetaError
@@ -121,8 +122,13 @@ def _quoted(block: str) -> str:
     return "\n".join("> " + line for line in block.split("\n"))
 
 
-def _fact_bullet(record: MemoryRecord, superseded_by: dict[int, int]) -> str:
-    text = record.fact or record.content
+def _fact_bullet(
+    record: MemoryRecord, superseded_by: dict[int, int], turns: list[dict] | None = None
+) -> str:
+    # A fact extracted behind the backslash pre-escape before 3.1.1 reads ``/`` where its round
+    # reads ``\``; the one rule (``mnimi.extract.wrappers.restore_backslashes``) spells it the
+    # round's way. A fact record carries its round's turns too.
+    text = restore_backslashes(record.fact or record.content, turns or record.turns or [])
     if record.valid_time:
         text = f"{text} (**{record.valid_time}**)"
     if record.salience == 0:
@@ -162,7 +168,7 @@ def export_markdown(user_id: str, records: list[MemoryRecord], now: str | None) 
         round_facts = by_round.pop(record.round_key, []) if record.round_key else []
         if round_facts:
             lines.append("")
-            lines += [_fact_bullet(fact, superseded_by) for fact in round_facts]
+            lines += [_fact_bullet(fact, superseded_by, record.turns) for fact in round_facts]
 
     orphans = [f for group in by_round.values() for f in group]
     if orphans:

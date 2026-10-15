@@ -8,7 +8,10 @@ the model is shown (the escape, the split) or whether it is called at all (clien
 * :class:`BackslashEscapingExtractor` — the JSON grammar rejects ``\\P``; the 1.7B model does
   not escape backslashes, the rescan substitutes a legal escape and the string closes (issue 4:
   ``Worktree D:\\\\``). The model is shown ``/`` instead; ``mnimi.extract.verify`` restores the
-  turn's bytes in ``raw`` (``/`` and ``\\`` are one character there). ``content`` keeps ``/``.
+  turn's bytes in ``raw`` (``/`` and ``\\`` are one character there), and the wrapper restores
+  them in ``content``, ``subject``, ``predicate`` and ``object`` through :func:`restore_backslashes`
+  (3.1.1: a fact read ``D:/Projects/x`` under a round that said ``D:\\Projects\\x``). The same
+  rule is what ``mnimi export --format md`` applies to a fact stored before 3.1.1.
 * :class:`SplittingExtractor` — the output budget (``max_tokens`` 1024 ≈ 5,600 chars of JSON)
   and ``MAX_FACTS`` 8 are per call; a long round was cut mid-fact and the strict parser dropped
   every fact (1 of 9 live rounds; 312 of 95,846 cached). The whole round is extracted first;
@@ -46,8 +49,53 @@ def _plain(turns: list[dict]) -> list[dict]:
     return [{"role": str(t.get("role", "")), "content": str(t.get("content", ""))} for t in turns]
 
 
+#: Characters a token may carry on either end without being part of it (a path in brackets,
+#: a path before a comma).
+_TOKEN_EDGE = "()[]{}<>\"'`.,;:!?"
+
+
+def _core(token: str) -> tuple[str, str, str]:
+    """``("(", "C:\\a", ")")`` for ``"(C:\\a)"``: the token with its edge punctuation split off."""
+    start, end = 0, len(token)
+    while start < end and token[start] in _TOKEN_EDGE:
+        start += 1
+    while end > start and token[end - 1] in _TOKEN_EDGE:
+        end -= 1
+    return token[:start], token[start:end], token[end:]
+
+
+def restore_backslashes(text: str, turns: list[dict]) -> str:
+    """``text`` with every token whose ``/`` form is a turn's ``\\`` token spelled the turn's way.
+
+    The one rule for a fact the model saw escaped: a whitespace token of the turns that contains
+    ``\\`` is known by its ``/`` form; a token of ``text`` equal to that form is swapped for the
+    turn's own spelling, unless the ``/`` form itself occurs in the turns (``a/b`` beside
+    ``a\\b``: ambiguous, left alone). Deterministic, no model.
+    """
+    if "/" not in text:
+        return text
+    originals: dict[str, str] = {}
+    escaped_too: set[str] = set()
+    for turn in turns:
+        for token in str(turn.get("content", "")).split():
+            core = _core(token)[1]
+            if "\\" in core:
+                originals.setdefault(core.replace("\\", "/"), core)
+            elif "/" in core:
+                escaped_too.add(core)
+    if not originals:
+        return text
+    out: list[str] = []
+    for token in text.split(" "):
+        head, core, tail = _core(token)
+        if core in originals and core not in escaped_too:
+            token = head + originals[core] + tail
+        out.append(token)
+    return " ".join(out)
+
+
 class BackslashEscapingExtractor:
-    """The inner model sees ``/`` wherever the turn has ``\\``."""
+    """The inner model sees ``/`` wherever the turn has ``\\``; the facts come back with ``\\``."""
 
     def __init__(self, inner) -> None:
         self.inner = inner
@@ -57,9 +105,22 @@ class BackslashEscapingExtractor:
         return self.inner.pins
 
     def extract(self, turns: list[dict]) -> ExtractionResult:
-        safe = [{"role": t["role"], "content": t["content"].replace("\\", "/")}
-                for t in _plain(turns)]
-        return self.inner.extract(safe)
+        plain = _plain(turns)
+        safe = [{"role": t["role"], "content": t["content"].replace("\\", "/")} for t in plain]
+        result = self.inner.extract(safe)
+        if not any("\\" in t["content"] for t in plain):
+            return result
+        facts = [
+            fact._replace(
+                content=restore_backslashes(fact.content, plain),
+                subject=restore_backslashes(fact.subject, plain) if fact.subject else fact.subject,
+                predicate=(restore_backslashes(fact.predicate, plain)
+                           if fact.predicate else fact.predicate),
+                object=restore_backslashes(fact.object, plain) if fact.object else fact.object,
+            )
+            for fact in result.facts
+        ]
+        return result._replace(facts=facts)
 
 
 def _units(text: str, max_chars: int):

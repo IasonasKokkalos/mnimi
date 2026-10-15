@@ -243,3 +243,20 @@ def test_cli_package_imports_no_model_runtime():
     source = pathlib.Path("src/mnimi_cli/main.py").read_text(encoding="utf-8")
     for forbidden in ("onnxruntime", "llama_cpp", "huggingface_hub", "BgeSmallEmbedder"):
         assert forbidden not in source, f"{forbidden} in the CLI - export loads no model"
+
+
+def test_md_restores_backslashes_a_stored_fact_lost(tmp_path):
+    """A fact stored before the wrapper restored ``\\`` reads ``/`` where the round reads ``\\``;
+    the md export shows the round's spelling (the one rule, ``restore_backslashes``)."""
+    from mnimi.extract.fake import ScriptedExtractor
+
+    turn = "My worktree is D:\\Projects\\mnimi-paper and the log is at D:/ollama/serve.log."
+    script = {turn: [_fact("The user's worktree is D:/Projects/mnimi-paper.",
+                           f"user: {turn}", "worktree", "is", "D:/Projects/mnimi-paper")]}
+    m = Memory(str(tmp_path / "s.db"), HashingEmbedder(), MemoryConfig(),
+               extractor=ScriptedExtractor(script))
+    m.add([_message(turn), _message("Noted.", role="assistant")], "u")
+    assert main(["export", str(tmp_path / "s.db"), "u", "-o", str(tmp_path / "s.md")]) == 0
+    md = (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "- The user's worktree is D:\\Projects\\mnimi-paper." in md
+    assert "D:/Projects/mnimi-paper" not in md

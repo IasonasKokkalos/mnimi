@@ -4486,3 +4486,26 @@ the RTX 1000 Ada, 21.0 s per round on the Ryzen 7 PRO 8845HS). On the Ryzen 7 PR
 CPU and RSS were sampled by `tools/sample_resources.py` every 5 s; the store sizes came from a watcher that only
 stat-ed the scratch stores, because the harness deletes each store on the next reset and the runbook's `du` after
 the run would have found nothing. Both CSVs and the method are committed under `analyses/compute_pt1/`.
+
+## 3.1.1: the pre-escape puts the backslashes back (2026-10-15, release/v3)
+
+**What.** The MCP test week's issue 4 fix (`BackslashEscapingExtractor`, 2026-10-14) shows the model `/` for every
+`\` so the JSON grammar never meets `\P`; `mnimi.extract.verify` already restores the turn's bytes in `raw`, but the
+fact's `content`, `subject`, `predicate` and `object` came back from the model with `/` and nothing put the `\` back.
+On the live store's export the quoted round read `D:\Projects\Personal\mnimi-paper` and the fact bullet under it
+`D:/Projects/Personal/mnimi-paper`. A human reading their memory should see their own spelling.
+
+**The rule** (`mnimi.extract.wrappers.restore_backslashes`, deterministic, no model): a whitespace token of the turns
+that contains `\` is known by its `/` form; a token of the fact equal to that form (edge punctuation split off) is
+swapped for the turn's own spelling, unless the `/` form itself occurs in the turns (`a/b` beside `a\b` — ambiguous,
+left alone). The wrapper applies it to the four fields of every fact it returns; `raw` stays `verify_raw`'s.
+`mnimi export --format md` applies the same function to each fact bullet against its round's turns, so a fact stored
+before 3.1.1 reads the round's way in the export (its stored text, vector, `context` and `recall` keep `/`; a
+re-`remember` of the round fixes those). Six tests (`tests/test_extract.py`, `tests/test_cli.py`).
+
+**Off the benchmark path.** The wrapper is not on the harness's extraction path (the PT1 pre-registration: "the split
+and the pre-escape are not on this path"), and the extraction cache keys on the escaped turns inside the wrapper, so
+nothing is re-keyed and the PT1 reading (429/500, b=9 c=9) is of the extraction path 3.1.1 ships unchanged. The
+freeze digest is recomputed in this commit (`d7a320af…448e`, era `v3.0.0-dev`), the version is **3.1.1** so that
+"3.1.0" keeps naming the library the PT1 run measured byte for byte, and `mnimi-mcp` 0.2.0 requires `>=3.1.1`.
+Nothing of 3.1.0 was published.

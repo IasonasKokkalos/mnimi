@@ -24,9 +24,10 @@ classifiers = [
 # sdist: install the project's CPU wheel first (README) or pass its index on this install line.
 # `mcp` is ranged from the version the server was written and tested against (2.3.0,
 # 2026-10-02) to the next major. The `mnimi` floor is 3.1: the server imports
-# `mnimi.extract.wrappers` (the sub-round split, the pre-escape, client facts), new in 3.1.0.
+# `mnimi.extract.wrappers` (the sub-round split, the pre-escape, client facts), new in 3.1.0,
+# and 3.1.1 is where the pre-escape puts the backslashes back in the facts it returns.
 dependencies = [
-    "mnimi[embed,extract]>=3.1,<4",
+    "mnimi[embed,extract]>=3.1.1,<4",
     "mcp>=2.3,<3",
 ]
 
