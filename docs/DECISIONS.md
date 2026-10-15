@@ -4465,10 +4465,11 @@ moved with the same evidence in the top-10.
 
 **The rule.** b ≥ c (9 ≥ 9; 16 ≥ 10 under gpt-4.1): **adopted** as the developer release's quoted number, "the n=500
 reading of the v3.1.0 library, b=9 c=9 against the published 429". The difference is zero and inside the
-instrument's band (this family's same-configuration drift pair read b=6 c=6). So the reading says the test week's
-fixes did not move the benchmark, not that they helped; the stated expectation (within ±5 of 429) held. It is a
-developer-release row in its own table, never set beside the paper's arms and never a replication; the paper, its
-tag and its arms are untouched.
+instrument's band: the reading shows no detectable net change from the test week's fixes, not that they helped —
+18 rows moved, more than the same-configuration drift pair's 12 (b=6 c=6), and they cancelled; the stated
+expectation (within ±5 of 429) held. It is a developer-release row in its own table (`results/published/README.md`,
+"Developer-release readings"), never set beside the paper's arms and never a replication; the paper, its tag and
+its arms are untouched.
 
 **Cost.** Reader $3.94, judge $0.22, the gpt-4.1 replay $0.18: **$4.34 in all; $35.80 of $113.85 left.**
 
@@ -4482,6 +4483,6 @@ the RTX 1000 Ada, 21.0 s per round on the Ryzen 7 PRO 8845HS). On the Ryzen 7 PR
 - a store on disk: 6.06 MiB (median of 500), plus ≈ 4 MiB of WAL while open; 6.55 MiB closed;
 - the extraction cache: 1.5 KB per round.
 
-CPU and RSS were sampled by `tools/sample_resources.py` (`runs/mnimi__500q_gpt4o_pt1/resources.csv`, every 5 s).
-The store sizes came from a watcher that only stat-ed the scratch stores: the harness deletes each store on the next
-reset, so the runbook's `du` after the run would have found nothing.
+CPU and RSS were sampled by `tools/sample_resources.py` every 5 s; the store sizes came from a watcher that only
+stat-ed the scratch stores, because the harness deletes each store on the next reset and the runbook's `du` after
+the run would have found nothing. Both CSVs and the method are committed under `analyses/compute_pt1/`.

@@ -328,8 +328,10 @@ your application                      (holds the clock: hands every message its 
 - **Sizes.** The quickstart's two rounds make a 3.2 MB store (384-dim float32
   vectors, the round records and their facts); the models are 130 MB (BGE) and 1.8 GB (Qwen3
   Q8_0) in the Hugging Face cache, downloaded once by revision.
-- **Compute**, measured on v3.1.0's LongMemEval run (`mnimi__500q_gpt4o_pt1`, 2026-10-15;
-  `tools/sample_resources.py`, every 5 s). The run replays the extraction cache, so these are
+- **Compute**, measured on v3.1.0's LongMemEval run (`mnimi__500q_gpt4o_pt1`, 2026-10-15, § Status
+  and scope): CPU and RSS by `tools/sample_resources.py` every 5 s, store sizes by a stat-only
+  watcher of the run's scratch stores; the data and the method are in
+  [`analyses/compute_pt1/`](analyses/compute_pt1/). The run replays the extraction cache, so these are
   the library's **ingest + retrieval** for 500 stores (BGE-small on the CPU through onnxruntime,
   sqlite-vec inserts, the write-path screens, the ranking) plus the time spent waiting on the
   Batch API, **not** the extractor. The extractor's own cost belongs beside it: 2.7–3.4 s per
@@ -340,9 +342,9 @@ your application                      (holds the clock: hands every message its 
   | --- | --- |
   | machine | AMD Ryzen 7 PRO 8845HS (8 cores, 16 logical), 32 GiB RAM, Windows 11, Python 3.14 |
   | ingest + retrieval | 500 stores in 12,262 s: 24.5 s per store, 99 ms per round (124,362 rounds, ≈ 249 per store) |
-  | process CPU (100 = one core) | ingest mean 764 %, p95 782 %; the Batch API wait ≈ 1 % |
-  | process RSS | median 1,899 MiB, peak 2,102 MiB |
-  | store on disk | 6.06 MiB per store (median of 500; ≈ 4 MiB more WAL while open), 6.55 MiB closed: ≈ 25 KiB per round |
+  | harness process CPU (100 = one core) | ingest mean 764 %, p95 782 %; the Batch API wait ≈ 1 % |
+  | harness process RSS | median 1,899 MiB over the run (1,770 MiB during ingest), peak 2,102 MiB; the process also holds the parsed 500-question dataset (≈ 340 MiB) |
+  | store on disk | 6.06 MiB per store, median of 500 stores of ≈ 249 rounds (≈ 4 MiB more WAL while open; the last store once closed: 6.55 MiB); 3.07 MiB of any non-empty store is the two vector tables' first chunks (1,024 vectors each, preallocated), the rest averages ≈ 12 KiB per round |
   | extraction cache | 1.5 KB per round (140 MB for 95,846 rounds) |
 
 ## Verify the number
@@ -441,10 +443,10 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
   caller can hand `remember` its own facts, a weekday beside a numeric date resolves (resolver
   v3; v2 stores are refused at open), and a time mention is verified against the fact's own turn.
   The paper's library stays tag `paper-v1`.
-- v3.1.0 on LongMemEval (2026-10-15): **429/500** (85.8 %, Wilson [82.5, 88.6]), b=9 c=9
-  against the paper system's published 429: the n=500 reading of the v3.1.0 library, run
-  `mnimi__500q_gpt4o_pt1` at `183e3fa`, reader and judge `gpt-4o-2024-08-06` (judge prompt
-  `longmemeval-paper-v3`), the extraction cache replayed
+- v3.1.0 on LongMemEval (2026-10-15): the n=500 reading of the v3.1.0 library, **b=9 c=9
+  against the paper system's published 429** (exact McNemar p = 1.0); 429/500, 85.8 %, Wilson
+  [82.5, 88.6]. Run `mnimi__500q_gpt4o_pt1` at `183e3fa`, reader and judge `gpt-4o-2024-08-06`
+  (judge prompt `longmemeval-paper-v3`), the extraction cache replayed
   ([`results/published/mnimi__500q_gpt4o_pt1/`](results/published/mnimi__500q_gpt4o_pt1/)). A
   developer-release reading, inside the judge's band; the paper's number stays `paper-v1`'s.
 - In scope is write-side policy: extraction, screens, supersession, decay, ranking, retrieval.

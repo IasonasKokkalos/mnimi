@@ -813,6 +813,17 @@ of every n=500 arm are unchanged since the commit that published them: a publish
 `judge_replay_N.json` files and the `judge.replays` entries of its `manifest.json`. Each arm is reproduced at its own
 commit (T8), not at the tag.
 
+### Developer-release readings: the library after `paper-v1`, never the paper's numbers
+
+Each row is one n=500 arm of the developer library (`release/v3`) under the paper system's pins, paired against
+the published `mnimi__500q_gpt4o_p6time` (429/500) and reported as "the n=500 reading of the vX library, b=… c=…
+against the published 429": never a replication of a paper arm and never one of the paper's numbers; the paper,
+its tag and its arms are untouched. Provenance is in each run's `manifest.json` and its DECISIONS entry.
+
+| run | library | rule commit | b / c vs `p6time` (429) | p | gpt-4.1: b / c (p); scores | score | 95% CI | dollars | adopted? |
+| --- | --- | --- | :---: | ---: | --- | --- | --- | ---: | --- |
+| `mnimi__500q_gpt4o_pt1` | v3.1.0 (TESTFIXESPT1) at `183e3fa`, clean; pins `7698fb2f…`, resolver v3, artifact schema /12 | `cd74711` | **9 / 9** | 1.00 | 16 / 10 (0.33); 423 vs 417 | 429/500 (85.8%) | [82.5, 88.6] | 4.34 | yes, b ≥ c (DECISIONS "PT1 read", 2026-10-15) |
+
 ## Rules
 
 - **Copy from `runs/`, never edit by hand.** These files are outputs. A
