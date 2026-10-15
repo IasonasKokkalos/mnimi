@@ -132,6 +132,7 @@
     "summary": "summary.json"
   },
   "provisional_reasons": [],
+  "published_as": "results\\published\\mnimi__500q_gpt4o_pt1",
   "purpose": "PT1 judge",
   "reader": {
     "max_tokens": 800,
@@ -159,7 +160,7 @@
   },
   "rule_commit": "cd74711",
   "run_id": "mnimi__500q_gpt4o_pt1",
-  "status": "complete",
+  "status": "published",
   "unknown_fields": [],
   "updated_utc": "2026-10-15T03:03:29Z"
 }
