@@ -119,13 +119,30 @@
     "prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
     "prompt_id": "longmemeval-paper-v3",
     "prompt_source": "evals/judge.py (longmemeval-paper-v3), LongMemEval's paper judge templates",
-    "replay_count": 0,
+    "replay_count": 1,
+    "replays": [
+      {
+        "commit": "2f33101747d1f3a381626760096769767b3e1ecb",
+        "file": "judge_replay_1.json",
+        "graded_utc": "2026-10-15T03:07:23Z",
+        "judge_completion_tokens": 234,
+        "judge_hash": "bc432272c472a51b052cf3bb0f89e3f64509b13f78a1f348d8604585f75706df",
+        "judge_model": "gpt-4.1-2025-04-14",
+        "judge_prompt_hash": "be3dd639552213449b8eccac898b980c53824f5f9086870e847031b8d295fce2",
+        "judge_prompt_tokens": 87203,
+        "judge_usd": 0.17627800000000002,
+        "purpose": "PT1 second judge",
+        "score": "423/500"
+      }
+    ],
     "temperature": 0
   },
   "manifest_schema": "mnimi-run-manifest/2",
   "missing_fields": [],
   "outputs": {
-    "judge_replays": [],
+    "judge_replays": [
+      "judge_replay_1.json"
+    ],
     "pins": "pins.json",
     "predictions": "predictions.jsonl",
     "results": "results.json",
@@ -162,5 +179,5 @@
   "run_id": "mnimi__500q_gpt4o_pt1",
   "status": "published",
   "unknown_fields": [],
-  "updated_utc": "2026-10-15T03:03:29Z"
+  "updated_utc": "2026-10-15T03:07:23Z"
 }
