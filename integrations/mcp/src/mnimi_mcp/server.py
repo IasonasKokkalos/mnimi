@@ -24,7 +24,8 @@ application decides stays here and out of the library:
 
 The embedder and extractor construction mirrors ``examples/chat.py``'s ``build_memory`` (the
 example is not an importable package, so the twenty lines are copied here with this note; the
-CPU recipe is the same dict, ``{**DECODE, "n_gpu_layers": 0}``, MERGED-PLAN T5).
+CPU profile is the same dict, ``{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}``,
+MERGED-PLAN T5 and TESTFIXESPT1).
 """
 
 from __future__ import annotations

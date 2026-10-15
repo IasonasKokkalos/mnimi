@@ -35,9 +35,10 @@ Backend = Callable[[str, str], str]
 #: The CPU extractor recipe (MERGED-PLAN T5, LAUNCH M7): the paper's decode pins with the GPU
 #: offload turned off, passed to the public ``QwenLlamaExtractor(decode=)`` keyword. Measured
 #: 2026-10-10 on the CPU wheel of llama-cpp-python 0.3.35 (Ryzen 7 PRO 8845HS): the grammar
-#: runs and ``flash_attn=True`` holds (``llama_context: flash_attn = enabled``), so this one key
-#: is the whole difference. It yields its own ``extractor_decode_hash``, so a CPU store is its
-#: own configuration: the ``memory_meta`` guard refuses it under the GPU pins and vice versa.
+#: runs and ``flash_attn=True`` holds (``llama_context: flash_attn = enabled``), so offload was
+#: the recipe's one change; ``max_tokens`` followed (below). It yields its own
+#: ``extractor_decode_hash``, so a CPU store is its own configuration: the ``memory_meta`` guard
+#: refuses it under the GPU pins and vice versa.
 # Two keys differ from the paper's DECODE: n_gpu_layers 0 (the recipe, measured 2026-10-10)
 # and max_tokens, doubled 2026-10-14 (TESTFIXESPT1 Task 6) because a 600-char sub-round of
 # numeric-dense text still filled the 1,024-token budget (2,083 chars of JSON, cut inside a
@@ -208,8 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--extractor", choices=("cpu", "gpu", "none"),
                         default=DEFAULT_EXTRACTOR)
     parser.add_argument("--split-chars", type=int, default=600,
-                        help="cut turns longer than this into sub-rounds for the extractor; "
-                             "0 = off")
+                        help="when a round's extraction is truncated, at the fact cap or "
+                             "empty, re-extract turns longer than this in sub-rounds; 0 = off")
     args = parser.parse_args(argv)
 
     # The library's INFO lines are the point of watching it work: `superseded ...`,

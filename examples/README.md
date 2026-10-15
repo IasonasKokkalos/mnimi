@@ -18,7 +18,8 @@ python examples/chat.py --embedder hashing --extractor none              # nothi
 | `--user` | the `user_id` the records are stored under | `me` |
 | `--backend` | `ollama` (model `qwen2.5:7b-instruct`, env `OLLAMA_HOST`) or `openai` (model `gpt-4o-mini`, env `OPENAI_API_KEY`); `--model` overrides | `ollama` |
 | `--embedder` | `bge` (`BAAI/bge-small-en-v1.5`, the `[embed]` extra) or `hashing` (numpy only, for smoke tests) | `bge` |
-| `--extractor` | `cpu` (the recipe, `decode={**DECODE, "n_gpu_layers": 0}`, measured below), `gpu` (the pinned extractor, needs the CUDA build), `none` (rounds only, no fact records) | `cpu` |
+| `--extractor` | `cpu` (the recipe, `decode={**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`, measured below), `gpu` (the pinned extractor, needs the CUDA build), `none` (rounds only, no fact records) | `cpu` |
+| `--split-chars` | the sub-round split (`mnimi.extract.wrappers.SplittingExtractor`): each round is extracted whole first, and only when that output is truncated, at the fact cap or empty are turns longer than this many characters cut at sentence boundaries into sub-rounds and re-extracted, the reading with more facts kept; `0` = off | `600` |
 
 Commands inside the loop: `/recall <q>` (each hit's score, salience, kind and first line),
 `/facts` (the fact records stored from the last round), `/export` (writes `memory.md` beside
@@ -49,26 +50,33 @@ satisfied and installs the rest. Order matters: the other way round, pip builds 
 
 ### The CPU extractor, measured (2026-10-10)
 
-`--extractor cpu` passes `decode={**DECODE, "n_gpu_layers": 0}` to the public
-`QwenLlamaExtractor(decode=)` keyword and nothing else: `flash_attn=True` holds on the CPU
-build (`llama_context: flash_attn = enabled` in the load log), so one key is the whole
-difference. The model (`Qwen3-1.7B-Q8_0.gguf`, 1.8 GB, downloaded by revision on first use) runs
-in-process under the same grammar and the same prompt hash as the GPU pin; the store it builds
-carries its own `extractor_decode_hash`, so the `memory_meta` guard refuses it under the GPU
-pins and vice versa (`tests/test_cpu_profile.py`, no model).
+`--extractor cpu` passes `decode={**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}` to the
+public `QwenLlamaExtractor(decode=)` keyword and nothing else. Two keys differ from the GPU pin:
+`n_gpu_layers` 0, the recipe (`flash_attn=True` holds on the CPU build, `llama_context:
+flash_attn = enabled` in the load log), and `max_tokens` 2048, doubled on 2026-10-14 because a
+600-char sub-round of numeric-dense text still filled the 1,024-token budget. Both profiles run
+the model behind the backslash pre-escape and the sub-round split (`--split-chars`,
+`mnimi.extract.wrappers`). The model (`Qwen3-1.7B-Q8_0.gguf`, 1.8 GB, downloaded by revision on
+first use) runs in-process under the same grammar and the same prompt hash as the GPU pin; the
+store it builds carries its own `extractor_decode_hash`, so the `memory_meta` guard refuses it
+under the GPU pins and vice versa (`tests/test_cpu_profile.py`, no model). A store or cache built
+under 3.0.0's CPU profile (`max_tokens` 1,024) is refused the same way: move it aside and rebuild.
 
 Measured on the 40 dev rounds of `evals.probes.extractor_bench --dev-set 40` (rounds outside the
 benchmark slice; mean 1,583 prompt tokens, 237 completion tokens), on an AMD Ryzen 7 PRO 8845HS
-(8 cores, `n_threads=8`), the CPU wheel, Python 3.12, no GPU:
+(8 cores, `n_threads=8`), the CPU wheel, Python 3.12, no GPU, under the profile of the day
+(`max_tokens` 1,024). None of the 40 rounds reached that budget, and decoding is greedy, so the
+2,048 budget leaves these rounds' outputs unchanged:
 
 | profile | seconds / round mean | p50 | max | min | tok/s overall | truncated |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cpu` (this recipe) | 21.0 | 19.6 | 46.7 | 7.6 | 87 | 0 / 40 |
+| `cpu` (the 2026-10-10 profile, `max_tokens` 1,024) | 21.0 | 19.6 | 46.7 | 7.6 | 87 | 0 / 40 |
 | `gpu` (the paper's pin, RTX 1000 Ada, DECISIONS "Extractor runtime") | 2.7–3.4 | | | | | |
 
 The first 20 of those rounds in a second fresh process: **20/20 raw outputs byte-identical**
 (mean 22.7 s / round there; a descriptive reading, never a stability claim). Hashes: `DECODE` → `ba1a81ab…b8241`, the CPU dict →
-`40552b1e…6d65`. One disclosure: the `extractor_runtime` row is a module constant naming the
+`6a813662…5131` since 2026-10-14 (`40552b1e…6d65` with `max_tokens` 1,024, the profile measured
+here). One disclosure: the `extractor_runtime` row is a module constant naming the
 CUDA build, so a CPU store carries that string too and is told apart by its decode hash alone.
 
 The extractor's cache (`extract-cache-<cpu|gpu>.sqlite`) is written beside the DB. A store

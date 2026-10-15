@@ -76,8 +76,9 @@ git clone https://github.com/IasonasKokkalos/mnimi && cd mnimi && pip install -e
 project's own index carries prebuilt CPU wheels (Windows x64, manylinux x86_64 / aarch64, macOS
 arm64), so install that first and nothing compiles. A CUDA build of the same version is the GPU
 path (`docs/DECISIONS.md` "Extractor runtime"). Both are the same pinned model under the same
-grammar and prompt; the CPU profile differs in one decode key and is measured at 21.0 s per round
-on an 8-core laptop CPU against 2.7–3.4 s on the development GPU
+grammar and prompt; the CPU profile differs in two decode keys (`n_gpu_layers` 0, `max_tokens`
+2048) and is measured at 21.0 s per round on an 8-core laptop CPU against 2.7–3.4 s on the
+development GPU
 ([`examples/README.md`](examples/README.md)).
 
 ## 60-second quickstart
@@ -94,7 +95,7 @@ from mnimi.embeddings import BgeSmallEmbedder
 from mnimi.extract.cache import CachedExtractor
 from mnimi.extract.llama import DECODE, QwenLlamaExtractor
 
-extractor = CachedExtractor(QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0}), "extract-cache.sqlite")
+extractor = CachedExtractor(QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}), "extract-cache.sqlite")
 mem = Memory("agent.db", BgeSmallEmbedder(), extractor=extractor)
 mem.add([{"role": "user", "content": "I moved to Boston last month. My dentist is Dr. Lee.", "ts": "2026-10-01T00:00:00"},
          {"role": "assistant", "content": "Noted: you live in Boston and Dr. Lee is your dentist.", "ts": "2026-10-01T00:00:00"}], "u1")
@@ -104,10 +105,10 @@ print(mem.get_context("where do I live?", "u1"))
 print(mem.export("u1"))
 ```
 
-`decode={**DECODE, "n_gpu_layers": 0}` is the CPU profile; drop the keyword on a CUDA build. The
-first run downloads both models by pinned revision and takes about a minute on a laptop CPU; the
-cache file beside the DB makes every later `add()` of the same round free. Run as pasted, it
-prints:
+`decode={**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}` is the CPU profile; drop the keyword
+on a CUDA build. The first run downloads both models by pinned revision and takes about a minute
+on a laptop CPU; the cache file beside the DB makes every later `add()` of the same round free.
+Run as pasted, it prints:
 
 ```
 [Session date: 2026-10-01T00:00:00]
@@ -410,9 +411,9 @@ application must hand it one (a session's start, the calendar day).
 
 **`RuntimeError: this llama-cpp-python build cannot offload to the GPU, but the decode pins ask
 for n_gpu_layers>0`.** You built the extractor with the default `DECODE` on a CPU build. Use the
-CPU profile, `QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0})`, or install the CUDA
-build of 0.3.35. The two profiles write different `extractor_decode_hash` rows, so their stores
-are not interchangeable.
+CPU profile, `QwenLlamaExtractor(decode={**DECODE, "n_gpu_layers": 0, "max_tokens": 2048})`, or
+install the CUDA build of 0.3.35. The two profiles write different `extractor_decode_hash` rows,
+so their stores are not interchangeable.
 
 **`sqlite3.OperationalError` at `enable_load_extension`.** Your Python's SQLite was built
 without loadable-extension support (some macOS and conda builds). Use a Python whose `sqlite3`
