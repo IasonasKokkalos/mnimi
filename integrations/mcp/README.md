@@ -7,8 +7,10 @@ on your disk, writes facts with a small local model, never calls a model when it
 can be read whole as Markdown.
 
 The server is its own package so the library keeps its two dependencies (`sqlite-vec`,
-`numpy`). It depends on `mnimi[embed,extract]` (the BGE embedder and the Qwen3-1.7B
-extractor) and on the `mcp` SDK (written and tested against `mcp` 2.3.0, 2026-10-02).
+`numpy`). It depends on `mnimi[embed,extract]>=3.1,<4` (the BGE embedder and the Qwen3-1.7B
+extractor; 3.1.0 is the floor because the server uses `mnimi.extract.wrappers` — the sub-round
+split, the backslash pre-escape and client facts — which are new in that release) and on the
+`mcp` SDK (written and tested against `mcp` 2.3.0, 2026-10-02).
 
 ## Install
 
@@ -124,7 +126,8 @@ pytest integrations/mcp/tests            # also run by the root pytest; skipped 
 
 The tests drive the server through the SDK's in-memory client (`Client(server.mcp)`) under
 `MNIMI_EMBEDDER=hashing MNIMI_EXTRACTOR=none` over a temporary DB. The server imports
-`mnimi.extract.llama` for the decode dict and `mnimi_cli.main` for the Markdown export; it
-changes nothing under `src/mnimi/`, which is frozen at the paper's bytes (`paper-v1`).
+`mnimi.extract.llama` for the decode dict, `mnimi.extract.wrappers` for the split, the pre-escape
+and client facts, and `mnimi_cli.main` for the Markdown export; it changes nothing under
+`src/mnimi/`. The paper's library is tag `paper-v1`; 3.1.0 departs from it in extraction only.
 
 Apache-2.0, like the library.
