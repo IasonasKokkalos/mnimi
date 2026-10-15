@@ -436,12 +436,12 @@ def test_verify_raw_extends_a_cut_excerpt_to_the_end_of_its_sentence():
     from mnimi.extract.verify import verify_raw
 
     # Issue 4: the grammar rescan after an unescaped backslash cut the excerpt and closed it.
-    text = ("E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\mnimi-paper "
+    text = ("E2 started 2026-10-13 evening. Worktree D:\\Projects\\Personal\\mnimi-paper "
             "(paper-v1 = 21239e2), branch paper-runs. Rule commit e184ed9.")
     turns = [{"role": "user", "content": "begin"}, {"role": "assistant", "content": text}]
     v = verify_raw("Worktree D:\\\\", "user: E2 started 2026-10-13 evening. Worktree D:\\\\", turns)
     assert v.how == "prefix" and v.role == "assistant"
-    assert v.raw == ("assistant: E2 started 2026-10-13 evening. Worktree D:\Projects\Personal\\"
+    assert v.raw == ("assistant: E2 started 2026-10-13 evening. Worktree D:\\Projects\\Personal\\"
                      "mnimi-paper (paper-v1 = 21239e2), branch paper-runs.")
     # Issue 2: the 300-cap squeezed the tail into CJK; the prefix walk restores the sentence.
     text2 = "The finding in two sentences (44 of 69 judge-stable misses are retrieval-bound), done."
@@ -456,9 +456,10 @@ def test_verify_raw_treats_slash_and_backslash_as_one_character():
 
     # The pre-escape wrapper shows the model "/" where the turn has "\"; the excerpt still
     # verifies, and the returned bytes are the turn's (backslashes restored).
-    turns = [{"role": "assistant", "content": "Worktree D:\Projects\mnimi-paper is ready."}]
+    turns = [{"role": "assistant", "content": "Worktree D:\\Projects\\mnimi-paper is ready."}]
     v = verify_raw("x", "assistant: Worktree D:/Projects/mnimi-paper is ready.", turns)
-    assert v.how == "verbatim" and v.raw == "assistant: Worktree D:\Projects\mnimi-paper is ready."
+    assert v.how == "verbatim"
+    assert v.raw == "assistant: Worktree D:\\Projects\\mnimi-paper is ready."
 
 
 def test_verify_raw_falls_back_to_the_best_overlapping_sentence():
@@ -525,7 +526,7 @@ def _pieces_for(turn_texts: list[tuple[str, str]], facts: list, ts: str = "2026-
 def test_round_pieces_store_the_verified_excerpt_and_count_the_repair():
     from mnimi.extract.protocol import ExtractedFact
 
-    assistant = ("E2 started 2026-10-13 evening. Worktree D:\Projects\mnimi-paper "
+    assistant = ("E2 started 2026-10-13 evening. Worktree D:\\Projects\\mnimi-paper "
                  "(paper-v1 = 21239e2), branch paper-runs.")
     facts, stats = _pieces_for(
         [("user", "begin with task 0"), ("assistant", assistant)],
