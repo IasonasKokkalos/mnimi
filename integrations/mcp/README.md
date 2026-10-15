@@ -52,6 +52,54 @@ loads the embedder (one 130 MB download, pinned by revision) and, under `MNIMI_E
 or `gpu`, the extractor (one 1.8 GB download, pinned by revision). Listing the tools loads
 nothing.
 
+## Tell the model to use it
+
+The server sends an `instructions` string on connect, and hosts differ in how much weight they
+give it. What makes the memory fire reliably is a rule in the file the host reads on every turn
+(`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, a system prompt). Paste this and adjust
+the names:
+
+```markdown
+## Memory (mnimi)
+
+- Before answering anything that may depend on an earlier session, call mnimi `context` with the
+  question.
+- When I state a durable fact, preference or decision, call mnimi `remember` with that exchange
+  (both turns).
+- For a dense turn (results, decisions, many numbers), pass the facts yourself:
+  `remember(messages, facts=[...])`, one sentence each, starting with "The user" or "The assistant".
+- Do not store secrets, keys or passwords in memory.
+```
+
+The first two lines are the whole protocol: read before you answer, write when something durable
+was said. Without them a model calls the tools only when asked to, and the memory stays empty.
+
+## One memory or several
+
+One server process is one `Memory` over one DB and one `user_id`. Two hosts (two Claude Code
+projects, Claude Desktop beside a CLI agent) are two processes, and three layouts are possible with
+nothing but the environment:
+
+| layout | settings | what you get |
+| --- | --- | --- |
+| one DB per agent | `MNIMI_DB=agent1.db` for one, `agent2.db` for the other | independent memories, independent files; each process loads its own models (≈ 2 GB of RAM each while both run) and keeps its own extraction cache beside its DB |
+| one DB, one `user_id` per agent | the same `MNIMI_DB`; `MNIMI_USER_ID=claude` for one, `codex` for the other | one file, still independent: `recall`, `context`, `export`, the logical clock and the decay pass are all per `user_id`; one shared extraction cache |
+| one DB, one `user_id` | the same `MNIMI_DB` and the same `MNIMI_USER_ID` (or the default `me`) | **shared memory**: what one host remembers the other recalls, and the session day either sees is the same day |
+
+How the shared layout holds up. Each process opens its own connection in WAL mode with a 30 s
+busy timeout, so a write from one host waits for the other's instead of failing; a second host
+under other pins (another embedder, `gpu` on a `cpu` store) is refused with `MemoryMetaError`;
+nothing about the store is cached in process memory, every call reads the file; the extraction
+cache is a deterministic insert-or-replace, so two writers cannot disagree. A test starts two
+servers over stdio against one DB and reads from the second what the first stored.
+
+Two limits, stated plainly. The in-process lock does not span processes, and the dedup and
+conflict screens are read-then-write: two `remember` calls storing the same round at the same
+instant can both store it (a duplicate, never lost data; rare for one person talking to one
+assistant at a time). And `consolidate` from either host decays the other's records too, which
+is what shared means. The server is stdio-only: a host that wants a remote (HTTP) MCP server
+cannot reach it today.
+
 ## Configuration (environment)
 
 | variable | values | default | what it is |

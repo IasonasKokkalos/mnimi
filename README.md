@@ -274,7 +274,11 @@ claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/agent.db -- mnim
 
 `MNIMI_USER_ID` (default `me`), `MNIMI_EXTRACTOR` (`cpu` | `gpu` | `none`, default `cpu`) and
 `MNIMI_EMBEDDER` (`bge` | `hashing`, default `bge`) are the other settings;
-[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table. `mnimi-mcp` 0.2.0
+[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table, the four-line rule
+to paste into the host's instruction file (`CLAUDE.md`, `AGENTS.md`: read `context` before
+answering, `remember` when something durable was said; without it a model calls the tools only when
+asked), and the three layouts for several agents (a DB per agent, one DB with a `user_id` per agent,
+or one shared memory and how two processes on one file behave). `mnimi-mcp` 0.2.0
 requires `mnimi` 3.1.1 or later (`>=3.1.1,<4`): it uses the extractor wrappers and the client-facts
 path that are new in 3.1.0, and 3.1.1's backslash restoration.
 

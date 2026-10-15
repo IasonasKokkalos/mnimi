@@ -369,3 +369,40 @@ def test_remember_refuses_a_whitespace_only_fact(env):
                 "facts": [{"content": "   "}]})
     result = run(call())
     assert result.is_error and "content" in result.content[0].text
+
+
+def test_two_server_processes_share_one_db(tmp_path):
+    """The README's shared layout: two ``mnimi-mcp`` processes over stdio on one DB and one
+    ``user_id``; what the first remembers, the second recalls (WAL, one connection each)."""
+    from mcp import ClientSession, StdioServerParameters, stdio_client
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    env = {
+        **os.environ,
+        "MNIMI_DB": str(tmp_path / "shared.db"),
+        "MNIMI_EMBEDDER": "hashing",
+        "MNIMI_EXTRACTOR": "none",
+        "PYTHONPATH": os.pathsep.join(
+            [os.path.join(root, "src"), os.path.join(root, "integrations", "mcp", "src")]
+        ),
+    }
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "mnimi_mcp.server"], env=env
+    )
+
+    async def scenario():
+        async with stdio_client(params) as (ra, wa), stdio_client(params) as (rb, wb):
+            async with ClientSession(ra, wa) as a, ClientSession(rb, wb) as b:
+                await a.initialize()
+                await b.initialize()
+                stored = await a.call_tool("remember", {"messages": [
+                    {"role": "user", "content": "My dentist is Dr. Okafor on Elm Street."},
+                    {"role": "assistant", "content": "Noted."}]})
+                assert not stored.is_error, stored
+                seen = await b.call_tool("context", {"query": "who is my dentist"})
+                assert not seen.is_error, seen
+                return seen.content[0].text
+
+    text = run(scenario())
+    assert "Dr. Okafor on Elm Street" in text
