@@ -813,6 +813,72 @@ of every n=500 arm are unchanged since the commit that published them: a publish
 `judge_replay_N.json` files and the `judge.replays` entries of its `manifest.json`. Each arm is reproduced at its own
 commit (T8), not at the tag.
 
+### E2: the 1.5B reader tier — four arms, all 500 questions, the local family (2026-10-13 → 14)
+
+Pre-registered in `docs/DECISIONS.md` "E2 pre-registration" (2026-10-13, rule `e184ed9`) and read in "E2 read"
+(2026-10-14): the paper's second reader, the four arms of record under the local family's 1.5B reader on the same
+500 questions, reader prompt and judge as the gpt-4o arms. Every value is copied from the artifacts or printed by
+`python -m evals.stats`, `evals.accounting` and `evals.agreement` over these directories.
+
+**Provenance:**
+
+| field | value |
+| --- | --- |
+| dates | predict on the laptop, one arm in flight at a time, 2026-10-13 → 14 local (CEST): mnimi 17:59 → 22:36 (16,642.5 s), naive_rag 22:37 → 01:21 (9,817.4 s), oracle 01:21 → 01:48 (1,615.1 s), no_memory 01:48 → 01:57 (514.0 s); judged at home 2026-10-13 23:58 → 10-14 00:49 UTC |
+| harness commits | `8859eb6` (mnimi), `3fc1ebc` (naive_rag), `557c8e6` (oracle), `4e6129a` (no_memory), each a **clean tree** on `paper-runs` from the tag `paper-v1`, the arguments from `configs/*__500q_q15b.json`: a finished run's registry row and manifest are tracked files, so each arm was committed before the next and the sha moves with no code change between them; `evals.stats` reports the difference and does not refuse it |
+| artifact schema | `mnimi-eval-artifact/12` |
+| `provisional` / manifest | `[]` on every directory of this set; `status: complete` → published, `claim none`, `rule_commit e184ed9` |
+| reader | `ollama` 0.32.13 under the daemon precondition (flash attention 1, cache RAM 0): `qwen2.5:1.5b-instruct-q4_0` (digest `635e70c8687b9d74…`), `num_ctx=32768`, `num_gpu=99`, `num_batch=512`, `num_thread=8`, `top_k=1`, `seed=0`, temperature 0, answer reserve 800; one reader load per arm (DECISIONS "E2 read") |
+| reader prompt | `mnimi-con-v1` (`50c6fe1057734876…`), `render_template_hash` `9c03ddae5c330626…` (text) |
+| retrieval (naive_rag, mnimi) | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, 384-dim, `k=10` rounds, `dedup_cosine_threshold=0.95`, `dedup_scope=session`, the BGE query instruction |
+| mnimi arm | the paper system's configuration, L1 alone (`mnimi__500q_gpt4o_p6time`'s pins with the local reader): `render_unit=round+facts`, `active_only` on, `ranking=score`, `consolidate` off, `time_weight=0.05`, `resolver_version v2`; the extraction cache replayed, `llm_calls_at_write` 0, `prefilter_drops` 367 |
+| run environment | Python 3.14.4, NVIDIA RTX 1000 Ada Generation Laptop GPU, driver 595.95, CUDA 13.2, 16 logical cores |
+| dataset / sampling | `longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56…`; `stratified-round-robin`, seed 0, n=500 |
+| judge | `gpt-4o-2024-08-06`, `longmemeval-paper-v3` (`be3dd63955221344…`), temperature 0, `max_tokens=10`: not the reader in this tier. Replays, each a `judge_replay_N.json` and never merged: `gpt-4.1-2025-04-14` on naive_rag, mnimi and oracle; a cache-off `gpt-4o` re-grade on mnimi and oracle |
+| dollars | $3.57 (readers $0, local; first gradings $1.52: 0.27 / 0.42 / 0.49 / 0.36 for no_memory / naive_rag / mnimi / oracle; replays $2.04) |
+
+| run | arm | score | 95% CI | gpt-4.1 | cache-off gpt-4o | quotable? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `no_memory__500q_q15b` | the floor | 36/500 (7.2%) | [5.2, 9.8] | — | — | yes |
+| `naive_rag__500q_q15b` | the strong K=V baseline | 197/500 (39.4%) | [35.2, 43.7] | 193/500 | — | yes |
+| **`mnimi__500q_q15b`** | **the paper system (L1 alone)** | **229/500 (45.8%)** | **[41.5, 50.2]** | 222/500 | 229/500 | yes |
+| `oracle__500q_q15b` | the evidence-availability bound | 225/500 (45.0%) | [40.7, 49.4] | 223/500 | 226/500 | yes |
+
+| comparison (b = mnimi's wins) | b / c | discordant | p (exact McNemar) | gpt-4.1: b / c (p) | reading |
+| --- | :---: | ---: | ---: | --- | --- |
+| **mnimi vs naive_rag — F1, the primary per reader** | **82 / 50** | 132 | **0.0067** | 78 / 49 (0.013) | ahead of the strong baseline under the 1.5B reader, as under gpt-4o (77 / 21), by a smaller margin |
+| mnimi vs no_memory | 218 / 25 | 243 | 1.3 × 10⁻³⁹ | — | the floor |
+| mnimi vs oracle | 68 / 64 | 132 | 0.79 | 61 / 62 (1.00) | level with the evidence-availability bound under this reader (a bound on evidence, not presentation) |
+
+| category | n | naive_rag | mnimi | b / c | p |
+| --- | ---: | ---: | ---: | :---: | ---: |
+| single-session-user | 70 | 50 | 51 | 12 / 11 | 1.00 |
+| single-session-assistant | 56 | 37 | 45 | 11 / 3 | 0.057 |
+| single-session-preference | 30 | 4 | 3 | 0 / 1 | 1.00 |
+| knowledge-update | 78 | 40 | 47 | 14 / 7 | 0.19 |
+| temporal-reasoning | 133 | 28 | 46 | 27 / 9 | 0.0039 |
+| multi-session | 133 | 38 | 37 | 18 / 19 | 1.00 |
+
+Per category only temporal-reasoning separates; the rows are descriptive (the per-category family F2 is the
+gpt-4o reader's).
+
+**The judge instrument at this tier.** One cache-off re-grade each: mnimi 2/500 rows unstable, oracle 1/500
+(one replay gives a weaker unstable set than the gpt-4o arms' three). The two judges agree on 967 of 1,000 pooled rows,
+κ 0.933 (mnimi 481/500, κ 0.923; oracle 486/500, κ 0.943).
+
+**The accounting (C3's 1.5B row).** Over the 497 judge-stable rows (3 unstable left out): both right 161,
+oracle right and the system wrong 64, both wrong 205, the system right and oracle wrong 67. Of the paper
+system's 269 stable misses, 64 (23.8%) are retrieval-bound and 205 (76.2%) reader-bound, against
+44 of 69 retrieval-bound under gpt-4o (the Phase 8 accounting above): **the pre-registered directional prediction
+held**. Retrieval-bound / stable misses by category: multi-session 25 / 85, temporal-reasoning 10 / 81, single-session-user 9 / 14, single-session-preference 7 / 26, knowledge-update 5 / 26, single-session-assistant 3 / 11; the 30 abstention questions 5 / 26.
+
+**Language.** "The n=500 reading of the paper system under the 1.5B reader: 229/500, b=82 c=50 against
+naive_rag's 197": never a replication of the 2026-08-16 n=100 (v1 library, 35 vs 41), never a rank, never paired against the
+gpt-4o arms (`evals.stats` refuses the cross-reader pair on `reader_model`). Reader ≠ judge here, unlike the gpt-4o
+arms. The local family's Tier 2 statement remains the 2026-09-10 restart pair; E2 adds none. Files:
+`results/published/*__500q_q15b/` (with `judge_replay_*.json`), `analyses/*__500q_q15b__vs__mnimi__500q_q15b*.json`,
+`analyses/e2/` (per category, `retest/`, `buckets/`, `agreement/`).
+
 ### Developer-release readings: the library after `paper-v1`, never the paper's numbers
 
 Each row is one n=500 arm of the developer library (`release/v3`) under the paper system's pins, paired against
