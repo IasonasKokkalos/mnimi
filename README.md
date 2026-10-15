@@ -274,7 +274,9 @@ claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/agent.db -- mnim
 
 `MNIMI_USER_ID` (default `me`), `MNIMI_EXTRACTOR` (`cpu` | `gpu` | `none`, default `cpu`) and
 `MNIMI_EMBEDDER` (`bge` | `hashing`, default `bge`) are the other settings;
-[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table.
+[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table. `mnimi-mcp` 0.2.0
+requires `mnimi` 3.1.0 or later (`>=3.1,<4`): it uses the extractor wrappers and the client-facts
+path that are new in 3.1.0.
 
 ## How it compares
 
@@ -393,8 +395,11 @@ pull request with the adapter and its config, and the run is paired against the 
 
 ## Paper
 
-The library the paper describes is tag `paper-v1`: `src/mnimi/` is that tag's bytes, byte for
-byte, in every release of the 3.x line (a digest test enforces it). The preprint lands
+The library the paper describes is tag `paper-v1` (`21239e2`, v2.14.0's `src/mnimi/`); the mnimi
+row in § The number is that library's. The 3.x releases are not that library byte for byte: 3.1.0
+changes `src/mnimi/` in extraction (§ Status and scope; `docs/DECISIONS.md` "The developer release
+lifts the paper freeze"), its LongMemEval reading is a developer-release reading, and the paper
+cites nothing from it. `git checkout paper-v1` gives the paper's library. The preprint lands
 2026-11-06; its title, arXiv id and BibTeX go here then, and `CITATION.cff` carries the software
 citation now.
 
@@ -427,17 +432,20 @@ PYTHONPATH="src;." python -m pytest -q          # 630 tests; 4 need the [embed]/
 python -m ruff check .
 ```
 
-`src/mnimi/` is frozen at `paper-v1`'s bytes: `evals/freeze.py` holds the digest and
-`tests/test_paper_freeze.py` fails on any edit, so release work lives in `src/mnimi_cli/`,
-`examples/`, `integrations/` and `evals/`. Lifting the freeze is a dated `docs/DECISIONS.md` entry
-and a new digest, and a library fix the paper needs is `paper-v1.1` with every paper arm rerun.
+`evals/freeze.py` holds a digest of `src/mnimi/` and `tests/test_paper_freeze.py` fails on any
+library edit that does not recompute it in the same commit, so a run of record always uses the
+committed library. At `paper-v1` the digest is the paper's library; since 3.1.0 it names the
+developer era (`FREEZE_NAME = "v3.0.0-dev"`, `docs/DECISIONS.md` "The developer release lifts the
+paper freeze"). A library change is a dated DECISIONS entry and a new digest, never an edit that
+makes the test pass; a library fix the paper needs is `paper-v1.1` with every paper arm rerun.
 [`CLAUDE.md`](CLAUDE.md) is the working contract (the invariants that silently invalidate a
 number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
 ## Status and scope
 
-- v3.0.0 is the developer release: the paper's library, the export CLI, the chat example, the CPU
-  recipe and the MCP server. Alpha.
+- v3.1.0 is the developer release and the first on PyPI (`mnimi` 3.1.0, `mnimi-mcp` 0.2.0): the
+  export CLI, the chat example, the CPU recipe and the MCP server. Alpha. 3.0.0 was the release
+  branch's version before the MCP test week and was never published.
 - v3.1.0 (2026-10-14) fixes what the MCP test week found in extraction, in the developer release
   only: the model's `raw` excerpts are verified against the round (`mnimi.extract.verify`), long
   turns are extracted in sub-rounds behind a backslash pre-escape (`mnimi.extract.wrappers`), a
