@@ -4432,3 +4432,56 @@ paper, its tag or its arms.
 the 21 % of facts whose `raw` was not verbatim in its turn (mostly the 300-cap tail) — a cleaner span for
 the same fact, so retrieval should move little either way; the per-turn `when` check drops some borrowed
 dates (a small loss on temporal rows is possible); resolver v3 touches few LongMemEval mentions.
+
+## PT1 read: the n=500 reading of the v3.1.0 library — 429/500, b=9 c=9 against the published 429 (gpt-4.1: b=16 c=10); adopted by the rule (2026-10-15)
+
+`configs/mnimi__500q_gpt4o_pt1.json` (`e1f0f8a`) ran at `183e3fa` (clean tree, mnimi 3.1.0, library digest
+`5f58aacd…`, artifact schema /12, pins hash `7698fb2f…`) under rule commit `cd74711` (the pre-registration above),
+`--claim none`, in the main checkout on `release/v3`, 2026-10-15 00:09:54 → 04:59:17 local. Ingest took 12,262.5 s,
+then 43 Batch API sub-batches; predict wall 17,351.5 s. The projection read $6.03 (upper bound, batch rate) against
+$40.13 left. `extractor_cache_misses` 0 and `llm_calls_at_write` 0: every round was replayed from the `paper-v1`
+cache, which gained no row. `prefilter_drops` 367; `gpt-4o-2024-08-06` served on 500/500 (eight fingerprints);
+`provisional_reasons: []`. Judged 05:00 → 05:03 (gpt-4o-2024-08-06, `longmemeval-paper-v3`; verdict cache 274 hit /
+226 miss) and replayed under gpt-4.1-2025-04-14 05:05 → 05:07; the manifest reads `complete` and the run was promoted
+by `evals.publish` with its replay to `results/published/mnimi__500q_gpt4o_pt1/`.
+
+**The probe (the gate, $0).** `runs/probe_mnimi_pt1.json`, 2026-10-14 19:58 → 10-15 00:07 (14,945 s — it
+re-ingests all 500 stores, so the runbook's "≈ 15 min" was wrong): `misses: 0` on 500/500. ANY@10 461/470 and
+ALL@10 **415**/470 against p6t's 463 / 418, so the gate (ALL@10 ≥ 413) passed by two. `evals.probes.identity` read
+0/500 identical, as expected (the verification moved fact vectors): facts stored 273,978 against 274,784,
+superseded 190 against 195, evidence ranks changed on 57 rows and the top-10 sessions on 148. Six evidence rounds
+left the top-10, every one to ranks 11–18 (`1c0ddc50`, `38146c39`, `gpt4_7f6b06db`, `gpt4_a1b77f9c`, `6d550036`,
+`gpt4_af6db32f`); one entered (`2ebe6c92`, 11 → 4). Dedup lost no evidence round.
+
+**The reading (gpt-4o judge; the second judge in parentheses).** **429/500 = 85.8 %, Wilson [82.5, 88.6]**, the
+published p6time's score and interval (gpt-4.1: 423/500, 84.6 % [81.2, 87.5], against p6time's 417). The pair of
+record against `results/published/mnimi__500q_gpt4o_p6time`, exact McNemar through `evals.stats`: **b=9 c=9,
+p = 1.0** (gpt-4.1: b=16 c=10, p = 0.33). It REPORTED the artifact schema (/11 → /12) and the harness commit
+(`f0a7de3` → `183e3fa`) and refused nothing. By category, descriptively (p6time → PT1, b/c): knowledge-update
+71 → 72 of 78 (2/1), multi-session 98 → 99 of 133 (2/1), single-session-assistant 56 → 55 of 56 (0/1),
+single-session-preference 25 → 21 of 30 (0/4), single-session-user 66 → 68 of 70 (2/0), temporal-reasoning
+113 → 114 of 133 (3/2). One of the 18 discordant rows (`38146c39`, lost) is a probe evidence move; the other 17
+moved with the same evidence in the top-10.
+
+**The rule.** b ≥ c (9 ≥ 9; 16 ≥ 10 under gpt-4.1): **adopted** as the developer release's quoted number, "the n=500
+reading of the v3.1.0 library, b=9 c=9 against the published 429". The difference is zero and inside the
+instrument's band (this family's same-configuration drift pair read b=6 c=6). So the reading says the test week's
+fixes did not move the benchmark, not that they helped; the stated expectation (within ±5 of 429) held. It is a
+developer-release row in its own table, never set beside the paper's arms and never a replication; the paper, its
+tag and its arms are untouched.
+
+**Cost.** Reader $3.94, judge $0.22, the gpt-4.1 replay $0.18: **$4.34 in all; $35.80 of $113.85 left.**
+
+**Compute (the runbook's Task 2a, for the README).** Tier A replays the extraction cache, so what was measured is
+the library's ingest + retrieval for 500 stores plus the Batch API wait, not the extractor (2.7–3.4 s per round on
+the RTX 1000 Ada, 21.0 s per round on the Ryzen 7 PRO 8845HS). On the Ryzen 7 PRO 8845HS (16 logical cores,
+32 GiB, Windows 11, Python 3.14.4):
+- 24.5 s per store and 98.6 ms per round, over 124,362 rounds;
+- process CPU during ingest: mean 764 %, p95 782 % (100 = one core); ≈ 1 % during the Batch wait;
+- RSS: median 1,899 MiB, peak 2,102 MiB;
+- a store on disk: 6.06 MiB (median of 500), plus ≈ 4 MiB of WAL while open; 6.55 MiB closed;
+- the extraction cache: 1.5 KB per round.
+
+CPU and RSS were sampled by `tools/sample_resources.py` (`runs/mnimi__500q_gpt4o_pt1/resources.csv`, every 5 s).
+The store sizes came from a watcher that only stat-ed the scratch stores: the harness deletes each store on the next
+reset, so the runbook's `du` after the run would have found nothing.
