@@ -106,7 +106,7 @@ cannot reach it today.
 | --- | --- | --- | --- |
 | `MNIMI_DB` | a path | **required** | the SQLite store; created with its `memory_meta` on first use |
 | `MNIMI_USER_ID` | a string | `me` | the `user_id` every record is stored and recalled under |
-| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`; the output budget doubled 2026-10-14 for dense turns); `gpu` = the paper's pin (CUDA build); `none` = no model: rounds only, plus the facts you pass to `remember` |
+| `MNIMI_EXTRACTOR` | `cpu` · `gpu` · `none` | `cpu` | `cpu` = the measured recipe (`{**DECODE, "n_gpu_layers": 0, "max_tokens": 2048}`; the output budget doubled 2026-10-14 for dense turns); `gpu` = the pinned decode (CUDA build); `none` = no model: rounds only, plus the facts you pass to `remember` |
 | `MNIMI_EMBEDDER` | `bge` · `hashing` | `bge` | `bge` = `BAAI/bge-small-en-v1.5` (the real one); `hashing` = numpy only, for tests |
 | `MNIMI_SPLIT_CHARS` | an integer | `600` | the sub-round split: each round is extracted whole first, and only when that output is truncated, at the fact cap or empty are turns longer than this cut at sentence boundaries into sub-rounds and re-extracted (the reading with more facts is kept), so a long answer is not lost to the model's output budget; `0` = off |
 
@@ -177,6 +177,7 @@ The tests drive the server through the SDK's in-memory client (`Client(server.mc
 `MNIMI_EMBEDDER=hashing MNIMI_EXTRACTOR=none` over a temporary DB. The server imports
 `mnimi.extract.llama` for the decode dict, `mnimi.extract.wrappers` for the split, the pre-escape
 and client facts, and `mnimi_cli.main` for the Markdown export; it changes nothing under
-`src/mnimi/`. The paper's library is tag `paper-v1`; 3.1.x departs from it in extraction only.
+`src/mnimi/`. The published numbers were measured on tag `v2.14.0`; 3.1.x departs from it in
+extraction only.
 
 Apache-2.0, like the library.

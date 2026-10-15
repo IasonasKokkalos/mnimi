@@ -142,7 +142,7 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
 - **The freeze digest.** `evals/freeze.py` pins a digest of `src/mnimi/`; a run of record
   (`--limit ≥ 100` predict) refuses an unfrozen library, a dirty tree or an uncommitted
   `--config` unless `--allow-unfrozen` (provisional). A library edit recomputes the digest in the
-  same commit with a DECISIONS entry — never an edit that makes `tests/test_paper_freeze.py` pass.
+  same commit with a DECISIONS entry — never an edit that makes `tests/test_library_freeze.py` pass.
 
 ## Reproducibility tiers (what a number is allowed to claim)
 
@@ -242,4 +242,7 @@ rules (`VERIFY_VERSION`, declared, not yet guarded).
 - Do not touch `src/mnimi/` from release work without a DECISIONS entry and a new freeze digest
   in the same commit. The paper's library is tag `paper-v1` and its arms are never rerun from a
   release branch; a library fix the paper needs is `paper-v1.1` with every paper arm rerun.
-  Lifting or moving the freeze is never an edit that makes `tests/test_paper_freeze.py` pass.
+  Lifting or moving the freeze is never an edit that makes `tests/test_library_freeze.py` pass.
+- Do not mention the paper in the README, the package metadata, the release notes or any post
+  (the maintainer's rule of 2026-10-15, until the preprint): the published rows are "measured on
+  tag `v2.14.0`", the comparison arm is "the published 429".

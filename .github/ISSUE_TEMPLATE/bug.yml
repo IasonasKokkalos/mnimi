@@ -1,0 +1,43 @@
+name: Bug
+description: Something the library, the CLI, the chat example or the MCP server does wrong.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: "`pip show mnimi mnimi-mcp`, Python, OS. For the extractor: the llama-cpp-python wheel (CPU index or a CUDA build)."
+      placeholder: "mnimi 3.1.1, mnimi-mcp 0.2.0, Python 3.12, Windows 11, llama-cpp-python 0.3.35 (CPU wheel)"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - the library (`mnimi.Memory`)
+        - "`mnimi export`"
+        - "`examples/chat.py`"
+        - "`mnimi-mcp` (the MCP server)"
+        - the evaluation harness (`evals/`)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: What you did
+      description: The smallest sequence that shows it. For a memory problem, the turns you stored (both roles) and the query; `mnimi export <db> <user> --format md` output is the best attachment.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, what happened instead
+      description: Paste the traceback or the library's INFO lines (`superseded …`, `routed to conflict …`, `decayed …`) if there were any.
+    validations:
+      required: true
+  - type: textarea
+    id: store
+    attributes:
+      label: The store's pins (optional)
+      description: "`sqlite3 <db> 'select key, value from memory_meta'` — which embedder, extractor profile and rule hashes the store was built under."

@@ -1,0 +1,46 @@
+name: Run my system through the harness
+description: Ask for your memory system to be run on LongMemEval-S under the same pins as every published row, paired against them.
+labels: [harness, competitor]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every row in the README's table was produced by the harness in `evals/` under pinned reader, prompt, judge and `k`; a third-party system goes through the contract in `evals/systems/competitor.py` (its own environment under `mnimi-envs/`, a 5,364-token context budget, its own ids as `retrieved_ids`) and is reported as "through this harness under these pins", paired on the same 500 questions — never as a rank. The Mem0 and OMEGA adapters are the worked examples; `CONTRIBUTING.md` has the contract.
+  - type: input
+    id: system
+    attributes:
+      label: The system
+      description: Name, repository, the version or commit to run.
+    validations:
+      required: true
+  - type: dropdown
+    id: who
+    attributes:
+      label: Who runs it
+      options:
+        - I will write the adapter and open a PR (preferred)
+        - I would like you to write the adapter
+        - I ran it myself and want the verdicts audited (attach `predictions.jsonl`)
+    validations:
+      required: true
+  - type: textarea
+    id: ingest
+    attributes:
+      label: How it ingests and retrieves
+      description: What a write takes (raw turns? a session date? which fields), what a search returns (ids, scores, text), whether it needs an LLM at write time and which, and anything that must be pinned for a run to be reproducible.
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost per history (if known)
+      description: Minutes and dollars to ingest one LongMemEval history (≈ 50 sessions, ≈ 250 rounds); the harness runs 500 of them.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: The rules
+      options:
+        - label: The reader prompt is `mnimi-con-v1` for every question type — no per-category prompt.
+          required: true
+        - label: No threshold is selected against LongMemEval; the configuration is the one the system ships.
+          required: true

@@ -5,15 +5,16 @@ are what keeps the published numbers meaningful. [`CLAUDE.md`](CLAUDE.md) is the
 [`docs/SPEC.md`](docs/SPEC.md) § "v1 as built" the exact shipped state, and
 [`docs/DECISIONS.md`](docs/DECISIONS.md) the dated reasons.
 
-## The library and the paper's library
+## The library and the published numbers
 
 `src/mnimi/` is digest-pinned: `evals/freeze.py` holds a SHA-256 over the tree and
-`tests/test_paper_freeze.py` fails on any edit that does not recompute it in the same commit. A
+`tests/test_library_freeze.py` fails on any edit that does not recompute it in the same commit. A
 library change is therefore a dated `docs/DECISIONS.md` entry plus a new digest, never an edit
-that makes the test pass. The library the paper describes is tag `paper-v1`; release work lives
-on `release/*` branches, and a change there is a developer-release change that the paper's arms
-are never rerun from (a fix the paper needs is `paper-v1.1` with every paper arm rerun). Work
-around the library — `src/mnimi_cli/`, `examples/`, `integrations/`, `evals/` — needs no digest.
+that makes the test pass. The published n=500 rows were measured on the library at tag
+`v2.14.0`; release work lives on `release/*` branches, and a change there is a developer-release
+change — the published arms are never rerun from it, and its own LongMemEval reading is reported
+as a developer-release reading beside them. Work around the library — `src/mnimi_cli/`,
+`examples/`, `integrations/`, `evals/` — needs no digest.
 
 ## Running a benchmark
 

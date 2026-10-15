@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Reproducing a published number
+    url: https://github.com/IasonasKokkalos/mnimi/blob/main/results/published/README.md
+    about: Every published row, its run id, its pins and the one-command audit are recorded there; read it before opening an issue about a number.

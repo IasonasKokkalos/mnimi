@@ -1,11 +1,9 @@
 # Citation metadata for mnimi (https://citation-file-format.github.io/).
-# The `preferred-citation` is a stub until the preprint is out: MERGED-PLAN T10
-# fills in the arXiv id, the title as submitted and the date on preprint day.
 cff-version: 1.2.0
 message: "If you use mnimi, please cite it as below."
 type: software
 title: "mnimi: embeddable, local-first agent memory"
-abstract: "An embeddable, local-first agent-memory library: one SQLite file via sqlite-vec, two core dependencies, no server. The write side extracts, deduplicates, resolves conflicts and decays; the read side ranks under logical time with no LLM. The library the paper describes is the tag paper-v1."
+abstract: "An embeddable, local-first agent-memory library: one SQLite file via sqlite-vec, two core dependencies, no server. The write side extracts, deduplicates, resolves conflicts and decays; the read side ranks under logical time with no LLM."
 authors:
   - family-names: Kokkalos
     given-names: Iasonas
@@ -23,12 +21,3 @@ keywords:
   - rag
   - long-term-memory
   - longmemeval
-preferred-citation:
-  type: article
-  title: "TBA (the preprint; MERGED-PLAN T10 fills this in)"
-  authors:
-    - family-names: Kokkalos
-      given-names: Iasonas
-  year: 2026
-  journal: "arXiv preprint"
-  url: "https://arxiv.org/abs/TBA"

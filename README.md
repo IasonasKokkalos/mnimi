@@ -4,7 +4,6 @@
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](pyproject.toml)
 [![CI](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-<!-- [![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) — the preprint lands 2026-11-06 -->
 
 mnimi is an embeddable, local-first memory layer for LLM agents: one SQLite file (`sqlite-vec`),
 two dependencies, no server. Raw chat turns go in; a small pinned local model extracts facts at
@@ -13,6 +12,11 @@ the read path calls a model. All time is logical (the `ts` you hand each message
 store gives the same answers on any day. Every memory is readable as Markdown. On LongMemEval-S
 (500 questions, gpt-4o as reader) it reads 85.8 %, paired and audited: every published row
 re-grades with one command.
+
+![A chat.py session: three turns stored, the facts the extractor pulled from each, a recall, and the memory exported as Markdown](docs/mnimi-demo.gif)
+
+*A real `examples/chat.py` session (BGE embedder, the CPU extractor, `/facts`, `/recall`, `/export`);
+the assistant's replies are scripted, so no chat model runs in it.*
 
 ## The number
 
@@ -30,10 +34,10 @@ type, retrieval `k=10` and per-round ingestion identical across the rows that re
 **Provenance.** Reader and judge `gpt-4o-2024-08-06` over the OpenAI API, temperature 0; reader
 prompt `mnimi-con-v1`, judge prompt `longmemeval-paper-v3`; harness commits `f07c24d` (no_memory,
 naive_rag, oracle) and `f0a7de3` (mnimi), clean trees, `provisional: []` on all four. Counts and
-intervals are copied from [`results/paper/tables.md`](results/paper/tables.md) (T1, T5, T8), which
-`python -m evals.paper_tables` exports from the committed predictions; mean fed tokens is the mean
-`reader_prompt_tokens` over each arm's `predictions.jsonl`. mnimi against naive_rag on the same
-500 questions: b=77, c=21, exact McNemar p = 1.1 × 10⁻⁸ (T3). Paired, never ranked.
+intervals are copied from each arm's `summary.json` under
+[`results/published/`](results/published/); mean fed tokens is the mean `reader_prompt_tokens`
+over each arm's `predictions.jsonl`. mnimi against naive_rag on the same 500 questions: b=77,
+c=21, exact McNemar p = 1.1 × 10⁻⁸ (`analyses/`). Paired, never ranked.
 
 Two caveats. The reader and the judge are one model snapshot (LongMemEval's own pairing); a second
 judge re-graded every arm and every pair of record keeps its sign. "Auditable" is not
@@ -330,7 +334,7 @@ your application                      (holds the clock: hands every message its 
 - **The extraction cache** is a second SQLite file keyed by the extractor's pins: one row per
   round the model has seen, so a round is extracted once. `examples/chat.py` and `mnimi-mcp`
   put it beside the DB; the harness keeps it under `.cache/extract/`. The LongMemEval cache,
-  attached to the `paper-v1` GitHub release, is 95,846 rows, 140,038,144 bytes, sha256
+  attached to the `v3.1.1` GitHub release, is 95,846 rows, 140,038,144 bytes, sha256
   `ce4a1ab33d661c2c1128974c5d4ea2f69bd238b49085691c600b07a82db4e39e`.
 - **Sizes.** The quickstart's two rounds make a 3.2 MB store (384-dim float32
   vectors, the round records and their facts); the models are 130 MB (BGE) and 1.8 GB (Qwen3
@@ -342,7 +346,7 @@ your application                      (holds the clock: hands every message its 
   the library's **ingest + retrieval** for 500 stores (BGE-small on the CPU through onnxruntime,
   sqlite-vec inserts, the write-path screens, the ranking) plus the time spent waiting on the
   Batch API, **not** the extractor. The extractor's own cost belongs beside it: 2.7–3.4 s per
-  round on the RTX 1000 Ada (GPU, the paper's pin), 21.0 s per round on a Ryzen 7 PRO 8845HS
+  round on the RTX 1000 Ada (GPU, the pinned decode), 21.0 s per round on a Ryzen 7 PRO 8845HS
   (the CPU recipe, [`examples/README.md`](examples/README.md)).
 
   | measurement | value |
@@ -373,7 +377,7 @@ came from the pipeline the pins claim. **Tier 2** is a fresh run of the shipped 
 changed, prompt tokens changed on 0/500, 429 both times, b=6, c=6
 (`results/published/mnimi__500q_gpt4o_p6time_drift_2026-09-26`). The judge itself flips about 1 %
 of rows between re-grades, so no absolute difference below that is interpretable; paired
-comparisons are unaffected. Every command of the paper's harness is in
+comparisons are unaffected. Every command of the harness is in
 [`results/published/README.md`](results/published/README.md).
 
 ## Run your system through the harness
@@ -396,16 +400,6 @@ openai --batch --purpose "..." --claim none`. Third-party packages go through th
 `evals/systems/competitor.py` (their own environment, a 5,364-token context budget, their own ids
 as `retrieved_ids`); the Mem0 and OMEGA adapters are the worked examples. Adapters welcome: open a
 pull request with the adapter and its config, and the run is paired against the same rows.
-
-## Paper
-
-The library the paper describes is tag `paper-v1` (`21239e2`, v2.14.0's `src/mnimi/`); the mnimi
-row in § The number is that library's. The 3.x releases are not that library byte for byte: 3.1.x
-changes `src/mnimi/` in extraction (§ Status and scope; `docs/DECISIONS.md` "The developer release
-lifts the paper freeze"), its LongMemEval reading is a developer-release reading, and the paper
-cites nothing from it. `git checkout paper-v1` gives the paper's library. The preprint lands
-2026-11-06; its title, arXiv id and BibTeX go here then, and `CITATION.cff` carries the software
-citation now.
 
 ## Troubleshooting
 
@@ -436,12 +430,10 @@ PYTHONPATH="src;." python -m pytest -q          # 630 tests; 4 need the [embed]/
 python -m ruff check .
 ```
 
-`evals/freeze.py` holds a digest of `src/mnimi/` and `tests/test_paper_freeze.py` fails on any
+`evals/freeze.py` holds a digest of `src/mnimi/` and `tests/test_library_freeze.py` fails on any
 library edit that does not recompute it in the same commit, so a run of record always uses the
-committed library. At `paper-v1` the digest is the paper's library; since 3.1.0 it names the
-developer era (`FREEZE_NAME = "v3.0.0-dev"`, `docs/DECISIONS.md` "The developer release lifts the
-paper freeze"). A library change is a dated DECISIONS entry and a new digest, never an edit that
-makes the test pass; a library fix the paper needs is `paper-v1.1` with every paper arm rerun.
+committed library (`FREEZE_NAME` names the era; `docs/DECISIONS.md`, 2026-10-14). A library change is a dated DECISIONS entry and a new digest, never an edit
+that makes the test pass.
 [`CLAUDE.md`](CLAUDE.md) is the working contract (the invariants that silently invalidate a
 number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
@@ -459,13 +451,18 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
   turns are extracted in sub-rounds behind a backslash pre-escape (`mnimi.extract.wrappers`), a
   caller can hand `remember` its own facts, a weekday beside a numeric date resolves (resolver
   v3; v2 stores are refused at open), and a time mention is verified against the fact's own turn.
-  The paper's library stays tag `paper-v1`.
+  The library the published rows in § The number were measured on is tag `v2.14.0`; 3.1.x departs
+  from it in extraction only, and `git checkout v2.14.0` gives it.
+- In daily use as the maintainer's own memory through `mnimi-mcp` since 2026-10-10. The 3.1.x
+  fixes above are what the first week found; one thing it still gets wrong is deliberately not
+  fixed: a fact the model keys two different ways is not superseded by its contradiction, because
+  the exact-key rule is what keeps the conflict pass deterministic.
 - v3.1.0 on LongMemEval (2026-10-15): the n=500 reading of the v3.1.0 library, **b=9 c=9
-  against the paper system's published 429** (exact McNemar p = 1.0); 429/500, 85.8 %, Wilson
+  against the published 429** (`mnimi__500q_gpt4o_p6time`; exact McNemar p = 1.0); 429/500, 85.8 %, Wilson
   [82.5, 88.6]. Run `mnimi__500q_gpt4o_pt1` at `183e3fa`, reader and judge `gpt-4o-2024-08-06`
   (judge prompt `longmemeval-paper-v3`), the extraction cache replayed
   ([`results/published/mnimi__500q_gpt4o_pt1/`](results/published/mnimi__500q_gpt4o_pt1/)). A
-  developer-release reading, inside the judge's band; the paper's number stays `paper-v1`'s.
+  developer-release reading, inside the judge's band; the published number stays `v2.14.0`'s.
 - In scope is write-side policy: extraction, screens, supersession, decay, ranking, retrieval.
   Out of scope: a UI, a chat frontend, a hosted service.
 - Deliberately not built, each with its re-open trigger in [`docs/FUTURE.md`](docs/FUTURE.md): a

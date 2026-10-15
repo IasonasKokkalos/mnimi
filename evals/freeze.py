@@ -2,7 +2,7 @@
 
 ``LIBRARY_FREEZE_SHA256`` is a digest over every tracked file under ``src/mnimi``,
 taken over LF-normalised bytes so a Windows checkout with ``core.autocrlf`` and
-CI's Linux checkout agree. ``tests/test_paper_freeze.py`` pins it; the runner
+CI's Linux checkout agree. ``tests/test_library_freeze.py`` pins it; the runner
 refuses a run of record (``--limit >= 100`` on the predict stage) when the digest
 differs or the tree is dirty, unless ``--allow-unfrozen`` marks the run
 provisional. Lifting the freeze is a DECISIONS entry and a new constant, never an

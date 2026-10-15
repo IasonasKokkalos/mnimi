@@ -635,7 +635,7 @@ def test_the_guard_refuses_a_changed_library_and_a_dirty_tree(wired, tmp_path, c
 
 
 def test_the_guard_ignores_line_endings():
-    # CRLF == LF is pinned in test_paper_freeze; this names the guard's digest.
+    # CRLF == LF is pinned in test_library_freeze; this names the guard's digest.
     from evals.freeze import library_digest
 
     assert len(library_digest()) == 64

@@ -71,7 +71,7 @@ benchmark slice; mean 1,583 prompt tokens, 237 completion tokens), on an AMD Ryz
 | profile | seconds / round mean | p50 | max | min | tok/s overall | truncated |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `cpu` (the 2026-10-10 profile, `max_tokens` 1,024) | 21.0 | 19.6 | 46.7 | 7.6 | 87 | 0 / 40 |
-| `gpu` (the paper's pin, RTX 1000 Ada, DECISIONS "Extractor runtime") | 2.7–3.4 | | | | | |
+| `gpu` (the pinned decode, RTX 1000 Ada, DECISIONS "Extractor runtime") | 2.7–3.4 | | | | | |
 
 The first 20 of those rounds in a second fresh process: **20/20 raw outputs byte-identical**
 (mean 22.7 s / round there; a descriptive reading, never a stability claim). Hashes: `DECODE` → `ba1a81ab…b8241`, the CPU dict →
