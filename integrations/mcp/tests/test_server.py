@@ -78,8 +78,8 @@ def test_remember_stamps_the_servers_day_and_recall_round_trips(env):
         {"role": "user", "content": "I live in Boston."},
         {"role": "assistant", "content": "Boston, noted."},
     ])))
-    assert stored == {"round": 1, "fact": 0, "superseded": 0, "ts": "2026-10-10T00:00:00",
-                      "facts_supplied": 0}
+    assert stored == {"round": 1, "fact": 0, "merged": 0, "superseded": 0,
+                      "ts": "2026-10-10T00:00:00", "facts_supplied": 0}
 
     hits = _structured(run(_call("recall", query="where do I live", k=5)))["result"]
     assert len(hits) == 1
@@ -291,6 +291,22 @@ def test_remember_with_facts_stores_them_without_a_model_and_they_reach_context(
     assert len(hits) == 1, "recall returns the round the facts hang on"
     context = _structured(run(_call("context", query="how did E2 end")))["result"]
     assert "229/500" in context and "(2026-10-14)" in context
+
+
+def test_remember_reports_facts_the_dedup_merged(env):
+    """Issue 10 (2026-10-16): two facts quoting the same long `raw` sentence embed almost
+    identically, and the write path merges the second as a duplicate. The result now says so."""
+    sentence = ("user: " + " ".join(f"word{i}" for i in range(120))  # hashing: cos 0.968
+                + " and that 5L models are too small despite the marketing.")
+    stored = _structured(run(_call("remember",
+        messages=[{"role": "user", "content": sentence[len("user: "):]}],
+        facts=[{"content": "The user picked the KitchenBrothers airfryer.", "raw": sentence},
+               {"content": "The user finds 5L airfryers too small.", "raw": sentence}],
+    )))
+    assert stored["facts_supplied"] == 2
+    assert stored["fact"] + stored["merged"] == 2, stored
+    assert stored["merged"] == 1, "the second fact merged into the first, and the caller is told"
+    assert "facts_unused" not in stored
 
 
 def test_remember_with_facts_needs_exactly_one_round(env):

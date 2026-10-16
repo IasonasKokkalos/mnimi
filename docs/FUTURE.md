@@ -165,6 +165,30 @@ lines 394-415]**
 * **Multi-turn coreference windows** beyond the single conversation.
   **[SPEC-deferred: §Extraction → Out of scope, lines 529-530]**
 
+* **Same-round fact dedup on the fact text, not the shared `raw`** (the MCP test
+  week's issue 10, 2026-10-16). A fact embeds as `FACT_EMBED_TEMPLATE =
+  "${raw}
+${fact}"`; when two facts of one round quote the same long `raw`
+  sentence the excerpt dominates both vectors (measured cos 0.977–0.993 with
+  BGE against `dedup_cosine_threshold` 0.95), the k=1 probe in `add` finds the
+  sibling just stored, and the screens — built to separate a negation or a value
+  substitution, not two unrelated claims about different objects — return
+  `merge/duplicate`, so the second fact is folded into the first. Seen on the
+  client-facts path (`remember(..., facts=)`); the model path can collide the
+  same way whenever siblings share a `raw` (issue 4 showed six facts on one
+  excerpt, and the `prefix` repair in `verify.py` grows a cut excerpt back to its
+  sentence). **Shipped answer (3.1.1 / `mnimi-mcp` 0.2.0, no library change):**
+  `remember` returns `merged`, and the `raw` field asks for the fact's own clause.
+  **Candidate library fix:** before merging two facts of the *same round*, also
+  require their `fact` texts alone to pass the gate; otherwise store both. This
+  changes the stored fact set on the write path, so it is under the same rule as
+  issue 7 (cross-key supersession): a `resolver`/screen version bump, a new
+  hash, a re-ingest, and a dated DECISIONS entry — **never an in-place edit**.
+  · **[trigger]** a `$0` retrieval probe plus one n=500 arm showing the number
+  does not drop (b ≥ c against the published 429, the TESTFIXESPT1 rule), or a
+  measured count of same-raw merges on the LongMemEval cache above a few percent
+  of facts. Not before the public launch; sibling note: issue 7 in the issues doc.
+
 ## Decay / salience / lifecycle
 
 * **`pinned` records.** Decay-exempt, conflict-winning identity facts. Removed

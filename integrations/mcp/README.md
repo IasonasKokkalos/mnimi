@@ -125,7 +125,7 @@ builds a store with no extractor at all, so the two are not interchangeable.
 
 | tool | arguments | returns |
 | --- | --- | --- |
-| `remember` | `messages: [{role: user\|assistant, content}]` (at least one); `facts: [{content, raw?, when?, subject?, predicate?, object?, salience?}]` (optional) | `{round, fact, superseded, ts, facts_supplied, facts_unused?}`: the records this call added by kind (a duplicate round adds 0), the earlier facts it superseded, the session timestamp they were stamped with, how many facts you supplied, and — only when the pre-filter skipped the round — how many of them went unused |
+| `remember` | `messages: [{role: user\|assistant, content}]` (at least one); `facts: [{content, raw?, when?, subject?, predicate?, object?, salience?}]` (optional) | `{round, fact, merged, superseded, ts, facts_supplied, facts_unused?}`: the records this call added by kind (a duplicate round adds 0), the facts the dedup merged into a near-identical stored fact instead of adding (two facts quoting the same long `raw` excerpt collide this way — give each its own clause), the earlier facts it superseded, the session timestamp they were stamped with, how many facts you supplied, and — only when the pre-filter skipped the round — how many of them went unused |
 | `recall` | `query`, `k` (default 10) | `[{score, salience, kind, text, session_date}]`, best first; the returned memories count as accessed today, which protects them from the next decay pass |
 | `context` | `query` | the context block the library hands a reader: session-date headers, `user:`/`assistant:` lines, the facts |
 | `export` | — | the whole memory as Markdown (the same text `mnimi export --format md` writes) |

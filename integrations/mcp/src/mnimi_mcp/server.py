@@ -245,7 +245,9 @@ class ClientFact(BaseModel):
         "one self-contained sentence; begin with 'The user' or 'The assistant'; keep names, "
         "numbers and dates exactly as written in the turn"))
     raw: str | None = Field(None, description=(
-        "a contiguous verbatim excerpt of the turn, prefixed 'user: ' or 'assistant: '; "
+        "a contiguous verbatim excerpt of the turn, prefixed 'user: ' or 'assistant: ': the one "
+        "clause this fact comes from, not the whole sentence — two facts quoting the same long "
+        "excerpt embed almost identically and the second is merged as a duplicate (see `merged`); "
         "omit it and the server picks the turn sentence closest to content"))
     when: str | None = Field(None, description=(
         "the time expression exactly as the turn writes it ('yesterday', 'on May 14th', "
@@ -295,8 +297,10 @@ def remember(
     ] = None,
 ) -> dict[str, Any]:
     """Store chat turns in long-term memory. Returns the records this call added by kind
-    (`round`, `fact`; a duplicate round adds 0), how many earlier facts it superseded, the
-    session timestamp the turns were stamped with, and how many facts you supplied."""
+    (`round`, `fact`; a duplicate round adds 0), how many facts the dedup merged into an
+    existing one instead of storing (`merged`; give each fact its own `raw` clause to avoid
+    it), how many earlier facts it superseded, the session timestamp the turns were stamped
+    with, and how many facts you supplied."""
     ts = session_ts()
     if facts:
         if any(not f.content.strip() for f in facts):
@@ -319,6 +323,7 @@ def remember(
             ])
         before = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
         superseded_before = mem.conflict_stats["superseded"]
+        merged_before = mem.conflict_stats["merged"]
         try:
             mem.add([{"role": m.role, "content": m.content, "ts": ts} for m in messages], uid)
         finally:
@@ -327,9 +332,11 @@ def remember(
                 extractor.pending = None
         after = {k: mem.store.count(uid, kind=k) for k in ("round", "fact")}
         superseded = mem.conflict_stats["superseded"] - superseded_before
+        merged = mem.conflict_stats["merged"] - merged_before
     out = {
         "round": after["round"] - before["round"],
         "fact": after["fact"] - before["fact"],
+        "merged": merged,  # facts the dedup folded into a near-identical stored fact (issue 10)
         "superseded": superseded,
         "ts": ts,
         "facts_supplied": len(facts or []),
