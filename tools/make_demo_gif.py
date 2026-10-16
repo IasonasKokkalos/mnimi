@@ -96,7 +96,7 @@ def run_session(workdir: pathlib.Path) -> list[dict]:
     return lines
 
 
-def wrap(text: str, width: int = 104) -> list[str]:
+def wrap(text: str, width: int = 98) -> list[str]:  # 98 × 9 px fits the 924 px text area
     out, cur = [], ""
     for word in text.split(" "):
         if len(cur) + len(word) + 1 > width and cur:
@@ -122,29 +122,73 @@ def render(visible: list[tuple[str, str]], cursor: bool) -> Image.Image:
     return img
 
 
-def frames_for(lines: list[dict]):
-    """Yield (image, duration_ms). Typed lines appear in word chunks; output appears at once."""
-    visible: list[tuple[str, str]] = []
+def group(lines: list[dict]):
+    """Consecutive output lines of one kind form a block; the hold after it scales with its size."""
+    block: list[dict] = []
     for item in lines:
-        kind, text = item["kind"], item["text"]
-        prefix = {"you": "you> ", "bot": "", "cmd": "", "out": "", "log": "", "md": ""}[kind]
+        if item["kind"] in ("out", "md") and (not block or block[-1]["kind"] == item["kind"]):
+            block.append(item)
+            continue
+        if block:
+            yield block
+            block = []
+        if item["kind"] in ("out", "md"):
+            block.append(item)
+        else:
+            yield [item]
+    if block:
+        yield block
+
+
+def hold_for(rows: int, per_row: int = 900, lo: int = 2000, hi: int = 6000) -> int:
+    return max(lo, min(hi, per_row * rows))
+
+
+def frames_for(lines: list[dict]):
+    """Yield (image, duration_ms). Pacing: typed lines appear word by word; a reply or an output
+    block appears line by line, then holds long enough to be read (about 0.9 s per rendered row).
+    The Markdown dump starts on a cleared screen and holds once more when it fills the screen."""
+    visible: list[tuple[str, str]] = []
+    max_lines = (H - 2 * PAD) // LINE_H
+    for block in group(lines):
+        kind = block[0]["kind"]
         if kind in ("you", "cmd"):
+            text = block[0]["text"]
+            prefix = "you> " if kind == "you" else ""
+            if text.startswith("$ cat "):
+                visible = []  # the export is read on a fresh screen, as after `clear`
             words = text.split(" ")
             for i in range(1, len(words) + 1):
                 partial = prefix + " ".join(words[:i])
                 yield render(visible + [(kind, w) for w in wrap(partial)], True), 70
             visible += [(kind, w) for w in wrap(prefix + text)]
-            yield render(visible, False), 500
+            yield render(visible, False), 600
         elif kind == "bot":
-            visible += [("bot", w) for w in wrap("    " + text)]
-            yield render(visible, False), 1300
+            rows = wrap("    " + block[0]["text"])
+            visible += [("bot", w) for w in rows]
+            yield render(visible, False), hold_for(len(rows), lo=2000)
         elif kind == "log":
-            visible += [("log", w) for w in wrap("  " + text)]
-            yield render(visible, False), 900
-        else:
-            visible += [(kind, w) for w in wrap(text)]
-            yield render(visible, False), 160
-    yield render(visible, False), 3500
+            rows = wrap("  " + block[0]["text"])
+            visible += [("log", w) for w in rows]
+            yield render(visible, False), 1200
+        else:  # an output block: "out" after a command, "md" for the dump
+            rows_total = 0
+            filled_hold_done = False
+            for item in block:
+                rows = wrap(item["text"])
+                visible += [(kind, w) for w in rows]
+                rows_total += len(rows)
+                step = 150 if kind == "md" else 180
+                if kind == "md" and not filled_hold_done and len(visible) >= max_lines:
+                    # the first screenful of the export is readable before it scrolls
+                    yield render(visible, False), hold_for(max_lines, per_row=250, lo=3500, hi=6000)
+                    filled_hold_done = True
+                else:
+                    yield render(visible, False), step
+            if kind == "md":
+                yield render(visible, False), 6500
+            else:
+                yield render(visible, False), hold_for(rows_total)
 
 
 def main():

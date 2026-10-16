@@ -13,7 +13,7 @@ store gives the same answers on any day. Every memory is readable as Markdown. O
 (500 questions, gpt-4o as reader) it reads 85.8 %, paired and audited: every published row
 re-grades with one command.
 
-![A chat.py session: three turns stored, the facts the extractor pulled from each, a recall, and the memory exported as Markdown](docs/mnimi-demo.gif)
+![A chat.py session: three turns stored, the facts the extractor pulled from each, a recall, and the memory exported as Markdown](https://raw.githubusercontent.com/IasonasKokkalos/mnimi/main/docs/mnimi-demo.gif)
 
 *A real `examples/chat.py` session (BGE embedder, the CPU extractor, `/facts`, `/recall`, `/export`);
 the assistant's replies are scripted, so no chat model runs in it.*
