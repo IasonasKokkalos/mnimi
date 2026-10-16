@@ -136,7 +136,7 @@ class BgeSmallEmbedder:
             from tokenizers import Tokenizer
         except ImportError as exc:  # pragma: no cover - exercised only without the extra
             raise ImportError(
-                "BgeSmallEmbedder needs the [embed] extra: pip install mnimi[embed]"
+                "BgeSmallEmbedder needs the [embed] extra: pip install \"mnimi-memory[embed]\""
             ) from exc
 
         model_path = hf_hub_download(self.name, "onnx/model.onnx", revision=self.revision)

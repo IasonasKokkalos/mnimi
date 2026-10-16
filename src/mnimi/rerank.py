@@ -94,7 +94,7 @@ class MiniLMCrossEncoder:
             from tokenizers import Tokenizer
         except ImportError as exc:  # pragma: no cover - exercised only without the extra
             raise ImportError(
-                "MiniLMCrossEncoder needs the [embed] extra: pip install mnimi[embed]"
+                "MiniLMCrossEncoder needs the [embed] extra: pip install \"mnimi-memory[embed]\""
             ) from exc
         import numpy as np
 

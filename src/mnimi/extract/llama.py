@@ -89,7 +89,7 @@ def _require():
         from huggingface_hub import hf_hub_download
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise ImportError(
-            "QwenLlamaExtractor needs the [extract] extra: pip install mnimi[extract] "
+            "QwenLlamaExtractor needs the [extract] extra: pip install \"mnimi-memory[extract]\" "
             "(llama-cpp-python built with CUDA, see docs/DECISIONS.md 'Extractor runtime')"
         ) from exc
     return llama_cpp, hf_hub_download

@@ -4509,3 +4509,23 @@ nothing is re-keyed and the PT1 reading (429/500, b=9 c=9) is of the extraction 
 freeze digest is recomputed in this commit (`d7a320af…448e`, era `v3.0.0-dev`), the version is **3.1.1** so that
 "3.1.0" keeps naming the library the PT1 run measured byte for byte, and `mnimi-mcp` 0.2.0 requires `>=3.1.1`.
 Nothing of 3.1.0 was published.
+
+## 3.1.1 ships as `mnimi-memory`: the PyPI distribution name (2026-10-16, release/v3)
+
+**What.** PyPI refused the pending trusted publisher for `mnimi`: "This project name is too similar to an existing
+project". Its look-alike rule folds `i`, `l` and `1` into one letter, and `mniml` — a one-person "minimal Python
+package", two releases, the last on 2020-12-17 — holds that form. The name was free in every exact-name check (the
+`/pypi/mnimi/json` 404s of 09-26, 10-15 and 10-16); only the form's similarity check sees it. A PEP 541 request takes
+weeks and the launch is Sat 10-17, so the fallback pre-decided on 2026-10-08 (MERGED-PLAN §7, LAUNCH §11 q10) applies.
+
+**The rule.** The *distribution* is `mnimi-memory`; the import `mnimi`, the console script `mnimi`, the repository
+`IasonasKokkalos/mnimi` and the MCP package `mnimi-mcp` (its own form is free) are unchanged. `mnimi-mcp` depends on
+`mnimi-memory[embed,extract]>=3.1.1,<4`. The README says the two names in one sentence under Quick install.
+
+**What changed under `src/mnimi/`.** Three install hints inside `ImportError` messages — `embeddings.py`
+(`BgeSmallEmbedder`), `rerank.py` (`MiniLMCrossEncoder`), `extract/llama.py` (`QwenLlamaExtractor`) — now say
+`pip install "mnimi-memory[embed]"` / `"[extract]"`, because `pip install mnimi[embed]` would resolve nothing. No
+other byte. The strings are raised only when an extra is missing, so they are on no benchmark path, no write path and
+no read path; the PT1 reading (429/500, b=9 c=9) is of an extraction path this commit ships unchanged. The freeze digest
+is recomputed in this commit (`55c7de04…b4ee`, era `v3.0.0-dev`; was `d7a320af…448e`). The version
+stays **3.1.1**: nothing of it was published, and the tag is still to come.

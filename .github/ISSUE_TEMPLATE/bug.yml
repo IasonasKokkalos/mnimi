@@ -7,7 +7,7 @@ body:
     attributes:
       label: Versions
       description: "`pip show mnimi mnimi-mcp`, Python, OS. For the extractor: the llama-cpp-python wheel (CPU index or a CUDA build)."
-      placeholder: "mnimi 3.1.1, mnimi-mcp 0.2.0, Python 3.12, Windows 11, llama-cpp-python 0.3.35 (CPU wheel)"
+      placeholder: "mnimi-memory 3.1.1, mnimi-mcp 0.2.0, Python 3.12, Windows 11, llama-cpp-python 0.3.35 (CPU wheel)"
     validations:
       required: true
   - type: dropdown

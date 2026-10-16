@@ -65,7 +65,8 @@ def build_embedder(name: str):
     try:
         return BgeSmallEmbedder()
     except ImportError as exc:
-        sys.exit(f'--embedder bge needs the [embed] extra: pip install "mnimi[embed]" ({exc})')
+        sys.exit('--embedder bge needs the [embed] extra: '
+                 f'pip install "mnimi-memory[embed]" ({exc})')
 
 
 def build_extractor(name: str, db: str, split_chars: int = 600):

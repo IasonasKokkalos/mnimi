@@ -7,7 +7,7 @@ on your disk, writes facts with a small local model, never calls a model when it
 can be read whole as Markdown.
 
 The server is its own package so the library keeps its two dependencies (`sqlite-vec`,
-`numpy`). It depends on `mnimi[embed,extract]>=3.1.1,<4` (the BGE embedder and the Qwen3-1.7B
+`numpy`). It depends on `mnimi-memory[embed,extract]>=3.1.1,<4` (the PyPI name of `import mnimi`) (the BGE embedder and the Qwen3-1.7B
 extractor; 3.1.1 is the floor because the server uses `mnimi.extract.wrappers` — the sub-round
 split, the backslash pre-escape and client facts, new in 3.1.0 — and 3.1.1 is where a fact that
 mentions a `\` path comes back spelled the turn's way) and on the
@@ -15,7 +15,7 @@ mentions a `\` path comes back spelled the turn's way) and on the
 
 ## Install
 
-`mnimi[extract]` pins `llama-cpp-python==0.3.35`, which PyPI ships only as a source
+`mnimi-memory[extract]` pins `llama-cpp-python==0.3.35`, which PyPI ships only as a source
 distribution (it needs a C++ compiler). The project's own index carries a prebuilt CPU wheel,
 so pass it on the install line and nothing is compiled:
 
@@ -23,7 +23,7 @@ so pass it on the install line and nothing is compiled:
 pip install mnimi-mcp --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 ```
 
-Before `mnimi` 3.1.1 is on PyPI, install both from a checkout of the repository (the
+Before `mnimi-memory` 3.1.1 is on PyPI, install both from a checkout of the repository (the
 `release/v3` branch), into a venv of its own:
 
 ```

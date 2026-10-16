@@ -1,6 +1,6 @@
 # mnimi
 
-[![PyPI](https://img.shields.io/pypi/v/mnimi.svg)](https://pypi.org/project/mnimi/)
+[![PyPI](https://img.shields.io/pypi/v/mnimi-memory.svg)](https://pypi.org/project/mnimi-memory/)
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](pyproject.toml)
 [![CI](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
@@ -58,12 +58,15 @@ The full record of every run, the third-party rows and their disclosures, is
 ## Quick install
 
 ```
-pip install mnimi                                   # the library: rounds stored verbatim, no model
+pip install mnimi-memory                            # the library: rounds stored verbatim, no model
 ```
+
+The distribution is `mnimi-memory`; the import, the CLI and the repository are `mnimi` (PyPI's look-alike rule
+reserves the bare name for an unrelated 2020 package, `mniml`).
 
 ```
 pip install "llama-cpp-python==0.3.35" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-pip install "mnimi[embed,extract]"                  # the full write path on a CPU, no compiler
+pip install "mnimi-memory[embed,extract]"           # the full write path on a CPU, no compiler
 ```
 
 ```
@@ -439,7 +442,7 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
 ## Status and scope
 
-- v3.1.1 is the developer release and the first on PyPI (`mnimi` 3.1.1, `mnimi-mcp` 0.2.0): the
+- v3.1.1 is the developer release and the first on PyPI (`mnimi-memory` 3.1.1, `mnimi-mcp` 0.2.0): the
   export CLI, the chat example, the CPU recipe and the MCP server. Alpha. 3.0.0 and 3.1.0 were the
   release branch's versions before and during the MCP test week and were never published.
 - v3.1.1 (2026-10-15) puts the backslashes back: the pre-escape that shows the extractor `/` for

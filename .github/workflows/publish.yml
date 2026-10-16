@@ -1,8 +1,8 @@
 # Publish to PyPI through trusted publishing (OIDC, no API token in the repo).
 #
 # Two projects, two tag prefixes, one job each:
-#   v*      -> mnimi      (the library + mnimi_cli, built from the repo root)
-#   mcp-v*  -> mnimi-mcp  (integrations/mcp; published minutes after mnimi, since it depends on it)
+#   v*      -> mnimi-memory  (the library + mnimi_cli, built from the repo root; `import mnimi`)
+#   mcp-v*  -> mnimi-mcp     (integrations/mcp; published minutes after mnimi-memory, since it depends on it)
 #
 # The PyPI side is one "pending publisher" per project (created by the maintainer before the
 # first tag), each naming: owner IasonasKokkalos, repository mnimi, workflow publish.yml,

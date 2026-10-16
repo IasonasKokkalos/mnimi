@@ -33,15 +33,15 @@ These are the example's dependencies, not the library's (the core stays `sqlite-
 
 | backend / option | install |
 | --- | --- |
-| Ollama backend | `pip install "mnimi[embed,extract]" ollama`, plus a running Ollama with the model pulled (`ollama pull qwen2.5:7b-instruct`) |
-| OpenAI backend | `pip install "mnimi[embed,extract]" openai` and `OPENAI_API_KEY` in the environment |
-| `--embedder hashing --extractor none` | `pip install mnimi` and one backend client |
+| Ollama backend | `pip install "mnimi-memory[embed,extract]" ollama`, plus a running Ollama with the model pulled (`ollama pull qwen2.5:7b-instruct`) |
+| OpenAI backend | `pip install "mnimi-memory[embed,extract]" openai` and `OPENAI_API_KEY` in the environment |
+| `--embedder hashing --extractor none` | `pip install mnimi-memory` and one backend client |
 | `--extractor cpu` | the compiler-free line below: the project's own CPU wheel of `llama-cpp-python==0.3.35` (PyPI carries only the sdist, which needs a C++ compiler) |
 | `--extractor gpu` | the `[extract]` extra built with CUDA (docs/DECISIONS.md "Extractor runtime") |
 
 ```
 pip install "llama-cpp-python==0.3.35" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-pip install "mnimi[embed,extract]"
+pip install "mnimi-memory[embed,extract]"
 ```
 
 The first line installs `llama_cpp_python-0.3.35-py3-none-win_amd64.whl` (the index also carries
