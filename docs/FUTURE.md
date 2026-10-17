@@ -188,8 +188,9 @@ ${fact}"`; when two facts of one round quote the same long `raw`
   does not drop (b ≥ c against the published 429, the TESTFIXESPT1 rule), or a
   measured count of same-raw merges on the LongMemEval cache above a few percent
   of facts. **Scheduled (the maintainer's decision, 2026-10-16): after the 3.1.1
-  release and before Show HN, Tue 2026-11-03** — the probe and the arm in the
-  10-19 → 10-23 week (10-24 → 10-30 is empty), shipped as 3.1.2 / `mnimi-mcp`
+  release and before Show HN, Tue 2026-11-03** — re-dated 2026-10-17 (the
+  maintainer's decision: no mnimi fixes before the exams): the probe and the arm
+  **after the exams, Sat 10-31 → Mon 11-02**, shipped as 3.1.2 / `mnimi-mcp`
   0.2.x on its own branch off `release/v3` with the digest and the DECISIONS
   entry in the same commit; a developer-release reading, never the paper's
   number. Sibling note: issue 7 in the issues doc.

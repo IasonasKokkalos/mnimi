@@ -58,7 +58,9 @@ resolution. Both roles are in extraction scope.
   are extra records on the round. The pre-escape, the sub-round split and client facts
   (`mnimi.extract.wrappers`) are on the MCP/chat path only, never the harness's.
 - **Embedder:** `BAAI/bge-small-en-v1.5` @ 384-dim, revision `5c38ec7c…`; vectors unit-normalized
-  inside `embeddings.py`; vec0 `distance_metric=L2`.
+  inside `embeddings.py`; vec0 `distance_metric=L2`. It runs on onnxruntime's
+  `CPUExecutionProvider` only, on every machine: hardware reaches a store through the extractor's
+  `DECODE` (`n_gpu_layers`, `n_threads` — the CPU profile's own decode hash), never the embedder.
 - **Embed/render split.** `EMBED_TEMPLATE` (frozen, hashed into `memory_meta`) builds the embedded
   string and the dedup key; `RENDER_TEMPLATE` (hashed into the harness pins) builds what a reader
   sees. Never collapse the two. Fact records embed `FACT_EMBED_TEMPLATE = "${raw}\n${fact}"`.
@@ -83,14 +85,25 @@ resolution. Both roles are in extraction scope.
   strong K=V baseline, ingestion granularity identical to mnimi's), `mnimi`. Third-party systems
   go through `evals/systems/competitor.py` under the same pins, "through this harness", never a rank.
 - **Two reader families, never paired against each other** (pins schema): the local family
-  (Ollama `qwen2.5:1.5b-instruct-q4_0`, server build `0.32.13` pinned and checked — any other
-  build is refused; the daemon precondition in SPEC) and the gpt-4o family (`gpt-4o-2024-08-06`
-  reader and judge, Batch API, projected and budgeted before the first call: `API_BUDGET_USD`,
-  `evals/pricing.py`, the ledger `.cache/api_ledger.jsonl`). Reader prompt `mnimi-con-v1` for
-  both; judge prompt `longmemeval-paper-v3`. **One reader prompt for every question type, for
-  every system** — per-category tuning is a comparability leak.
-- **The judge is not deterministic on borderline rows** (6/100 flips measured): no absolute
-  difference smaller than that is interpretable; paired comparisons are unaffected.
+  (Ollama, server build `0.32.13` pinned and checked — any other build is refused; the daemon
+  precondition in SPEC; readers `qwen2.5:1.5b-instruct-q4_0` at home, E2, and
+  `qwen2.5:7b-instruct-q4_0` on a rented 24 GB box, E3) and the gpt-4o family
+  (`gpt-4o-2024-08-06` reader and judge, Batch API, projected and budgeted before the first call:
+  `API_BUDGET_USD`, `evals/pricing.py`, the ledger `.cache/api_ledger.jsonl`; cap $113.85). Every
+  family's arms are judged by the gpt-4o judge. `evals.stats` refuses a pair across `reader_model`
+  — reader tiers compare descriptively, from summaries and bucket files. Family F1 is one
+  `naive_rag → mnimi` primary per reader tier under each judge, Holm across them. Reader prompt
+  `mnimi-con-v1` for all; judge prompt `longmemeval-paper-v3`. **One reader prompt for every
+  question type, for every system** — per-category tuning is a comparability leak.
+- **gpt-4o, gpt-4o-mini, gpt-4.1 and gpt-4.1-mini retire 2027-01-14.** Every gpt-4o-family run,
+  Tier 1 audit, replay and second-judge check happens before that date.
+- **The reader drifts; the judge mostly does not.** Identical gpt-4o-family runs disagree on
+  6/100 rows at n=100 and 12/500 at n=500 (b=6 c=6, net 0 points; 277/500 *answer texts* changed
+  on byte-identical prompts) — that is **reader drift**, not judge noise. Say "2.4 % of rows flip",
+  never "2.4 points". The judge's own retest is 13/2,000 rows unstable over three replays (17/4,000
+  cold re-grades changed; the gpt-4.1 second judge agrees 98.1 %, κ 0.952). No absolute difference
+  inside the drift is interpretable; paired comparisons stay valid (drift adds symmetric
+  discordance: it costs power, not bias).
 
 ## Invariants that silently invalidate a number
 
@@ -126,7 +139,8 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   comparisons come from rows (`python -m evals.stats`, saved under `analyses/`), never from
   summary scores; a quoted number cites its run_id; cited numbers live in their own table.
   Promotion is `python -m evals.publish <run_dir>` — clean tree and a complete manifest, or it
-  refuses.
+  refuses; publishing dirties the tree again, so commit after it too (E2's first launch was
+  refused for this).
 - **Run artifacts.** `runs/` is gitignored scratch; a number that gets quoted is promoted to
   `results/published/<run_id>/` and committed. A deviated pin, a dirty tree, another reader
   prompt or a file-order slice marks the artifact **PROVISIONAL — not publishable**; never quote
@@ -150,9 +164,10 @@ Break one of these and the benchmark still runs — it just stops meaning anythi
   predictions anywhere. Proves scoring, not generation. Say *auditable*, never *reproducible* —
   a language rule. Measured: 17 of 4,000 arm-rows changed verdict on cold audits.
 - **Tier 2 — reproducible given the pins and the daemon precondition.** Local family: 100/100
-  predictions byte-identical across a restart (`evals.drift`). gpt-4o family: "score reproducible
-  within 12/500 flips; text not reproducible" — never "byte-identical". A different Ollama build
-  is refused, not tolerated. `run.environment` is diagnostic and never enters `pins_hash`.
+  predictions byte-identical across a restart (`evals.drift`; the 1.5B reader, home GPU) — "on
+  comparable hardware", never bit-identity across GPUs (the reader runs on the hardware).
+  gpt-4o family: "score reproducible within 12/500 flips; text not reproducible" — never
+  "byte-identical". A different Ollama build is refused, not tolerated. `run.environment` is diagnostic and never enters `pins_hash`.
 - **The verdict cache is the drift detector.** Check `run.stage` before quoting a reproducibility
   number: only `stage='all'` or a fresh `predict` re-runs the reader.
 - Retired figures (do not cite): the "12/20 changed, 5 points" figure and the `plain-prose-v2`-era
@@ -166,6 +181,14 @@ criterion (a) met modulo two disclosed render deviations, (b) **not met** (the s
 429/500 = 85.8 %, lower bound 82.5); the primary against `naive_rag` significant since Phase 5
 (b=75, c=26, p = 1.1 × 10⁻⁶; the paper's pairing b=77, c=21). Phases 7–8 (the paper's harness,
 no library change) closed 2026-10-06 at tag `paper-v1` = `21239e2`. n=20 is a smoke test only.
+
+**Paper runs after the tag** run from the `../mnimi-paper` worktree of `paper-v1` on branch
+`paper-runs` (rule commit and committed configs first), and merge into `main` only on the
+maintainer's go — never from `main` or `release/v3`. E2 (the 1.5B tier, four arms, n=500)
+published and merged 2026-10-14 (`69bbe25`): mnimi 229/500, naive_rag 197, oracle 225, no_memory
+36; F1 b=82 c=50, p=0.0067 (DECISIONS "E2 read"). E3 (the 7B tier on a rented box) runs
+2026-10-18 and is judged at home. The paper's thesis is under revision (private: `paper
+docs/PAPER-RETHINK-2026-10-17.md`; decision by 2026-10-23) — read it before touching a paper claim.
 
 ## Scope rule
 
@@ -199,7 +222,7 @@ python -m evals.probes.retrieval --system mnimi --extractor qwen3 --limit 500 --
 python -c "from evals import freeze; print(freeze.check() or 'frozen and clean')"
 ```
 
-## Current state (v3.1.1, 2026-10-15)
+## Current state (v3.1.1, public 2026-10-17)
 
 **Shipped.** The library of the paper is tag `paper-v1` (v2.14.0's `src/mnimi/`); the five
 methods; `MemoryConfig` (eighteen fields, every one a harness flag and a pin); the seventeen-row
@@ -215,12 +238,21 @@ reading, never the paper's number. Around the library: `src/mnimi_cli/` (`mnimi 
 paper's harness: freeze, manifests, configs, replays, agreement, accounting, the third-party
 contract, `paper_tables`), `results/published/` (every quoted row; its README is the record).
 
+**Released.** 3.1.1 is public since 2026-10-17: PyPI distribution **`mnimi-memory`** (PyPI refused
+`mnimi` as a look-alike; the import, the CLI and the repo stay `mnimi`) and `mnimi-mcp` 0.2.0
+(requires `mnimi-memory[embed,extract]>=3.1.1,<4`), both through trusted publishing; tags
+`v3.1.1` and `mcp-v0.2.0` on `19188bc`. Branches: `main`, `release/v3`, `paper-runs`. **Next library change: 3.1.2**, the
+same-round fact dedup (MCP issue 10, `docs/FUTURE.md`), with a `$0` probe and one n=500
+developer-release arm — **after the exams, 2026-10-31 → 11-02, before Show HN on Tue 11-03**; no
+mnimi fix before then.
+
 **Absent, by decision** (each with its trigger in `docs/FUTURE.md`): `context_token_budget` and
 `raw` in the rendered block (the two disclosed render deviations, PHASE5 D3/D4); decay in any
 benchmark arm; a recency weight > 0 (superseded by the time-aware term); `recall_min_relevance`
 > 0 (never run); the spec'd `conversation_id/turn_id/role` provenance pointer (`source` holds the
-roles); cross-key supersession (the MCP test week's issue 7); a `memory_meta` row for the verify
-rules (`VERIFY_VERSION`, declared, not yet guarded).
+roles); cross-key supersession (the MCP test week's issue 7); same-round fact dedup on the fact
+text (issue 10 — fixed MCP-side in 0.2.0, the library side scheduled as 3.1.2); a `memory_meta`
+row for the verify rules (`VERIFY_VERSION`, declared, not yet guarded).
 
 ## Do not
 
@@ -245,4 +277,5 @@ rules (`VERIFY_VERSION`, declared, not yet guarded).
   Lifting or moving the freeze is never an edit that makes `tests/test_library_freeze.py` pass.
 - Do not mention the paper in the README, the package metadata, the release notes or any post
   (the maintainer's rule of 2026-10-15, until the preprint): the published rows are "measured on
-  tag `v2.14.0`", the comparison arm is "the published 429".
+  tag `v2.14.0`", the comparison arm is "the published 429". Show HN (Tue 2026-11-03) is a post:
+  the rule covers it, its first comment and the thread through 11-05; the preprint is 11-06.
