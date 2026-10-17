@@ -1,0 +1,58 @@
+{
+ "cell": "bge",
+ "profile": null,
+ "python": "3.12.13",
+ "exe": "C:\\Users\\20252760\\mnimi-mcp-venv\\Scripts\\python.exe",
+ "pid": 3668,
+ "ws_bare_mib": 17.6,
+ "import_mnimi_s": 0.13,
+ "ws_after_import_mib": 32.5,
+ "rounds": 50,
+ "round_question_ids": [
+  "e47becba"
+ ],
+ "round_chars_mean": 1829.1,
+ "ws_after_dataset_mib": 32.8,
+ "embedder_construct_s": 0.609,
+ "memory_construct_s": 0.007,
+ "ws_after_memory_mib": 222.3,
+ "write_per_round": {
+  "n": 50,
+  "median_ms": 65.76,
+  "mean_ms": 62.39,
+  "p90_ms": 80.91,
+  "min_ms": 10.09,
+  "max_ms": 140.47
+ },
+ "write_total_s": 3.12,
+ "ws_after_writes_mib": 285.4,
+ "first_recall_s": 0.0121,
+ "recall_per_query": {
+  "n": 60,
+  "median_ms": 9.29,
+  "mean_ms": 9.6,
+  "p90_ms": 11.59,
+  "min_ms": 7.5,
+  "max_ms": 14.38
+ },
+ "get_context_per_query": {
+  "n": 60,
+  "median_ms": 8.94,
+  "mean_ms": 9.45,
+  "p90_ms": 11.49,
+  "min_ms": 7.67,
+  "max_ms": 13.65
+ },
+ "recall_k": 10,
+ "context_chars_mean": 19429.3,
+ "ws_after_reads_mib": 286.3,
+ "records_in_store": 49,
+ "store_bytes": {
+  "db": 1888256,
+  "-wal": 0,
+  "-shm": 0
+ },
+ "ws_end_mib": 286.0,
+ "peak_ws_mib": 287.8,
+ "peak_minus_dataset_mib": 272.6
+}

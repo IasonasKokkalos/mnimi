@@ -1,0 +1,82 @@
+{
+ "cell": "extract",
+ "profile": "cpu",
+ "python": "3.12.13",
+ "exe": "C:\\Users\\20252760\\mnimi-mcp-venv\\Scripts\\python.exe",
+ "pid": 13952,
+ "ws_bare_mib": 17.6,
+ "import_mnimi_s": 0.116,
+ "ws_after_import_mib": 32.4,
+ "rounds": 50,
+ "round_question_ids": [
+  "e47becba"
+ ],
+ "round_chars_mean": 1829.1,
+ "ws_after_dataset_mib": 32.6,
+ "embedder_construct_s": 0.524,
+ "extractor_construct_s": 0.425,
+ "ws_after_extractor_mib": 733.6,
+ "memory_construct_s": 0.006,
+ "ws_after_memory_mib": 733.9,
+ "write_per_round": {
+  "n": 50,
+  "median_ms": 18581.76,
+  "mean_ms": 19290.97,
+  "p90_ms": 27463.61,
+  "min_ms": 10.31,
+  "max_ms": 36370.1
+ },
+ "write_total_s": 964.55,
+ "ws_after_writes_mib": 2612.0,
+ "extraction_stats": {
+  "rounds": 50,
+  "prefilter_skips": 1,
+  "rounds_sent": 49,
+  "empty_extractions": 7,
+  "truncated_outputs": 0,
+  "truncated_inputs": 0,
+  "facts": 110,
+  "raw_verbatim": 79,
+  "raw_role": 3,
+  "raw_prefix": 19,
+  "raw_overlap": 1,
+  "raw_kept": 8
+ },
+ "extractor_pins": {
+  "extractor_model": "Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+  "extractor_quant": "Q8_0",
+  "extractor_runtime": "llama-cpp-python 0.3.35; -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF; cuda 13.2",
+  "extractor_decode_hash": "6a813662b07025826f8d7b303e648ea58d0df698085b8197bebca062fe835131",
+  "extractor_prompt_hash": "41c8ea2c3bb4901aa923e734e2e37d0b7d8ea29aef5a7fc473f1e5f8fead0993"
+ },
+ "first_recall_s": 0.0178,
+ "recall_per_query": {
+  "n": 60,
+  "median_ms": 17.62,
+  "mean_ms": 17.88,
+  "p90_ms": 21.05,
+  "min_ms": 13.06,
+  "max_ms": 25.29
+ },
+ "get_context_per_query": {
+  "n": 60,
+  "median_ms": 17.54,
+  "mean_ms": 18.11,
+  "p90_ms": 21.22,
+  "min_ms": 14.25,
+  "max_ms": 25.46
+ },
+ "recall_k": 10,
+ "context_chars_mean": 22625.1,
+ "ws_after_reads_mib": 2612.2,
+ "records_in_store": 154,
+ "store_bytes": {
+  "db": 3874816,
+  "-wal": 0,
+  "-shm": 0
+ },
+ "cache_bytes": 86016,
+ "ws_end_mib": 2612.0,
+ "peak_ws_mib": 2664.8,
+ "peak_minus_dataset_mib": 2649.8
+}

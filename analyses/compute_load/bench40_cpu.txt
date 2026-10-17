@@ -1,0 +1,6 @@
+rounds 40: seconds/round p50 22.98  p90 33.23  mean 23.69
+prompt tokens mean 1582.475, completion tokens mean 237.175, overall 77 tok/s
+facts/round mean 2.60, [] rate 15.00%, truncated outputs 0, truncated inputs 0
+projected corpus pass: 162.9 h for 24,747 rounds  -> gate 2.1 (<= 24 h): FAIL
+pins: {"extractor_decode_hash": "6a813662b07025826f8d7b303e648ea58d0df698085b8197bebca062fe835131", "extractor_model": "Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077", "extractor_prompt_hash": "41c8ea2c3bb4901aa923e734e2e37d0b7d8ea29aef5a7fc473f1e5f8fead0993", "extractor_quant": "Q8_0", "extractor_runtime": "llama-cpp-python 0.3.35; -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF; cuda 13.2"}
+min 9.30  max 50.88  n 40

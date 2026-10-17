@@ -1,0 +1,92 @@
+{
+ "cell": "extract",
+ "profile": "gpu",
+ "python": "3.14.4",
+ "exe": "C:\\Python314\\python.exe",
+ "pid": 976,
+ "ws_bare_mib": 21.1,
+ "import_mnimi_s": 0.149,
+ "ws_after_import_mib": 33.8,
+ "rounds": 50,
+ "round_question_ids": [
+  "e47becba"
+ ],
+ "round_chars_mean": 1829.1,
+ "ws_after_dataset_mib": 34.2,
+ "embedder_construct_s": 0.967,
+ "gpu_before_load": {
+  "device_used_mib": 236.0,
+  "process_used_mib": null
+ },
+ "extractor_construct_s": 1.271,
+ "ws_after_extractor_mib": 2308.3,
+ "gpu_after_load": {
+  "error": "ValueError(\"could not convert string to float: '[N/A]'\")"
+ },
+ "memory_construct_s": 0.042,
+ "ws_after_memory_mib": 2308.7,
+ "write_per_round": {
+  "n": 50,
+  "median_ms": 2942.71,
+  "mean_ms": 3229.17,
+  "p90_ms": 6815.17,
+  "min_ms": 11.42,
+  "max_ms": 8976.96
+ },
+ "write_total_s": 161.46,
+ "ws_after_writes_mib": 2455.0,
+ "extraction_stats": {
+  "rounds": 50,
+  "prefilter_skips": 1,
+  "rounds_sent": 49,
+  "empty_extractions": 7,
+  "truncated_outputs": 0,
+  "truncated_inputs": 0,
+  "facts": 120,
+  "raw_verbatim": 88,
+  "raw_role": 1,
+  "raw_prefix": 20,
+  "raw_overlap": 3,
+  "raw_kept": 8
+ },
+ "extractor_pins": {
+  "extractor_model": "Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf@90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+  "extractor_quant": "Q8_0",
+  "extractor_runtime": "llama-cpp-python 0.3.35; -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DGGML_NATIVE=OFF; cuda 13.2",
+  "extractor_decode_hash": "ba1a81ab349dd09ed5fb77d49b4d44e4a2835b8e05a7873808883999171b8241",
+  "extractor_prompt_hash": "41c8ea2c3bb4901aa923e734e2e37d0b7d8ea29aef5a7fc473f1e5f8fead0993"
+ },
+ "gpu_after_writes": {
+  "error": "ValueError(\"could not convert string to float: '[N/A]'\")"
+ },
+ "first_recall_s": 0.0326,
+ "recall_per_query": {
+  "n": 60,
+  "median_ms": 35.82,
+  "mean_ms": 36.87,
+  "p90_ms": 44.09,
+  "min_ms": 28.07,
+  "max_ms": 52.36
+ },
+ "get_context_per_query": {
+  "n": 60,
+  "median_ms": 39.22,
+  "mean_ms": 38.85,
+  "p90_ms": 45.12,
+  "min_ms": 28.79,
+  "max_ms": 54.22
+ },
+ "recall_k": 10,
+ "context_chars_mean": 22641.0,
+ "ws_after_reads_mib": 2455.0,
+ "records_in_store": 163,
+ "store_bytes": {
+  "db": 3899392,
+  "-wal": 0,
+  "-shm": 0
+ },
+ "cache_bytes": 90112,
+ "ws_end_mib": 2454.8,
+ "peak_ws_mib": 2505.8,
+ "peak_minus_dataset_mib": 2492.7
+}

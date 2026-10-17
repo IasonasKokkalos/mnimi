@@ -1,0 +1,58 @@
+{
+ "cell": "hash",
+ "profile": null,
+ "python": "3.14.4",
+ "exe": "C:\\Python314\\python.exe",
+ "pid": 1892,
+ "ws_bare_mib": 20.9,
+ "import_mnimi_s": 0.16,
+ "ws_after_import_mib": 33.8,
+ "rounds": 50,
+ "round_question_ids": [
+  "e47becba"
+ ],
+ "round_chars_mean": 1829.1,
+ "ws_after_dataset_mib": 34.1,
+ "embedder_construct_s": 0.0,
+ "memory_construct_s": 0.007,
+ "ws_after_memory_mib": 35.0,
+ "write_per_round": {
+  "n": 50,
+  "median_ms": 2.4,
+  "mean_ms": 2.35,
+  "p90_ms": 3.19,
+  "min_ms": 1.18,
+  "max_ms": 4.35
+ },
+ "write_total_s": 0.12,
+ "ws_after_writes_mib": 36.9,
+ "first_recall_s": 0.003,
+ "recall_per_query": {
+  "n": 60,
+  "median_ms": 1.81,
+  "mean_ms": 1.83,
+  "p90_ms": 2.12,
+  "min_ms": 1.51,
+  "max_ms": 2.62
+ },
+ "get_context_per_query": {
+  "n": 60,
+  "median_ms": 1.89,
+  "mean_ms": 1.89,
+  "p90_ms": 2.17,
+  "min_ms": 1.5,
+  "max_ms": 2.39
+ },
+ "recall_k": 10,
+ "context_chars_mean": 19342.8,
+ "ws_after_reads_mib": 37.7,
+ "records_in_store": 50,
+ "store_bytes": {
+  "db": 1368064,
+  "-wal": 0,
+  "-shm": 0
+ },
+ "ws_end_mib": 35.8,
+ "peak_ws_mib": 38.8,
+ "peak_minus_dataset_mib": 25.6
+}

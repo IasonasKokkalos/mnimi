@@ -1,0 +1,6 @@
+2026-10-17, RTX 1000 Ada Generation Laptop GPU (6141 MiB, driver 595.95), Python 3.14.4, the CUDA build of llama-cpp-python 0.3.35.
+nvidia-smi --query-gpu=memory.used (device-wide), the pinned DECODE:
+  before QwenLlamaExtractor(): 565 MiB
+  after construction:        3132 MiB  (delta 2567 MiB)
+  after one extracted round: 3150 MiB  (delta 2585 MiB)
+--query-compute-apps=used_memory returns [N/A] for the process under WDDM, hence the delta.

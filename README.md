@@ -1,9 +1,9 @@
 # mnimi
 
 [![PyPI](https://img.shields.io/pypi/v/mnimi-memory.svg)](https://pypi.org/project/mnimi-memory/)
-[![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](pyproject.toml)
+[![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](https://github.com/IasonasKokkalos/mnimi/blob/main/pyproject.toml)
 [![CI](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/IasonasKokkalos/mnimi/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](https://github.com/IasonasKokkalos/mnimi/blob/main/LICENSE)
 
 mnimi is an embeddable, local-first memory layer for LLM agents: one SQLite file (`sqlite-vec`),
 two dependencies, no server. Raw chat turns go in; a small pinned local model extracts facts at
@@ -35,7 +35,7 @@ type, retrieval `k=10` and per-round ingestion identical across the rows that re
 prompt `mnimi-con-v1`, judge prompt `longmemeval-paper-v3`; harness commits `f07c24d` (no_memory,
 naive_rag, oracle) and `f0a7de3` (mnimi), clean trees, `provisional: []` on all four. Counts and
 intervals are copied from each arm's `summary.json` under
-[`results/published/`](results/published/); mean fed tokens is the mean `reader_prompt_tokens`
+[`results/published/`](https://github.com/IasonasKokkalos/mnimi/tree/main/results/published/); mean fed tokens is the mean `reader_prompt_tokens`
 over each arm's `predictions.jsonl`. mnimi against naive_rag on the same 500 questions: b=77,
 c=21, exact McNemar p = 1.1 × 10⁻⁸ (`analyses/`). Paired, never ranked.
 
@@ -44,7 +44,7 @@ judge re-graded every arm and every pair of record keeps its sign. "Auditable" i
 "reproducible": every row re-grades from its committed predictions (§ Verify the number), while a
 fresh run of the same configuration reproduces the score within 12/500 flips and not the text.
 The full record of every run, the third-party rows and their disclosures, is
-[`results/published/README.md`](results/published/README.md).
+[`results/published/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/results/published/README.md).
 
 ## The problem
 
@@ -86,7 +86,7 @@ path (`docs/DECISIONS.md` "Extractor runtime"). Both are the same pinned model u
 grammar and prompt; the CPU profile differs in two decode keys (`n_gpu_layers` 0, `max_tokens`
 2048) and is measured at 21.0 s per round on an 8-core laptop CPU against 2.7–3.4 s on the
 development GPU
-([`examples/README.md`](examples/README.md)).
+([`examples/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/examples/README.md)).
 
 ## 60-second quickstart
 
@@ -215,7 +215,7 @@ eighteen fields, every threshold the library reads; the ones a user touches:
 
 The other fields (`ranking`, `active_only`, `recall_min_relevance`, `salience_weights`,
 `rerank_pool`, `dedup_entropy_gate`, `query_instruction`, `chunk_tokens`, `chunk_overlap`,
-`render_format`) are documented in [`src/mnimi/config.py`](src/mnimi/config.py) and sit at the
+`render_format`) are documented in [`src/mnimi/config.py`](https://github.com/IasonasKokkalos/mnimi/blob/main/src/mnimi/config.py) and sit at the
 values the benchmark was run with.
 
 ## CLI
@@ -281,7 +281,7 @@ claude mcp add --scope user mnimi -e MNIMI_DB=/absolute/path/to/agent.db -- mnim
 
 `MNIMI_USER_ID` (default `me`), `MNIMI_EXTRACTOR` (`cpu` | `gpu` | `none`, default `cpu`) and
 `MNIMI_EMBEDDER` (`bge` | `hashing`, default `bge`) are the other settings;
-[`integrations/mcp/README.md`](integrations/mcp/README.md) has the tool table, the four-line rule
+[`integrations/mcp/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/integrations/mcp/README.md) has the tool table, the four-line rule
 to paste into the host's instruction file (`CLAUDE.md`, `AGENTS.md`: read `context` before
 answering, `remember` when something durable was said; without it a model calls the tools only when
 asked), and the three layouts for several agents (a DB per agent, one DB with a `user_id` per agent,
@@ -292,7 +292,7 @@ path that are new in 3.1.0, and 3.1.1's backslash restoration.
 ## How it compares
 
 A feature table, source-verified, no numbers (the numbers are in § The number and in
-[`results/published/README.md`](results/published/README.md) § Phase 8). Each cell names where it
+[`results/published/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/results/published/README.md) § Phase 8). Each cell names where it
 was read.
 
 | feature | mnimi | naive RAG (the harness's `naive_rag` arm) | Mem0 OSS 2.2.1 | OMEGA 1.5.x |
@@ -342,24 +342,83 @@ your application                      (holds the clock: hands every message its 
 - **Sizes.** The quickstart's two rounds make a 3.2 MB store (384-dim float32
   vectors, the round records and their facts); the models are 130 MB (BGE) and 1.8 GB (Qwen3
   Q8_0) in the Hugging Face cache, downloaded once by revision.
-- **Compute**, measured on v3.1.0's LongMemEval run (`mnimi__500q_gpt4o_pt1`, 2026-10-15, § Status
-  and scope): CPU and RSS by `tools/sample_resources.py` every 5 s, store sizes by a stat-only
-  watcher of the run's scratch stores; the data and the method are in
-  [`analyses/compute_pt1/`](analyses/compute_pt1/). The run replays the extraction cache, so these are
-  the library's **ingest + retrieval** for 500 stores (BGE-small on the CPU through onnxruntime,
-  sqlite-vec inserts, the write-path screens, the ranking) plus the time spent waiting on the
-  Batch API, **not** the extractor. The extractor's own cost belongs beside it: 2.7–3.4 s per
-  round on the RTX 1000 Ada (GPU, the pinned decode), 21.0 s per round on a Ryzen 7 PRO 8845HS
-  (the CPU recipe, [`examples/README.md`](examples/README.md)).
 
-  | measurement | value |
-  | --- | --- |
-  | machine | AMD Ryzen 7 PRO 8845HS (8 cores, 16 logical), 32 GiB RAM, Windows 11, Python 3.14 |
-  | ingest + retrieval | 500 stores in 12,262 s: 24.5 s per store, 99 ms per round (124,362 rounds, ≈ 249 per store) |
-  | harness process CPU (100 = one core) | ingest mean 764 %, p95 782 %; the Batch API wait ≈ 1 % |
-  | harness process RSS | median 1,899 MiB over the run (1,770 MiB during ingest), peak 2,102 MiB; the process also holds the parsed 500-question dataset (≈ 340 MiB) |
-  | store on disk | 6.06 MiB per store, median of 500 stores of ≈ 249 rounds (≈ 4 MiB more WAL while open; the last store once closed: 6.55 MiB); 3.07 MiB of any non-empty store is the two vector tables' first chunks (1,024 vectors each, preallocated), the rest averages ≈ 12 KiB per round |
-  | extraction cache | 1.5 KB per round (140 MB for 95,846 rounds) |
+## Compute load
+
+What each install profile costs on one laptop, so you can decide three things: whether it runs on
+yours, what the extractor costs and what you give up without it, and what a query costs once the
+store exists. Every number is a CPU number from the machine named below unless the row says GPU.
+The extractor is the whole cost of the write path: without it a round is one embedding and a few
+inserts, but there are no fact records, so nothing is superseded or resolved in time (only facts
+conflict), and the published number in § The number was measured with it. On the read path the
+embedder encodes the query and nothing else runs: `recall()` and `get_context()` are a vector
+search and a ranking, milliseconds on every profile. One clause goes with that: a store built
+under the extractor opens only under the extractor, whose constructor loads the model
+(`src/mnimi/extract/llama.py`), so a process that only reads such a store still holds it.
+
+| profile | runs a model at write / at read | startup | write, per round | read, per query | resident memory | on disk |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| *(none)*: `HashingEmbedder` | none / none | 0.13 s (`import mnimi`) | 2.2 ms | 1.8 ms `recall`, 1.8 ms `get_context` | 38 MiB | numpy + sqlite-vec, 25 MB installed; a 1.4 MB store for 50 rounds |
+| `[embed]`: BGE-small | BGE embeds the round / BGE embeds the query | 0.6 s | 59 ms | 9.4 ms, 9.5 ms | 288 MiB | + onnxruntime 41 MB and tokenizers 8 MB installed; the model 134 MB, pulled once by revision; a 1.9 MB store for 50 rounds |
+| `[embed,extract]`, CPU | BGE + Qwen3-1.7B Q8_0 extracts the round / BGE embeds the query, the extractor never | 0.4 s to construct; the 1.8 GB maps in over the first rounds | 18.6 s median, 19.3 s mean | 17.6 ms, 17.5 ms (154 records) | 2,665 MiB | + llama-cpp-python 10 MB installed; the model 1.8 GB; a 3.9 MB store and an 86 KB cache for 50 rounds (1.8 KB per cached round) |
+| `[embed,extract]`, GPU: RTX 1000 Ada (6 GB), the CUDA build | the same | 1.3 s | 2.9 s median, 3.2 s mean | the same read path | 2,506 MiB, plus 2,567 MiB of VRAM | the same |
+
+**Provenance.** Measured 2026-10-17 on an AMD Ryzen 7 PRO 8845HS (8 cores, 16 threads, 32 GiB,
+Windows 11); the script, the raw JSON of every cell and the method are in
+[`analyses/compute_load/`](https://github.com/IasonasKokkalos/mnimi/tree/main/analyses/compute_load/).
+Each cell is one fresh process (Python 3.12.13, `mnimi-memory` 3.1.1, onnxruntime 1.28.0, the CPU
+wheel of llama-cpp-python 0.3.35; the GPU row Python 3.14.4 and the CUDA build of 0.3.35) over the
+same 50 rounds of real chat: the first 50 rounds, in session order, of a LongMemEval-S question
+outside the benchmark slice (mean 1,829 characters per round), one `add()` per round, then 20
+question texts of the benchmark slice as queries, three passes after one warm-up call. The write
+figure is the median of the 50 adds and the read figure the median of the 60 `recall()` and the 60
+`get_context()` calls; the first two rows are the median of five such processes (the `[embed]`
+write median ranged 42–79 ms across them), the extractor rows one process each. Resident memory is
+the process's peak working set (`K32GetProcessMemoryInfo`); VRAM is the device-used delta
+`nvidia-smi` reports with the model loaded. Startup is the embedder's and the extractor's
+constructor time; the CPU extractor maps the GGUF file, and its pages become resident during the
+first rounds (734 MiB after construction, 2,612 MiB after the 50 rounds). The prefilter skipped one
+of the 50 rounds (10 ms); the extractor saw 49 and returned 110 facts on the CPU and 120 on the
+GPU (the two profiles differ in two decode keys and are not byte-paired). Installed sizes are
+read from the venv's `site-packages`; the Quick install table lists the wheel download sizes. The
+GPU row's read cost is not quoted from its own process: the read path is the same code on the
+same store layout, and that process's read timings, taken under another Python, are in its JSON.
+
+The extractor alone, on the 40 dev rounds of `evals.probes.extractor_bench --dev-set 40` (rounds
+outside the benchmark slice; mean 1,582 prompt tokens), under the profile each row ships, measured
+2026-10-17 on the same machine
+([`analyses/compute_load/bench40_cpu.txt`](https://github.com/IasonasKokkalos/mnimi/blob/main/analyses/compute_load/bench40_cpu.txt),
+[`bench40_gpu.txt`](https://github.com/IasonasKokkalos/mnimi/blob/main/analyses/compute_load/bench40_gpu.txt)):
+
+| profile | seconds / round mean | p50 | p90 | min | max | tok/s overall | truncated |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| CPU (`n_gpu_layers` 0, `max_tokens` 2048, 8 threads) | 23.7 | 23.0 | 33.2 | 9.3 | 50.9 | 77 | 0 / 40 |
+| GPU (the pinned `DECODE`, RTX 1000 Ada) | 3.06 | 2.98 | 4.93 | 0.23 | 9.16 | 586 | 0 / 40 |
+
+The same 40 rounds read 21.0 s mean (p50 19.6) on 2026-10-10 under the `max_tokens` 1,024 profile
+and 22.7 s in a second process that day
+([`examples/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/examples/README.md));
+the completion tokens are identical (237 per round), so the outputs are the same and the spread is
+the machine's. The GPU read 2.7–3.4 s per round over 50 slice rounds on 2026-09-13
+(`docs/DECISIONS.md` "Extractor runtime").
+
+**At benchmark scale**, measured on v3.1.0's LongMemEval run (`mnimi__500q_gpt4o_pt1`, 2026-10-15,
+§ Status and scope): CPU and RSS by `tools/sample_resources.py` every 5 s, store sizes by a
+stat-only watcher of the run's scratch stores; the data and the method are in
+[`analyses/compute_pt1/`](https://github.com/IasonasKokkalos/mnimi/tree/main/analyses/compute_pt1/).
+The run replays the extraction cache, so these are the library's **ingest + retrieval** for 500
+stores (BGE-small on the CPU through onnxruntime, sqlite-vec inserts, the write-path screens, the
+ranking) plus the time spent waiting on the Batch API, **not** the extractor, whose per-round cost
+is the tables above.
+
+| measurement | value |
+| --- | --- |
+| machine | AMD Ryzen 7 PRO 8845HS (8 cores, 16 logical), 32 GiB RAM, Windows 11, Python 3.14 |
+| ingest + retrieval | 500 stores in 12,262 s: 24.5 s per store, 99 ms per round (124,362 rounds, ≈ 249 per store) |
+| harness process CPU (100 = one core) | ingest mean 764 %, p95 782 %; the Batch API wait ≈ 1 % |
+| harness process RSS | median 1,899 MiB over the run (1,770 MiB during ingest), peak 2,102 MiB; the process also holds the parsed 500-question dataset (≈ 340 MiB) |
+| store on disk | 6.06 MiB per store, median of 500 stores of ≈ 249 rounds (≈ 4 MiB more WAL while open; the last store once closed: 6.55 MiB); 3.07 MiB of any non-empty store is the two vector tables' first chunks (1,024 vectors each, preallocated), the rest averages ≈ 12 KiB per round |
+| extraction cache | 1.5 KB per round (140 MB for 95,846 rounds) |
 
 ## Verify the number
 
@@ -381,11 +440,11 @@ changed, prompt tokens changed on 0/500, 429 both times, b=6, c=6
 (`results/published/mnimi__500q_gpt4o_p6time_drift_2026-09-26`). The judge itself flips about 1 %
 of rows between re-grades, so no absolute difference below that is interpretable; paired
 comparisons are unaffected. Every command of the harness is in
-[`results/published/README.md`](results/published/README.md).
+[`results/published/README.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/results/published/README.md).
 
 ## Run your system through the harness
 
-A system is a class with four methods, in [`evals/base.py`](evals/base.py):
+A system is a class with four methods, in [`evals/base.py`](https://github.com/IasonasKokkalos/mnimi/blob/main/evals/base.py):
 
 ```python
 class MemorySystem(ABC):
@@ -429,7 +488,7 @@ module allows `enable_load_extension(True)`, for example the python.org or `uv` 
 
 ```
 pip install -e ".[dev]"
-PYTHONPATH="src;." python -m pytest -q          # 630 tests; 4 need the [embed]/[extract] extras, 10 the mcp package
+PYTHONPATH="src;." python -m pytest -q          # 661 tests; 4 need the [embed]/[extract] extras, the MCP suite its mcp package
 python -m ruff check .
 ```
 
@@ -437,7 +496,7 @@ python -m ruff check .
 library edit that does not recompute it in the same commit, so a run of record always uses the
 committed library (`FREEZE_NAME` names the era; `docs/DECISIONS.md`, 2026-10-14). A library change is a dated DECISIONS entry and a new digest, never an edit
 that makes the test pass.
-[`CLAUDE.md`](CLAUDE.md) is the working contract (the invariants that silently invalidate a
+[`CLAUDE.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/CLAUDE.md) is the working contract (the invariants that silently invalidate a
 number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
 
 ## Status and scope
@@ -464,16 +523,21 @@ number); `docs/SPEC.md` § "v1 as built" is the exact shipped state.
   against the published 429** (`mnimi__500q_gpt4o_p6time`; exact McNemar p = 1.0); 429/500, 85.8 %, Wilson
   [82.5, 88.6]. Run `mnimi__500q_gpt4o_pt1` at `183e3fa`, reader and judge `gpt-4o-2024-08-06`
   (judge prompt `longmemeval-paper-v3`), the extraction cache replayed
-  ([`results/published/mnimi__500q_gpt4o_pt1/`](results/published/mnimi__500q_gpt4o_pt1/)). A
+  ([`results/published/mnimi__500q_gpt4o_pt1/`](https://github.com/IasonasKokkalos/mnimi/tree/main/results/published/mnimi__500q_gpt4o_pt1/)). A
   developer-release reading, inside the judge's band; the published number stays `v2.14.0`'s.
 - In scope is write-side policy: extraction, screens, supersession, decay, ranking, retrieval.
   Out of scope: a UI, a chat frontend, a hosted service.
-- Deliberately not built, each with its re-open trigger in [`docs/FUTURE.md`](docs/FUTURE.md): a
+- Deliberately not built, each with its re-open trigger in [`docs/FUTURE.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/docs/FUTURE.md): a
   context token budget, `raw` spans in the rendered block, hybrid FTS5 retrieval, a recency weight
   above 0, pinned records.
-- The contract is [`docs/SPEC.md`](docs/SPEC.md); the dated rulings are
-  [`docs/DECISIONS.md`](docs/DECISIONS.md).
+- Issues and pull requests are open. The easy targets are the MCP server, the CLI, the chat
+  example, the docs and a harness adapter for another memory system (§ Run your system through
+  the harness); a change under `src/mnimi/` is a dated `docs/DECISIONS.md` entry plus a recomputed
+  freeze digest, as [`CONTRIBUTING.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/CONTRIBUTING.md)
+  explains.
+- The contract is [`docs/SPEC.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/docs/SPEC.md); the dated rulings are
+  [`docs/DECISIONS.md`](https://github.com/IasonasKokkalos/mnimi/blob/main/docs/DECISIONS.md).
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](https://github.com/IasonasKokkalos/mnimi/blob/main/LICENSE).

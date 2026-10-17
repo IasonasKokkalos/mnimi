@@ -1,0 +1,11 @@
+{
+ "cell": "base",
+ "profile": null,
+ "python": "3.12.13",
+ "exe": "C:\\Users\\20252760\\mnimi-mcp-venv\\Scripts\\python.exe",
+ "pid": 15760,
+ "ws_bare_mib": 17.7,
+ "import_mnimi_s": 0.123,
+ "ws_after_import_mib": 32.3,
+ "peak_ws_mib": 32.3
+}

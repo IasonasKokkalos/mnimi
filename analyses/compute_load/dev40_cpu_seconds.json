@@ -1,0 +1,322 @@
+[
+ {
+  "id": "982b5123_abs/ultrachat_253789/5",
+  "seconds": 19.484,
+  "prompt_tokens": 1272,
+  "completion_tokens": 216,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "gpt4_6dc9b45b/ultrachat_384959/2",
+  "seconds": 9.878,
+  "prompt_tokens": 1275,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "6aeb4375_abs/sharegpt_MeJf0I0_31/5",
+  "seconds": 9.299,
+  "prompt_tokens": 1196,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "157a136e/ultrachat_174427/1",
+  "seconds": 19.893,
+  "prompt_tokens": 1299,
+  "completion_tokens": 215,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "4388e9dd/ultrachat_314958/2",
+  "seconds": 10.86,
+  "prompt_tokens": 1369,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "a96c20ee_abs/ultrachat_36312/1",
+  "seconds": 26.55,
+  "prompt_tokens": 1359,
+  "completion_tokens": 341,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "gpt4_c27434e8/sharegpt_tof8vab_0/3",
+  "seconds": 29.731,
+  "prompt_tokens": 1376,
+  "completion_tokens": 398,
+  "facts": 3,
+  "truncated": false
+ },
+ {
+  "id": "f8c5f88b/46575f0d/5",
+  "seconds": 10.991,
+  "prompt_tokens": 1355,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "bf659f65/ultrachat_370839/0",
+  "seconds": 44.168,
+  "prompt_tokens": 1436,
+  "completion_tokens": 689,
+  "facts": 6,
+  "truncated": false
+ },
+ {
+  "id": "d682f1a2/ultrachat_267974/1",
+  "seconds": 33.228,
+  "prompt_tokens": 1408,
+  "completion_tokens": 467,
+  "facts": 6,
+  "truncated": false
+ },
+ {
+  "id": "e831120c/ultrachat_366140/5",
+  "seconds": 22.375,
+  "prompt_tokens": 1430,
+  "completion_tokens": 224,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "e48988bc/ultrachat_402904/1",
+  "seconds": 18.387,
+  "prompt_tokens": 1405,
+  "completion_tokens": 140,
+  "facts": 1,
+  "truncated": false
+ },
+ {
+  "id": "36b9f61e/688f9a3f_1/5",
+  "seconds": 23.588,
+  "prompt_tokens": 1490,
+  "completion_tokens": 255,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "3b6f954b/ultrachat_396546/0",
+  "seconds": 35.699,
+  "prompt_tokens": 1464,
+  "completion_tokens": 495,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "58ef2f1c/ultrachat_13835/4",
+  "seconds": 27.206,
+  "prompt_tokens": 1463,
+  "completion_tokens": 341,
+  "facts": 3,
+  "truncated": false
+ },
+ {
+  "id": "76d63226/d8454317_1/2",
+  "seconds": 33.749,
+  "prompt_tokens": 1475,
+  "completion_tokens": 497,
+  "facts": 7,
+  "truncated": false
+ },
+ {
+  "id": "71315a70/c86a22a2_2/3",
+  "seconds": 26.932,
+  "prompt_tokens": 1511,
+  "completion_tokens": 351,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "a3332713/e862f726_1/4",
+  "seconds": 12.176,
+  "prompt_tokens": 1512,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "d23cf73b/be0962fb_1/4",
+  "seconds": 23.673,
+  "prompt_tokens": 1569,
+  "completion_tokens": 241,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "gpt4_7bc6cf22/adb3a155/4",
+  "seconds": 20.27,
+  "prompt_tokens": 1573,
+  "completion_tokens": 190,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "078150f1/2ff297a8_1/4",
+  "seconds": 27.013,
+  "prompt_tokens": 1640,
+  "completion_tokens": 302,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "d3ab962e/007e7d81_4/1",
+  "seconds": 12.874,
+  "prompt_tokens": 1620,
+  "completion_tokens": 1,
+  "facts": 0,
+  "truncated": false
+ },
+ {
+  "id": "dccbc061/4af27eab_2/4",
+  "seconds": 20.458,
+  "prompt_tokens": 1593,
+  "completion_tokens": 174,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "5a7937c8/50d66391_5/2",
+  "seconds": 21.879,
+  "prompt_tokens": 1608,
+  "completion_tokens": 195,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "6071bd76/04616813_2/0",
+  "seconds": 24.022,
+  "prompt_tokens": 1775,
+  "completion_tokens": 216,
+  "facts": 3,
+  "truncated": false
+ },
+ {
+  "id": "efc3f7c2/48cb014c/5",
+  "seconds": 19.58,
+  "prompt_tokens": 1663,
+  "completion_tokens": 156,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "7a8d0b71/1ac2248e/4",
+  "seconds": 16.253,
+  "prompt_tokens": 1656,
+  "completion_tokens": 76,
+  "facts": 1,
+  "truncated": false
+ },
+ {
+  "id": "352ab8bd/9bafe9a2/3",
+  "seconds": 19.257,
+  "prompt_tokens": 1647,
+  "completion_tokens": 148,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "6aeb4375/8de5b7cf_1/1",
+  "seconds": 20.185,
+  "prompt_tokens": 1727,
+  "completion_tokens": 158,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "4b24c848/b0855671_2/5",
+  "seconds": 26.427,
+  "prompt_tokens": 1781,
+  "completion_tokens": 230,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "6b168ec8/d58e8baa/3",
+  "seconds": 18.966,
+  "prompt_tokens": 1757,
+  "completion_tokens": 97,
+  "facts": 1,
+  "truncated": false
+ },
+ {
+  "id": "15745da0_abs/5e0e1fd8_3/2",
+  "seconds": 31.547,
+  "prompt_tokens": 1751,
+  "completion_tokens": 355,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "6e984302/b7702ee4_1/2",
+  "seconds": 24.902,
+  "prompt_tokens": 1815,
+  "completion_tokens": 172,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "gpt4_483dd43c/31f7c649_2/4",
+  "seconds": 31.226,
+  "prompt_tokens": 1784,
+  "completion_tokens": 325,
+  "facts": 4,
+  "truncated": false
+ },
+ {
+  "id": "982b5123/359a2a0d/4",
+  "seconds": 20.486,
+  "prompt_tokens": 1823,
+  "completion_tokens": 143,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "59524333/f535d93b_2/2",
+  "seconds": 50.876,
+  "prompt_tokens": 1806,
+  "completion_tokens": 745,
+  "facts": 8,
+  "truncated": false
+ },
+ {
+  "id": "4b24c848/306cb175/1",
+  "seconds": 30.485,
+  "prompt_tokens": 1916,
+  "completion_tokens": 313,
+  "facts": 3,
+  "truncated": false
+ },
+ {
+  "id": "15745da0_abs/932ea3bf_1/2",
+  "seconds": 24.823,
+  "prompt_tokens": 1836,
+  "completion_tokens": 227,
+  "facts": 2,
+  "truncated": false
+ },
+ {
+  "id": "0e4e4c46/71d1e644/3",
+  "seconds": 20.87,
+  "prompt_tokens": 2007,
+  "completion_tokens": 111,
+  "facts": 1,
+  "truncated": false
+ },
+ {
+  "id": "1e043500/3548cae3/4",
+  "seconds": 27.451,
+  "prompt_tokens": 1857,
+  "completion_tokens": 278,
+  "facts": 3,
+  "truncated": false
+ }
+]
